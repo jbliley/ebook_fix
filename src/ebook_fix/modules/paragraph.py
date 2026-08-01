@@ -42,12 +42,14 @@ class ParagraphRepair:
     def analyze(self, book):
         report = Report(self.name)
         for chapter in book.chapters:
-            paragraphs = self._paragraphs(chapter)
+            for el in self._junk_elements(chapter):
+                report.add(chapter.href, "Conversion watermark / junk paragraph")
 
+            paragraphs = self._paragraphs(chapter)
             for p in paragraphs:
                 if self._is_junk(p):
-                    report.add(chapter.href, "Conversion watermark / junk paragraph")
-                elif self._is_empty(p):
+                    continue
+                if self._is_empty(p):
                     report.add(chapter.href, "Empty paragraph")
 
             meaningful = self._meaningful(paragraphs)
@@ -82,14 +84,21 @@ class ParagraphRepair:
                     changed = True
                 i -= 1
 
-            # Then drop any paragraphs that are empty or junk
-            # (re-read fresh, since merges may have emptied some).
+            # Then drop any paragraphs that are empty, plus any junk
+            # elements anywhere in the chapter (re-read fresh, since
+            # merges may have emptied some paragraphs).
             for p in list(self._paragraphs(chapter)):
-                if self._is_empty(p) or self._is_junk(p):
+                if self._is_empty(p):
                     parent = p.getparent()
                     if parent is not None:
                         parent.remove(p)
                         changed = True
+
+            for el in self._junk_elements(chapter):
+                parent = el.getparent()
+                if parent is not None:
+                    parent.remove(el)
+                    changed = True
 
             if changed:
                 chapter.modified = True
@@ -115,7 +124,33 @@ class ParagraphRepair:
         return "".join(element.itertext()).strip()
 
     def _is_empty(self, element):
-        return self._text(element) == "" and len(element) == 0
+        if element.findall(".//{*}img"):
+            return False
+        return self._text(element) == ""
+
+    def _junk_elements(self, chapter):
+        """Any element (not just <p>) whose text matches a known
+        conversion watermark, picking only the outermost matching
+        element so a match isn't counted/removed twice for nested tags."""
+        if chapter.document is None:
+            return []
+        candidates = chapter.document.findall(".//{*}p") \
+            + chapter.document.findall(".//{*}b") \
+            + chapter.document.findall(".//{*}div")
+
+        matches = []
+        matched_ids = set()
+        for el in candidates:
+            if self._is_junk(el):
+                matches.append(el)
+                matched_ids.add(id(el))
+
+        # Keep only outermost matches (drop ones nested inside another match).
+        outermost = [
+            el for el in matches
+            if not any(id(anc) in matched_ids for anc in el.iterancestors())
+        ]
+        return outermost
 
     def _is_junk(self, element):
         text = self._text(element)
