@@ -1,12 +1,14 @@
 from ebook_fix.parser import EPUBParser
 from ebook_fix.writer import EPUBWriter
 from ebook_fix.modules.paragraph import ParagraphRepair
+from ebook_fix.modules.images import ImageRepair
 
 class Engine:
     def __init__(self, verbose=False):
         self.verbose = verbose
         self.modules = [
             ParagraphRepair(),
+            ImageRepair(),
         ]
 
     def log(self, message):
