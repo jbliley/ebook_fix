@@ -1,6 +1,6 @@
-from parser import EPUBParser
-from writer import EPUBWriter
-from modules.paragraph import ParagraphRepair
+from ebook_fix.parser import EPUBParser
+from ebook_fix.writer import EPUBWriter
+from ebook_fix.modules.paragraph import ParagraphRepair
 
 class Engine:
     def __init__(self, verbose=False):

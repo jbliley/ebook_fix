@@ -24,6 +24,7 @@ class EPUBParser:
         book = Book(source=epub_path)
         with zipfile.ZipFile(epub_path, "r") as archive:
             rootfile = self._find_rootfile(archive)
+            book.package_path = rootfile
             package = self._load_package_document(
                 archive,
                 rootfile
@@ -180,17 +181,17 @@ class EPUBParser:
             href = str(base / item.href)
             if item.media_type == "application/xhtml+xml":
                 xml = archive.read(href)
+                xml_parser = etree.XMLParser(
+                    recover=True,
+                    encoding="utf-8"
+                )
                 chapter = Chapter(
                     id=item.id,
                     href=item.href,
                     media_type=item.media_type,
-                    parser = etree.XMLParser(
-                        recover=True,
-                        encoding="utf-8"
-                        ),
                     document=etree.fromstring(
                         xml,
-                        parser
+                        xml_parser
                     ),
                 )
                 book.chapters.append(
