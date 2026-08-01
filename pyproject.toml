@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ebook-fix"
+version = "0.1.0"
+description = "Automatic EPUB analysis and repair tool"
+requires-python = ">=3.11"
+
+dependencies = [
+    "lxml>=5.0",
+    "ebooklib>=0.19",
+    "rich>=13.7"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
