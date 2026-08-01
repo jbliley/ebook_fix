@@ -74,7 +74,9 @@ class Resource:
 class Book:
     """Complete in-memory representation of an EPUB."""
 
-    source: Path | None = None
+    source: str | Path | None = None
+    version: str = ""
+    package_path: str = ""
     metadata: Metadata = field(default_factory=Metadata)
     manifest: list[ManifestItem] = field(default_factory=list)
     spine: list[str] = field(default_factory=list)

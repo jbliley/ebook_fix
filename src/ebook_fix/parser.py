@@ -184,7 +184,14 @@ class EPUBParser:
                     id=item.id,
                     href=item.href,
                     media_type=item.media_type,
-                    document=etree.fromstring(xml),
+                    parser = etree.XMLParser(
+                        recover=True,
+                        encoding="utf-8"
+                        ),
+                    document=etree.fromstring(
+                        xml,
+                        parser
+                    ),
                 )
                 book.chapters.append(
                     chapter
