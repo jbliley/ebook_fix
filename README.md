@@ -12,17 +12,14 @@ The ultimate goal of this project is to allow any type of eBook file to be analy
 <ul>• GUI and CLI with bulk capabilities</ul>
 
 <h3>Running the Program</h3>
-The current CLI can run a basic analyze and repair. Run the CLI module through the src folder:<br><br>
+The current CLI can run a basic file verification, text analysis, and repair. Run the CLI module through the src folder:<br><br>
+<p>&emsp;<b>File Verification:</b> python src/cli.py validate "C:/Books/ebook title.epub"</p>
 <p>&emsp;<b>Analysis:</b> python src/cli.py analyze "C:/Books/ebook title.epub"</p>
 <p>&emsp;<b>Repair:</b> python src/cli.py repair "C:/Books/ebook title.epub"</p>
 
-<h3>Configuring which fixes run</h3>
+<h3>Configuring Repairs</h3>
 By default every fix is on. To turn specific fixes off, generate a config file and edit it:<br><br>
-<p>&emsp;<b>Create a config:</b> python src/cli.py init-config</p>
+<p>&emsp;<b>Create a new config (if missing):</b> python src/cli.py init-config</p>
 This writes <code>ebook_fix.toml</code> in the current folder. Open it in any text editor and change <code>true</code> to <code>false</code> next to any fix you want to skip, then save.
 <p>&emsp;<b>Use it:</b> python src/cli.py analyze "C:/Books/ebook title.epub" --config ebook_fix.toml</p>
-If a file named <code>ebook_fix.toml</code> is sitting in the folder you run the command from, it's picked up automatically — you don't need to pass <code>--config</code> at all. Delete the file (or don't create one) to run with every fix enabled.
-
-<h3>File integrity check</h3>
-Before <code>analyze</code> or <code>repair</code> touch a file, they first confirm it's actually a well-formed EPUB: readable, starts with the ZIP signature, opens as a ZIP, has an intact central directory, contains <code>META-INF/container.xml</code>, and can locate its OPF package document. If any of these fail, the command stops there and reports which check failed instead of trying to work with a broken file.
-<p>&emsp;<b>Check a file on its own:</b> python src/cli.py validate "C:/Books/ebook title.epub"</p>
+If a file named <code>ebook_fix.toml</code> is sitting in the folder you run the command from, it's picked up automatically, so you don't need to pass <code>--config</code> at all. Delete the file (or don't create one) to run with every fix enabled.
