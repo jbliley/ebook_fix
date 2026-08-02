@@ -1,15 +1,22 @@
 from ebook_fix.parser import EPUBParser
 from ebook_fix.writer import EPUBWriter
+from ebook_fix.config import Config
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.images import ImageRepair
 
 class Engine:
-    def __init__(self, verbose=False):
+    def __init__(self, verbose=False, config=None):
         self.verbose = verbose
-        self.modules = [
-            ParagraphRepair(),
-            ImageRepair(),
-        ]
+        self.config = config or Config()
+        self.modules = self._build_modules()
+
+    def _build_modules(self):
+        modules = []
+        if self.config.paragraph_repair.enabled:
+            modules.append(ParagraphRepair(self.config.paragraph_repair))
+        if self.config.image_repair.enabled:
+            modules.append(ImageRepair(self.config.image_repair))
+        return modules
 
     def log(self, message):
         print(message)
@@ -19,6 +26,9 @@ class Engine:
         parser = EPUBParser()
         book = parser.load(epub)
         self.log("")
+        if not self.modules:
+            self.log("No repair modules are enabled in the config. Nothing to do.")
+            return
         self.log("Running analysis...\n")
         total_issues = 0
         for module in self.modules:
@@ -34,6 +44,9 @@ class Engine:
         parser = EPUBParser()
         book = parser.load(epub)
         self.log("")
+        if not self.modules:
+            self.log("No repair modules are enabled in the config. Nothing to do.")
+            return
         for module in self.modules:
             self.log(f"Repairing: {module.name}")
             module.repair(book)

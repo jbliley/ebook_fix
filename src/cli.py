@@ -3,6 +3,11 @@ from pathlib import Path
 import argparse
 import sys
 from engine import Engine
+from ebook_fix.config import (
+    DEFAULT_CONFIG_FILENAME,
+    load_config,
+    write_default_config,
+)
 
 def build_parser():
 
@@ -25,6 +30,14 @@ def build_parser():
         "--details",
         action="store_true",
         help="Show the full line-by-line issue list instead of the category summary."
+    )
+    analyze.add_argument(
+        "--config",
+        help=(
+            "Path to a TOML config file controlling which fixes are "
+            f"enabled. Defaults to ./{DEFAULT_CONFIG_FILENAME} if present, "
+            "otherwise every fix runs."
+        )
     )
 
     # Repair
@@ -51,16 +64,58 @@ def build_parser():
         action="store_true",
         help="Verbose output."
     )
+    repair.add_argument(
+        "--config",
+        help=(
+            "Path to a TOML config file controlling which fixes are "
+            f"enabled. Defaults to ./{DEFAULT_CONFIG_FILENAME} if present, "
+            "otherwise every fix runs."
+        )
+    )
+
+    # Init-config
+    init_config = sub.add_parser(
+        "init-config",
+        help="Write a default config file you can edit to turn fixes on/off."
+    )
+    init_config.add_argument(
+        "-o",
+        "--output",
+        default=DEFAULT_CONFIG_FILENAME,
+        help=f"Where to write the config file (default: {DEFAULT_CONFIG_FILENAME})"
+    )
+
     return parser
 
 def main():
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.command == "init-config":
+        output = Path(args.output)
+        if output.exists():
+            print(f"ERROR: '{output}' already exists. Delete it or choose a different --output path.")
+            sys.exit(1)
+        write_default_config(output)
+        print(f"Wrote default config to: {output}")
+        print("Edit it to turn fixes on/off, then pass --config to analyze/repair.")
+        return
+
     epub = Path(args.input)
     if not epub.exists():
         print(f"ERROR: '{epub}' does not exist.")
         sys.exit(1)
-    engine = Engine(verbose=getattr(args, "verbose", False))
+
+    try:
+        config = load_config(args.config)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"ERROR: Invalid config - {e}")
+        sys.exit(1)
+
+    engine = Engine(verbose=getattr(args, "verbose", False), config=config)
     if args.command == "analyze":
         engine.analyze(epub, details=args.details)
     elif args.command == "repair":

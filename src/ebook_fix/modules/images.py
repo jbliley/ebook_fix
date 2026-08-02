@@ -17,11 +17,15 @@ from __future__ import annotations
 import posixpath
 import zipfile
 from pathlib import PurePosixPath
+from ebook_fix.config import ImageRepairConfig
 from ebook_fix.report import Report
 
 
 class ImageRepair:
     name = "Image Repair"
+
+    def __init__(self, config: ImageRepairConfig | None = None):
+        self.config = config or ImageRepairConfig()
 
     # -----------------------------------------------------
     # Analysis
@@ -33,32 +37,34 @@ class ImageRepair:
         base = PurePosixPath(book.package_path).parent
 
         # 1. Manifest entries pointing at files that don't exist.
-        for item in book.manifest:
-            if not item.media_type.startswith("image/"):
-                continue
-            resolved = self._resolve(base, item.href)
-            if resolved not in archive_names:
-                report.add(
-                    "content.opf",
-                    "Manifest references missing image",
-                    f"Manifest references missing image: {item.href}",
-                )
-
-        # 2. <img> tags in chapters pointing at files that don't exist.
-        for chapter in book.chapters:
-            chapter_dir = self._resolve(base, chapter.href)
-            chapter_dir = PurePosixPath(chapter_dir).parent
-            for img in self._img_tags(chapter):
-                src = img.get("src")
-                if not src:
+        if self.config.report_missing_manifest_images:
+            for item in book.manifest:
+                if not item.media_type.startswith("image/"):
                     continue
-                resolved = self._resolve(chapter_dir, src)
+                resolved = self._resolve(base, item.href)
                 if resolved not in archive_names:
                     report.add(
-                        chapter.href,
-                        "Broken image reference",
-                        f"Broken image reference: {src}",
+                        "content.opf",
+                        "Manifest references missing image",
+                        f"Manifest references missing image: {item.href}",
                     )
+
+        # 2. <img> tags in chapters pointing at files that don't exist.
+        if self.config.fix_broken_images:
+            for chapter in book.chapters:
+                chapter_dir = self._resolve(base, chapter.href)
+                chapter_dir = PurePosixPath(chapter_dir).parent
+                for img in self._img_tags(chapter):
+                    src = img.get("src")
+                    if not src:
+                        continue
+                    resolved = self._resolve(chapter_dir, src)
+                    if resolved not in archive_names:
+                        report.add(
+                            chapter.href,
+                            "Broken image reference",
+                            f"Broken image reference: {src}",
+                        )
         return report
 
     # -----------------------------------------------------
@@ -66,6 +72,9 @@ class ImageRepair:
     # -----------------------------------------------------
 
     def repair(self, book):
+        if not self.config.fix_broken_images:
+            return
+
         archive_names = self._archive_names(book)
         base = PurePosixPath(book.package_path).parent
 

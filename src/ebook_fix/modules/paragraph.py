@@ -18,6 +18,7 @@ Detects and repairs common issues in poorly-converted EPUBs:
 
 from __future__ import annotations
 import re
+from ebook_fix.config import ParagraphRepairConfig
 from ebook_fix.report import Report
 
 SENTENCE_ENDINGS = ('.', '!', '?', '"', "'", ')', '\u201d', '\u2019')
@@ -35,6 +36,9 @@ class ParagraphRepair:
 
     MIN_WORDS_FOR_MERGE = 4
 
+    def __init__(self, config: ParagraphRepairConfig | None = None):
+        self.config = config or ParagraphRepairConfig()
+
     # -----------------------------------------------------
     # Analysis
     # -----------------------------------------------------
@@ -42,23 +46,26 @@ class ParagraphRepair:
     def analyze(self, book):
         report = Report(self.name)
         for chapter in book.chapters:
-            for el in self._junk_elements(chapter):
-                report.add(chapter.href, "Conversion watermark / junk paragraph")
+            if self.config.fix_watermark_junk:
+                for el in self._junk_elements(chapter):
+                    report.add(chapter.href, "Conversion watermark / junk paragraph")
 
             paragraphs = self._paragraphs(chapter)
-            for p in paragraphs:
-                if self._is_junk(p):
-                    continue
-                if self._is_empty(p):
-                    report.add(chapter.href, "Empty paragraph")
+            if self.config.fix_empty_paragraphs:
+                for p in paragraphs:
+                    if self._is_junk(p):
+                        continue
+                    if self._is_empty(p):
+                        report.add(chapter.href, "Empty paragraph")
 
-            meaningful = self._meaningful(paragraphs)
-            for first, second in zip(meaningful, meaningful[1:]):
-                if self._looks_mid_sentence(first, second):
-                    report.add(
-                        chapter.href,
-                        "Paragraph split mid-sentence",
-                    )
+            if self.config.fix_mid_sentence_splits:
+                meaningful = self._meaningful(paragraphs)
+                for first, second in zip(meaningful, meaningful[1:]):
+                    if self._looks_mid_sentence(first, second):
+                        report.add(
+                            chapter.href,
+                            "Paragraph split mid-sentence",
+                        )
         return report
 
     # -----------------------------------------------------
@@ -75,30 +82,33 @@ class ParagraphRepair:
             # This operates on the *meaningful* paragraphs only, so a
             # sentence correctly reconnects across any empty/junk
             # paragraphs sitting between the two halves.
-            i = len(meaningful) - 2
-            while i >= 0:
-                first, second = meaningful[i], meaningful[i + 1]
-                if self._looks_mid_sentence(first, second):
-                    self._merge(first, second)
-                    meaningful.pop(i + 1)
-                    changed = True
-                i -= 1
+            if self.config.fix_mid_sentence_splits:
+                i = len(meaningful) - 2
+                while i >= 0:
+                    first, second = meaningful[i], meaningful[i + 1]
+                    if self._looks_mid_sentence(first, second):
+                        self._merge(first, second)
+                        meaningful.pop(i + 1)
+                        changed = True
+                    i -= 1
 
             # Then drop any paragraphs that are empty, plus any junk
             # elements anywhere in the chapter (re-read fresh, since
             # merges may have emptied some paragraphs).
-            for p in list(self._paragraphs(chapter)):
-                if self._is_empty(p):
-                    parent = p.getparent()
-                    if parent is not None:
-                        parent.remove(p)
-                        changed = True
+            if self.config.fix_empty_paragraphs:
+                for p in list(self._paragraphs(chapter)):
+                    if self._is_empty(p):
+                        parent = p.getparent()
+                        if parent is not None:
+                            parent.remove(p)
+                            changed = True
 
-            for el in self._junk_elements(chapter):
-                parent = el.getparent()
-                if parent is not None:
-                    parent.remove(el)
-                    changed = True
+            if self.config.fix_watermark_junk:
+                for el in self._junk_elements(chapter):
+                    parent = el.getparent()
+                    if parent is not None:
+                        parent.remove(el)
+                        changed = True
 
             if changed:
                 chapter.modified = True
