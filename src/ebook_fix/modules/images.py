@@ -40,6 +40,7 @@ class ImageRepair:
             if resolved not in archive_names:
                 report.add(
                     "content.opf",
+                    "Manifest references missing image",
                     f"Manifest references missing image: {item.href}",
                 )
 
@@ -55,6 +56,7 @@ class ImageRepair:
                 if resolved not in archive_names:
                     report.add(
                         chapter.href,
+                        "Broken image reference",
                         f"Broken image reference: {src}",
                     )
         return report

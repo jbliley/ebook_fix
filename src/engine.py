@@ -14,18 +14,20 @@ class Engine:
     def log(self, message):
         print(message)
 
-    def analyze(self, epub):
+    def analyze(self, epub, details=False):
         self.log("Opening EPUB...")
         parser = EPUBParser()
         book = parser.load(epub)
         self.log("")
         self.log("Running analysis...\n")
+        total_issues = 0
         for module in self.modules:
             self.log(f"[{module.name}]")
             report = module.analyze(book)
-            report.print()
+            report.print(details=details)
+            total_issues += report.count
             self.log("")
-        self.log("Finished.")
+        self.log(f"Finished. {total_issues} issue(s) found total.")
 
     def repair(self, epub, output, dry_run=False):
         self.log("Opening EPUB...")

@@ -57,7 +57,7 @@ class ParagraphRepair:
                 if self._looks_mid_sentence(first, second):
                     report.add(
                         chapter.href,
-                        "Paragraph appears to be split mid-sentence",
+                        "Paragraph split mid-sentence",
                     )
         return report
 

@@ -21,6 +21,11 @@ def build_parser():
         "input",
         help="Input EPUB"
     )
+    analyze.add_argument(
+        "--details",
+        action="store_true",
+        help="Show the full line-by-line issue list instead of the category summary."
+    )
 
     # Repair
     repair = sub.add_parser(
@@ -57,7 +62,7 @@ def main():
         sys.exit(1)
     engine = Engine(verbose=getattr(args, "verbose", False))
     if args.command == "analyze":
-        engine.analyze(epub)
+        engine.analyze(epub, details=args.details)
     elif args.command == "repair":
         output = args.output
         if output is None:
