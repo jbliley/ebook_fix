@@ -1,0 +1,155 @@
+"""
+ebook_fix.validation
+
+Pre-flight integrity checks for an EPUB file. These run before
+anything else -- before the parser even tries to open the file --
+since none of the repair modules can do anything useful with a file
+that fails here.
+
+Checks, in order (each one stops at the first failure, since every
+later check depends on the ones before it having passed):
+
+1. Is the file readable?
+2. Does it begin with the ZIP signature ("PK")?
+3. Can zipfile.ZipFile() open it?
+4. Is there an intact central directory?
+5. Does META-INF/container.xml exist?
+6. Can the OPF (package document) be located?
+"""
+
+from __future__ import annotations
+
+import zipfile
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from lxml import etree
+from rich.console import Console
+from rich.table import Table
+
+console = Console()
+
+CONTAINER_PATH = "META-INF/container.xml"
+CONTAINER_NAMESPACE = {"c": "urn:oasis:names:tc:opendocument:xmlns:container"}
+
+
+@dataclass(slots=True)
+class CheckResult:
+    name: str
+    passed: bool
+    detail: str = ""
+
+
+@dataclass(slots=True)
+class ValidationResult:
+    checks: list[CheckResult] = field(default_factory=list)
+
+    @property
+    def valid(self) -> bool:
+        return all(check.passed for check in self.checks)
+
+    @property
+    def failed_check(self) -> CheckResult | None:
+        for check in self.checks:
+            if not check.passed:
+                return check
+        return None
+
+    def print(self) -> None:
+        console.print("[bold]File integrity check[/bold]")
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Check")
+        table.add_column("Result")
+        for check in self.checks:
+            status = "[green]PASS[/green]" if check.passed else "[red]FAIL[/red]"
+            table.add_row(check.name, status)
+        console.print(table)
+
+        failed = self.failed_check
+        if failed is not None:
+            console.print(f"[red]File failed validation:[/red] {failed.name}")
+            if failed.detail:
+                console.print(f"  {failed.detail}")
+
+
+def validate_epub(path: str | Path) -> ValidationResult:
+    path = Path(path)
+    result = ValidationResult()
+
+    # 1. Is the file readable?
+    try:
+        with open(path, "rb") as f:
+            header = f.read(2)
+    except OSError as e:
+        result.checks.append(CheckResult("File is readable", False, str(e)))
+        return result
+    result.checks.append(CheckResult("File is readable", True))
+
+    # 2. Does it begin with the ZIP signature ("PK")?
+    if header != b"PK":
+        result.checks.append(CheckResult(
+            "File begins with the ZIP signature (PK)",
+            False,
+            f"First two bytes were {header!r}, expected b'PK'. "
+            "This isn't a ZIP-based file, so it can't be a valid EPUB.",
+        ))
+        return result
+    result.checks.append(CheckResult("File begins with the ZIP signature (PK)", True))
+
+    # 3. Can zipfile.ZipFile() open it?
+    try:
+        archive = zipfile.ZipFile(path, "r")
+    except (zipfile.BadZipFile, OSError) as e:
+        result.checks.append(CheckResult("ZIP archive can be opened", False, str(e)))
+        return result
+    result.checks.append(CheckResult("ZIP archive can be opened", True))
+
+    with archive:
+        # 4. Is there an intact central directory?
+        try:
+            names = archive.namelist()
+            if not names:
+                raise zipfile.BadZipFile("Archive has no entries.")
+            bad_entry = archive.testzip()
+        except (zipfile.BadZipFile, OSError) as e:
+            result.checks.append(CheckResult("Central directory is present and intact", False, str(e)))
+            return result
+        if bad_entry is not None:
+            result.checks.append(CheckResult(
+                "Central directory is present and intact",
+                False,
+                f"CRC check failed for entry: {bad_entry} (the archive's contents are corrupted).",
+            ))
+            return result
+        result.checks.append(CheckResult("Central directory is present and intact", True))
+
+        # 5. Does META-INF/container.xml exist?
+        if CONTAINER_PATH not in names:
+            result.checks.append(CheckResult(
+                f"{CONTAINER_PATH} exists",
+                False,
+                f"'{CONTAINER_PATH}' isn't present in the archive.",
+            ))
+            return result
+        result.checks.append(CheckResult(f"{CONTAINER_PATH} exists", True))
+
+        # 6. Can the OPF (package document) be located?
+        try:
+            container_xml = archive.read(CONTAINER_PATH)
+            tree = etree.fromstring(container_xml)
+            rootfile = tree.find(".//c:rootfile", namespaces=CONTAINER_NAMESPACE)
+            if rootfile is None:
+                raise ValueError("No <rootfile> entry found in container.xml.")
+            opf_path = rootfile.attrib.get("full-path")
+            if not opf_path:
+                raise ValueError("<rootfile> is missing its 'full-path' attribute.")
+            if opf_path not in names:
+                raise ValueError(
+                    f"container.xml points at '{opf_path}', which isn't in the archive."
+                )
+        except Exception as e:
+            result.checks.append(CheckResult("OPF package document can be located", False, str(e)))
+            return result
+        result.checks.append(CheckResult("OPF package document can be located", True))
+
+    return result

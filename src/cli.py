@@ -8,6 +8,7 @@ from ebook_fix.config import (
     load_config,
     write_default_config,
 )
+from ebook_fix.validation import validate_epub
 
 def build_parser():
 
@@ -73,6 +74,16 @@ def build_parser():
         )
     )
 
+    # Validate
+    validate = sub.add_parser(
+        "validate",
+        help="Run the file-integrity check only, without analyzing or repairing."
+    )
+    validate.add_argument(
+        "input",
+        help="Input EPUB"
+    )
+
     # Init-config
     init_config = sub.add_parser(
         "init-config",
@@ -105,6 +116,11 @@ def main():
     if not epub.exists():
         print(f"ERROR: '{epub}' does not exist.")
         sys.exit(1)
+
+    if args.command == "validate":
+        result = validate_epub(epub)
+        result.print()
+        sys.exit(0 if result.valid else 1)
 
     try:
         config = load_config(args.config)

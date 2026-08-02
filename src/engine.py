@@ -1,6 +1,7 @@
 from ebook_fix.parser import EPUBParser
 from ebook_fix.writer import EPUBWriter
 from ebook_fix.config import Config
+from ebook_fix.validation import validate_epub
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.images import ImageRepair
 
@@ -21,7 +22,20 @@ class Engine:
     def log(self, message):
         print(message)
 
+    def _check_integrity(self, epub) -> bool:
+        """Run pre-flight integrity checks. Returns True if the file
+        is safe to parse, False (after printing the failure) if not."""
+        result = validate_epub(epub)
+        result.print()
+        if not result.valid:
+            self.log("\nAborting: file failed the integrity check above.")
+            return False
+        self.log("")
+        return True
+
     def analyze(self, epub, details=False):
+        if not self._check_integrity(epub):
+            return
         self.log("Opening EPUB...")
         parser = EPUBParser()
         book = parser.load(epub)
@@ -40,6 +54,8 @@ class Engine:
         self.log(f"Finished. {total_issues} issue(s) found total.")
 
     def repair(self, epub, output, dry_run=False):
+        if not self._check_integrity(epub):
+            return
         self.log("Opening EPUB...")
         parser = EPUBParser()
         book = parser.load(epub)
