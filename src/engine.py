@@ -84,6 +84,37 @@ class Engine:
             analyzer = EPUBAnalyzer()
             analysis_report = analyzer.analyze(book)
 
+            s = analysis_report.summary
+            self.log(
+                f"\n--- Book Info ---"
+                f"\nTitle: {s.title or '(none found)'}"
+                f"\nAuthor: {s.author or '(none found)'}"
+                f"\nLanguage: {s.language or '(none found)'}"
+                f"\nPublisher: {s.publisher or '(none found)'}"
+                f"\nIdentifier: {s.identifier or '(none found)'}"
+                f"\nDate: {s.date or '(none found)'}"
+                f"\nRights: {s.rights or '(none found)'}"
+                f"\nEPUB Version: {s.epub_version or 'unknown'}"
+            )
+            if s.subjects:
+                self.log(f"Subjects/Genre: {', '.join(s.subjects)}")
+            if s.description:
+                self.log(f"Description: {s.description}")
+
+            self.log(
+                f"\n--- File Contents ---"
+                f"\nHTML/XHTML pages: {s.html_page_count}"
+                f"\nSpine entries: {s.spine_entry_count}"
+                f"\nTOC entries: {s.toc_entry_count}"
+                f"\nCSS files: {s.css_file_count}"
+                f"\nImage files: {s.image_file_count}"
+                f"\nFont files: {s.font_file_count}"
+                f"\nAudio files: {s.audio_file_count}"
+                f"\nVideo files: {s.video_file_count}"
+                f"\nOther files: {s.other_file_count}"
+                f"\nTotal word count: {s.total_word_count:,}"
+            )
+
             self.log(
                 f"\n--- Book Overview ---"
                 f"\nChapters: {len(analysis_report.chapter_reports)}"

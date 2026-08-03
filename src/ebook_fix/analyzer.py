@@ -36,6 +36,29 @@ class ChapterAnalysis:
     ids:list=field(default_factory=list)
 
 @dataclass
+class BookSummary:
+    title:str=""
+    author:str=""
+    language:str=""
+    publisher:str=""
+    identifier:str=""
+    date:str=""
+    rights:str=""
+    description:str=""
+    subjects:list=field(default_factory=list)
+    epub_version:str=""
+    html_page_count:int=0
+    css_file_count:int=0
+    image_file_count:int=0
+    font_file_count:int=0
+    audio_file_count:int=0
+    video_file_count:int=0
+    other_file_count:int=0
+    spine_entry_count:int=0
+    toc_entry_count:int=0
+    total_word_count:int=0
+
+@dataclass
 class AnalysisReport:
     chapter_reports:list=field(default_factory=list)
     total_paragraphs:int=0
@@ -45,6 +68,7 @@ class AnalysisReport:
     css_classes:Counter=field(default_factory=Counter)
     thin_chapters:list=field(default_factory=list)
     chapters_with_heading_issues:list=field(default_factory=list)
+    summary:BookSummary=field(default_factory=BookSummary)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -97,4 +121,26 @@ class EPUBAnalyzer:
                 r.thin_chapters.append(c)
             if c.heading_issues:
                 r.chapters_with_heading_issues.append(c)
+            r.summary.total_word_count+=c.word_count
+
+        meta=getattr(book,"metadata",None)
+        r.summary.title=getattr(meta,"title","") if meta else ""
+        r.summary.author=getattr(meta,"creator","") if meta else ""
+        r.summary.language=getattr(meta,"language","") if meta else ""
+        r.summary.publisher=getattr(meta,"publisher","") if meta else ""
+        r.summary.identifier=getattr(meta,"identifier","") if meta else ""
+        r.summary.date=getattr(meta,"date","") if meta else ""
+        r.summary.rights=getattr(meta,"rights","") if meta else ""
+        r.summary.description=getattr(meta,"description","") if meta else ""
+        r.summary.subjects=list(getattr(meta,"subject",[]) or []) if meta else []
+        r.summary.epub_version=getattr(book,"version","")
+        r.summary.html_page_count=len(book.chapters)
+        r.summary.css_file_count=len(getattr(book,"css",[]) or [])
+        r.summary.image_file_count=len(getattr(book,"images",[]) or [])
+        r.summary.font_file_count=len(getattr(book,"fonts",[]) or [])
+        r.summary.audio_file_count=len(getattr(book,"audio",[]) or [])
+        r.summary.video_file_count=len(getattr(book,"video",[]) or [])
+        r.summary.other_file_count=len(getattr(book,"other",[]) or [])
+        r.summary.spine_entry_count=len(getattr(book,"spine",[]) or [])
+        r.summary.toc_entry_count=len(getattr(book,"toc",[]) or [])
         return r
