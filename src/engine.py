@@ -69,7 +69,7 @@ class Engine:
         self.log("")
         return temp_path, temp_path
 
-def analyze(self, epub, details=False):
+    def analyze(self, epub, details=False):
         source, temp_path = self._resolve_source(epub)
         if source is None:
             return
