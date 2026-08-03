@@ -30,6 +30,7 @@ class ChapterAnalysis:
     word_count:int=0
     is_thin:bool=False
     headings:dict=field(default_factory=dict)
+    heading_issues:list=field(default_factory=list)
     tag_counts:Counter=field(default_factory=Counter)
     css_classes:Counter=field(default_factory=Counter)
     ids:list=field(default_factory=list)
@@ -43,6 +44,7 @@ class AnalysisReport:
     tag_counts:Counter=field(default_factory=Counter)
     css_classes:Counter=field(default_factory=Counter)
     thin_chapters:list=field(default_factory=list)
+    chapters_with_heading_issues:list=field(default_factory=list)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -50,12 +52,30 @@ class EPUBAnalyzer:
         for ch in book.chapters:
             c=ChapterAnalysis(href=getattr(ch,"href",""),title=getattr(ch,"title",""))
             tree=getattr(ch,"document",None)
+            last_level=0
+            h1_count=0
             if tree is not None:
                 for e in tree.iter():
                     tag=etree.QName(e).localname.lower()
                     c.tag_counts[tag]+=1
                     if tag=="p": c.paragraphs+=1
-                    elif tag.startswith("h") and len(tag)==2: c.headings[tag]=c.headings.get(tag,0)+1
+                    elif tag.startswith("h") and len(tag)==2 and tag[1].isdigit():
+                        c.headings[tag]=c.headings.get(tag,0)+1
+                        level=int(tag[1])
+                        text=(e.text or "").strip()
+                        if level==1:
+                            h1_count+=1
+                            if h1_count>1:
+                                c.heading_issues.append(
+                                    f"Multiple h1 headings in one chapter "
+                                    f"(h1 #{h1_count}: {text!r})"
+                                )
+                        if last_level!=0 and level>last_level+1:
+                            c.heading_issues.append(
+                                f"Skipped heading level: h{level} follows h{last_level} "
+                                f"(no h{last_level+1}) at {text!r}"
+                            )
+                        last_level=level
                     elif tag=="img": c.images+=1
                     elif tag=="a": c.links+=1
                     elif tag=="table": c.tables+=1
@@ -75,4 +95,6 @@ class EPUBAnalyzer:
             r.css_classes.update(c.css_classes)
             if c.is_thin:
                 r.thin_chapters.append(c)
+            if c.heading_issues:
+                r.chapters_with_heading_issues.append(c)
         return r

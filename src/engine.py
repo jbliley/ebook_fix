@@ -104,6 +104,19 @@ class Engine:
                         title = ch.title or "Untitled Chapter"
                         self.log(f"  • {ch.href} - {title} ({ch.word_count} words)")
 
+            if analysis_report.chapters_with_heading_issues:
+                total_issues = sum(len(ch.heading_issues) for ch in analysis_report.chapters_with_heading_issues)
+                self.log(
+                    f"\n⚠ {total_issues} heading hierarchy issue(s) found across "
+                    f"{len(analysis_report.chapters_with_heading_issues)} chapter(s) "
+                    "(skipped levels, e.g. h1 -> h3, or multiple h1s in one chapter). "
+                    "Run with --details to see which."
+                )
+                if not details:
+                    for ch in analysis_report.chapters_with_heading_issues:
+                        title = ch.title or "Untitled Chapter"
+                        self.log(f"  • {ch.href} - {title} ({len(ch.heading_issues)} issue(s))")
+
             # Render detailed breakdown if details=True is requested
             if details:
                 self.log("\n--- Detailed Chapter Analysis ---")
@@ -117,6 +130,10 @@ class Engine:
                     if ch.headings:
                         headings_str = ", ".join(f"{h.upper()}: {cnt}" for h, cnt in ch.headings.items())
                         self.log(f"  • Headings: {headings_str}")
+
+                    if ch.heading_issues:
+                        for issue in ch.heading_issues:
+                            self.log(f"  ⚠ {issue}")
                     
                     if ch.css_classes:
                         # Top 5 most used CSS classes in this chapter
