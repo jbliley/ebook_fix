@@ -92,13 +92,26 @@ class Engine:
                 f"\nTotal Links: {analysis_report.total_links}"
             )
 
+            if analysis_report.thin_chapters:
+                self.log(
+                    f"\n⚠ {len(analysis_report.thin_chapters)} chapter(s) look thin/empty "
+                    "(0 paragraphs or under 50 words). This can be normal for a "
+                    "title/copyright page, or a sign of a bad chapter split. "
+                    "Run with --details to see which."
+                )
+                if not details:
+                    for ch in analysis_report.thin_chapters:
+                        title = ch.title or "Untitled Chapter"
+                        self.log(f"  • {ch.href} - {title} ({ch.word_count} words)")
+
             # Render detailed breakdown if details=True is requested
             if details:
                 self.log("\n--- Detailed Chapter Analysis ---")
                 for ch in analysis_report.chapter_reports:
                     title = ch.title or "Untitled Chapter"
-                    self.log(f"\n[Chapter: {ch.href} - {title}]")
-                    self.log(f"  • Paragraphs: {ch.paragraphs} | Images: {ch.images} | Links: {ch.links}")
+                    thin_marker = "  [THIN/EMPTY]" if ch.is_thin else ""
+                    self.log(f"\n[Chapter: {ch.href} - {title}]{thin_marker}")
+                    self.log(f"  • Paragraphs: {ch.paragraphs} | Images: {ch.images} | Links: {ch.links} | Words: {ch.word_count}")
                     self.log(f"  • Tables: {ch.tables} | Lists: {ch.lists}")
                     
                     if ch.headings:

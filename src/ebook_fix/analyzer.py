@@ -12,6 +12,12 @@ from collections import Counter
 from dataclasses import dataclass, field
 from lxml import etree
 
+# A chapter is flagged as "thin" if it has no paragraphs at all, or if its
+# total word count falls below this threshold. Front-matter pages (title
+# page, copyright page, etc.) will often trip this and that's fine -- the
+# flag is meant to draw attention, not to declare something broken.
+THIN_CHAPTER_WORD_THRESHOLD = 50
+
 @dataclass
 class ChapterAnalysis:
     href:str=""
@@ -21,6 +27,8 @@ class ChapterAnalysis:
     links:int=0
     tables:int=0
     lists:int=0
+    word_count:int=0
+    is_thin:bool=False
     headings:dict=field(default_factory=dict)
     tag_counts:Counter=field(default_factory=Counter)
     css_classes:Counter=field(default_factory=Counter)
@@ -34,6 +42,7 @@ class AnalysisReport:
     total_links:int=0
     tag_counts:Counter=field(default_factory=Counter)
     css_classes:Counter=field(default_factory=Counter)
+    thin_chapters:list=field(default_factory=list)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -56,10 +65,14 @@ class EPUBAnalyzer:
                         for n in cls.split(): c.css_classes[n]+=1
                     i=e.get("id")
                     if i: c.ids.append(i)
+                c.word_count=len("".join(tree.itertext()).split())
+            c.is_thin = c.paragraphs==0 or c.word_count<THIN_CHAPTER_WORD_THRESHOLD
             r.chapter_reports.append(c)
             r.total_paragraphs+=c.paragraphs
             r.total_images+=c.images
             r.total_links+=c.links
             r.tag_counts.update(c.tag_counts)
             r.css_classes.update(c.css_classes)
+            if c.is_thin:
+                r.thin_chapters.append(c)
         return r
