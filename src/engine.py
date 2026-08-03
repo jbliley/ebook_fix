@@ -6,8 +6,10 @@ from ebook_fix.writer import EPUBWriter
 from ebook_fix.config import Config
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
+from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.images import ImageRepair
+from ebook_fix.modules.whitespace import WhitespaceRepair
 
 class Engine:
     def __init__(self, verbose=False, config=None, auto_repair_container=True):
@@ -18,10 +20,12 @@ class Engine:
 
     def _build_modules(self):
         modules = []
-        if self.config.paragraph_repair.enabled:
+        if getattr(self.config, "paragraph_repair", None) and getattr(self.config.paragraph_repair, "enabled", True):
             modules.append(ParagraphRepair(self.config.paragraph_repair))
-        if self.config.image_repair.enabled:
+        if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
+        if not hasattr(self.config, "whitespace_repair") or getattr(self.config.whitespace_repair, "enabled", True):
+            modules.append(WhitespaceRepair())
         return modules
 
     def log(self, message):
@@ -65,7 +69,7 @@ class Engine:
         self.log("")
         return temp_path, temp_path
 
-    def analyze(self, epub, details=False):
+def analyze(self, epub, details=False):
         source, temp_path = self._resolve_source(epub)
         if source is None:
             return
@@ -74,10 +78,45 @@ class Engine:
             parser = EPUBParser()
             book = parser.load(source)
             self.log("")
+
+            # Integrated EPUBAnalyzer structural scan
+            self.log("Analyzing book structure...")
+            analyzer = EPUBAnalyzer()
+            analysis_report = analyzer.analyze(book)
+
+            self.log(
+                f"\n--- Book Overview ---"
+                f"\nChapters: {len(analysis_report.chapter_reports)}"
+                f"\nTotal Paragraphs: {analysis_report.total_paragraphs}"
+                f"\nTotal Images: {analysis_report.total_images}"
+                f"\nTotal Links: {analysis_report.total_links}"
+            )
+
+            # Render detailed breakdown if details=True is requested
+            if details:
+                self.log("\n--- Detailed Chapter Analysis ---")
+                for ch in analysis_report.chapter_reports:
+                    title = ch.title or "Untitled Chapter"
+                    self.log(f"\n[Chapter: {ch.href} - {title}]")
+                    self.log(f"  • Paragraphs: {ch.paragraphs} | Images: {ch.images} | Links: {ch.links}")
+                    self.log(f"  • Tables: {ch.tables} | Lists: {ch.lists}")
+                    
+                    if ch.headings:
+                        headings_str = ", ".join(f"{h.upper()}: {cnt}" for h, cnt in ch.headings.items())
+                        self.log(f"  • Headings: {headings_str}")
+                    
+                    if ch.css_classes:
+                        # Top 5 most used CSS classes in this chapter
+                        top_classes = ", ".join(f".{cls} ({cnt})" for cls, cnt in ch.css_classes.most_common(5))
+                        self.log(f"  • Top Classes: {top_classes}")
+
+            self.log("")
+
             if not self.modules:
                 self.log("No repair modules are enabled in the config. Nothing to do.")
                 return
-            self.log("Running analysis...\n")
+
+            self.log("Running module analysis...\n")
             total_issues = 0
             for module in self.modules:
                 self.log(f"[{module.name}]")
