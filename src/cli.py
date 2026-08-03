@@ -9,6 +9,7 @@ from ebook_fix.config import (
     write_default_config,
 )
 from ebook_fix.validation import validate_epub
+from ebook_fix.container_repair import attempt_repair
 
 def build_parser():
 
@@ -39,6 +40,11 @@ def build_parser():
             f"enabled. Defaults to ./{DEFAULT_CONFIG_FILENAME} if present, "
             "otherwise every fix runs."
         )
+    )
+    analyze.add_argument(
+        "--no-container-repair",
+        action="store_true",
+        help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
     )
 
     # Repair
@@ -73,6 +79,11 @@ def build_parser():
             "otherwise every fix runs."
         )
     )
+    repair.add_argument(
+        "--no-container-repair",
+        action="store_true",
+        help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
+    )
 
     # Validate
     validate = sub.add_parser(
@@ -82,6 +93,11 @@ def build_parser():
     validate.add_argument(
         "input",
         help="Input EPUB"
+    )
+    validate.add_argument(
+        "--repair",
+        action="store_true",
+        help="If the file fails validation, also try to repair its ZIP/EPUB container and report the result."
     )
 
     # Init-config
@@ -120,7 +136,15 @@ def main():
     if args.command == "validate":
         result = validate_epub(epub)
         result.print()
-        sys.exit(0 if result.valid else 1)
+        if result.valid:
+            sys.exit(0)
+        if args.repair:
+            print()
+            print("Attempting repair...")
+            repair = attempt_repair(epub)
+            repair.print()
+            sys.exit(0 if repair.repaired else 1)
+        sys.exit(1)
 
     try:
         config = load_config(args.config)
@@ -131,7 +155,11 @@ def main():
         print(f"ERROR: Invalid config - {e}")
         sys.exit(1)
 
-    engine = Engine(verbose=getattr(args, "verbose", False), config=config)
+    engine = Engine(
+        verbose=getattr(args, "verbose", False),
+        config=config,
+        auto_repair_container=not getattr(args, "no_container_repair", False),
+    )
     if args.command == "analyze":
         engine.analyze(epub, details=args.details)
     elif args.command == "repair":

@@ -15,10 +15,16 @@ later check depends on the ones before it having passed):
 4. Is there an intact central directory?
 5. Does META-INF/container.xml exist?
 6. Can the OPF (package document) be located?
+
+Checks 2-6 work on raw bytes (validate_epub_bytes) so container_repair
+can validate a candidate fix in memory before writing anything out;
+validate_epub() is the normal entry point and adds the readability
+check on top.
 """
 
 from __future__ import annotations
 
+import io
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -78,19 +84,26 @@ def validate_epub(path: str | Path) -> ValidationResult:
 
     # 1. Is the file readable?
     try:
-        with open(path, "rb") as f:
-            header = f.read(2)
+        data = path.read_bytes()
     except OSError as e:
         result.checks.append(CheckResult("File is readable", False, str(e)))
         return result
     result.checks.append(CheckResult("File is readable", True))
 
+    result.checks.extend(validate_epub_bytes(data).checks)
+    return result
+
+
+def validate_epub_bytes(data: bytes) -> ValidationResult:
+    """Run checks 2-6 against in-memory EPUB bytes."""
+    result = ValidationResult()
+
     # 2. Does it begin with the ZIP signature ("PK")?
-    if header != b"PK":
+    if data[:2] != b"PK":
         result.checks.append(CheckResult(
             "File begins with the ZIP signature (PK)",
             False,
-            f"First two bytes were {header!r}, expected b'PK'. "
+            f"First two bytes were {data[:2]!r}, expected b'PK'. "
             "This isn't a ZIP-based file, so it can't be a valid EPUB.",
         ))
         return result
@@ -98,7 +111,7 @@ def validate_epub(path: str | Path) -> ValidationResult:
 
     # 3. Can zipfile.ZipFile() open it?
     try:
-        archive = zipfile.ZipFile(path, "r")
+        archive = zipfile.ZipFile(io.BytesIO(data))
     except (zipfile.BadZipFile, OSError) as e:
         result.checks.append(CheckResult("ZIP archive can be opened", False, str(e)))
         return result
