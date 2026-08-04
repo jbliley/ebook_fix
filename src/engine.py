@@ -216,6 +216,56 @@ class Engine:
                     "Run with --details to see samples."
                 )
 
+            css = analysis_report.css
+            self.log(
+                f"\n--- CSS ---"
+                f"\nStylesheets: {css.css_file_count} | Rules: {css.total_rules} | "
+                f"!important uses: {css.total_important}"
+                f"\nDeclared classes: {css.declared_class_count} | Declared ids: {css.declared_id_count}"
+                f"\nInline style attributes used in HTML: {css.inline_style_element_count}"
+            )
+
+            if css.unused_class_total:
+                self.log(
+                    f"\n{css.unused_class_total} CSS class(es) are declared but never used in any chapter. "
+                    "This is common in template/converter-generated stylesheets and isn't "
+                    "necessarily a problem. Run with --details to see samples."
+                )
+            if css.undeclared_class_total:
+                self.log(
+                    f"⚠ {css.undeclared_class_total} class(es) are used in chapter HTML but never "
+                    "declared in any stylesheet, so they have no styling. Run with --details to see which."
+                )
+            if css.duplicate_selectors_by_file:
+                total_dupes = sum(len(v) for v in css.duplicate_selectors_by_file.values())
+                self.log(
+                    f"⚠ {total_dupes} duplicate selector(s) found across "
+                    f"{len(css.duplicate_selectors_by_file)} stylesheet(s) (same selector declared "
+                    "more than once -- later rules silently override earlier ones). "
+                    "Run with --details to see which."
+                )
+            if css.unbalanced_brace_files:
+                self.log(f"⚠ {len(css.unbalanced_brace_files)} stylesheet(s) have unbalanced {{ }} braces: {css.unbalanced_brace_files}")
+            if css.unreadable_files:
+                self.log(f"⚠ {len(css.unreadable_files)} stylesheet(s) listed in the manifest couldn't be read: {css.unreadable_files}")
+            if css.missing_embedded_fonts:
+                self.log(
+                    f"⚠ {len(css.missing_embedded_fonts)} @font-face reference(s) point to a font file "
+                    f"that isn't actually in the EPUB: {css.missing_embedded_fonts}"
+                )
+
+            if details:
+                if css.unused_classes:
+                    more = f" (+{css.unused_class_total - len(css.unused_classes)} more)" if css.unused_class_total > len(css.unused_classes) else ""
+                    self.log(f"\n  Unused CSS classes: {', '.join(css.unused_classes)}{more}")
+                if css.undeclared_classes:
+                    more = f" (+{css.undeclared_class_total - len(css.undeclared_classes)} more)" if css.undeclared_class_total > len(css.undeclared_classes) else ""
+                    shown = ", ".join(f"{cls} ({cnt}x)" for cls, cnt in css.undeclared_classes)
+                    self.log(f"  Undeclared classes used in HTML: {shown}{more}")
+                for href, dupes in css.duplicate_selectors_by_file.items():
+                    shown = ", ".join(f"{sel!r} ({cnt}x)" for sel, cnt in dupes)
+                    self.log(f"  Duplicate selectors in {href}: {shown}")
+
             # Render detailed breakdown if details=True is requested
             if details:
                 self.log("\n--- Detailed Chapter Analysis ---")

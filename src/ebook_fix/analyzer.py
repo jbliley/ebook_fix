@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from lxml import etree
 
 from ebook_fix.typography import TypographyReport, BookTypographySummary, analyze_text, summarize_book
+from ebook_fix.css import BookCSSSummary, analyze_book_css
 
 # A chapter is flagged as "thin" if it has no paragraphs at all, or if its
 # total word count falls below this threshold. Front-matter pages (title
@@ -36,6 +37,7 @@ class ChapterAnalysis:
     tag_counts:Counter=field(default_factory=Counter)
     css_classes:Counter=field(default_factory=Counter)
     ids:list=field(default_factory=list)
+    inline_style_count:int=0
     typography:TypographyReport=field(default_factory=TypographyReport)
 
 @dataclass
@@ -73,6 +75,7 @@ class AnalysisReport:
     chapters_with_heading_issues:list=field(default_factory=list)
     summary:BookSummary=field(default_factory=BookSummary)
     typography:BookTypographySummary=field(default_factory=BookTypographySummary)
+    css:BookCSSSummary=field(default_factory=BookCSSSummary)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -117,6 +120,7 @@ class EPUBAnalyzer:
                         for n in cls.split(): c.css_classes[n]+=1
                     i=e.get("id")
                     if i: c.ids.append(i)
+                    if e.get("style"): c.inline_style_count+=1
                 full_text="".join(tree.itertext())
                 c.word_count=len(full_text.split())
                 c.typography=analyze_text(full_text)
@@ -155,4 +159,5 @@ class EPUBAnalyzer:
         r.summary.toc_entry_count=len(getattr(book,"toc",[]) or [])
 
         r.typography=summarize_book([(c.href,c.typography) for c in r.chapter_reports])
+        r.css=analyze_book_css(book,r.chapter_reports)
         return r
