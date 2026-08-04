@@ -1,0 +1,70 @@
+# --- Python bytecode ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Virtual environments ---
+venv/
+.env/
+.venv/
+env/
+ENV/
+
+# --- Distribution / packaging ---
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# --- Installer logs ---
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- Unit test / coverage ---
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+pytest_cache/
+nosetests.xml
+coverage.xml
+
+# --- Jupyter Notebook checkpoints ---
+.ipynb_checkpoints/
+
+# --- MyPy / Pyright / type checking ---
+.mypy_cache/
+.pytype/
+pyrightconfig.json
+
+# --- Pyre ---
+.pyre/
+
+# --- Django / Flask / other frameworks ---
+*.log
+local_settings.py
+instance/
+.webassets-cache
+
+# --- Scrapy ---
+.scrapy/
+
+# --- Sphinx documentation ---
+docs/_build/
+
+# --- PyInstaller ---
+*.manifest
+*.spec
+
+# --- IDE / editor cruft ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
