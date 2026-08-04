@@ -12,6 +12,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from lxml import etree
 
+from ebook_fix.typography import TypographyReport, BookTypographySummary, analyze_text, summarize_book
+
 # A chapter is flagged as "thin" if it has no paragraphs at all, or if its
 # total word count falls below this threshold. Front-matter pages (title
 # page, copyright page, etc.) will often trip this and that's fine -- the
@@ -34,6 +36,7 @@ class ChapterAnalysis:
     tag_counts:Counter=field(default_factory=Counter)
     css_classes:Counter=field(default_factory=Counter)
     ids:list=field(default_factory=list)
+    typography:TypographyReport=field(default_factory=TypographyReport)
 
 @dataclass
 class BookSummary:
@@ -69,6 +72,7 @@ class AnalysisReport:
     thin_chapters:list=field(default_factory=list)
     chapters_with_heading_issues:list=field(default_factory=list)
     summary:BookSummary=field(default_factory=BookSummary)
+    typography:BookTypographySummary=field(default_factory=BookTypographySummary)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -80,6 +84,10 @@ class EPUBAnalyzer:
             h1_count=0
             if tree is not None:
                 for e in tree.iter():
+                    if not isinstance(e.tag, str):
+                        # Skip comments, processing instructions, and other
+                        # special lxml node types that aren't real elements.
+                        continue
                     tag=etree.QName(e).localname.lower()
                     c.tag_counts[tag]+=1
                     if tag=="p": c.paragraphs+=1
@@ -109,7 +117,9 @@ class EPUBAnalyzer:
                         for n in cls.split(): c.css_classes[n]+=1
                     i=e.get("id")
                     if i: c.ids.append(i)
-                c.word_count=len("".join(tree.itertext()).split())
+                full_text="".join(tree.itertext())
+                c.word_count=len(full_text.split())
+                c.typography=analyze_text(full_text)
             c.is_thin = c.paragraphs==0 or c.word_count<THIN_CHAPTER_WORD_THRESHOLD
             r.chapter_reports.append(c)
             r.total_paragraphs+=c.paragraphs
@@ -143,4 +153,6 @@ class EPUBAnalyzer:
         r.summary.other_file_count=len(getattr(book,"other",[]) or [])
         r.summary.spine_entry_count=len(getattr(book,"spine",[]) or [])
         r.summary.toc_entry_count=len(getattr(book,"toc",[]) or [])
+
+        r.typography=summarize_book([(c.href,c.typography) for c in r.chapter_reports])
         return r

@@ -148,6 +148,74 @@ class Engine:
                         title = ch.title or "Untitled Chapter"
                         self.log(f"  • {ch.href} - {title} ({len(ch.heading_issues)} issue(s))")
 
+            t = analysis_report.typography
+            self.log(
+                f"\n--- Typography ---"
+                f"\nQuotes: {t.total_straight_double_quotes} straight double, "
+                f"{t.total_curly_double_quotes} curly double, "
+                f"{t.total_straight_apostrophes} straight apostrophe, "
+                f"{t.total_curly_apostrophes} curly apostrophe"
+                f"\nDashes: {t.total_hyphen} hyphen, {t.total_en_dash} en dash, "
+                f"{t.total_em_dash} em dash, {t.total_double_hyphen} double-hyphen (--)"
+                f"\nEllipsis: {t.total_unicode_ellipsis} unicode (…), {t.total_ascii_ellipsis} ascii (...)"
+                f"\nSentence spacing: {t.total_single_space_after_sentence} single-space, "
+                f"{t.total_double_space_after_sentence} double-space"
+            )
+
+            if t.quote_style_inconsistent:
+                self.log(
+                    f"\n⚠ Dialogue quote style is inconsistent across the book: "
+                    f"{len(t.straight_quote_chapters)} chapter(s) use straight quotes, "
+                    f"{len(t.curly_quote_chapters)} chapter(s) use curly quotes. "
+                    "This is a common sign of content merged from different sources."
+                )
+            if t.mixed_quote_chapters:
+                self.log(
+                    f"⚠ {len(t.mixed_quote_chapters)} chapter(s) mix straight and curly "
+                    "dialogue quotes within the same file. Run with --details to see which."
+                )
+            if t.apostrophe_style_inconsistent:
+                self.log(
+                    f"\nNote: apostrophe style differs across the book "
+                    f"({len(t.straight_apostrophe_chapters)} chapter(s) straight, "
+                    f"{len(t.curly_apostrophe_chapters)} chapter(s) curly). "
+                    "This is often intentional (many conversions only curl quotation "
+                    "marks, not contractions) but worth a look if unexpected."
+                )
+            if t.mixed_apostrophe_chapters:
+                self.log(
+                    f"⚠ {len(t.mixed_apostrophe_chapters)} chapter(s) mix straight and curly "
+                    "apostrophes within the same file. Run with --details to see which."
+                )
+
+            if t.chapters_with_mojibake:
+                self.log(
+                    f"\n⚠ Possible encoding corruption (mojibake) found in "
+                    f"{len(t.chapters_with_mojibake)} chapter(s), {t.total_mojibake} instance(s) total. "
+                    "Run with --details to see samples."
+                )
+            if t.chapters_with_bom:
+                self.log(f"⚠ {len(t.chapters_with_bom)} chapter(s) contain a stray BOM character.")
+            if t.total_zero_width_space:
+                self.log(f"⚠ {t.total_zero_width_space} zero-width space character(s) found across the book.")
+            if t.total_soft_hyphen:
+                self.log(f"⚠ {t.total_soft_hyphen} soft hyphen character(s) found across the book.")
+            if t.total_control_chars:
+                self.log(f"⚠ {t.total_control_chars} stray control character(s) found across the book.")
+
+            if t.chapters_with_all_caps_runs:
+                self.log(
+                    f"\n{len(t.chapters_with_all_caps_runs)} chapter(s) contain runs of ALL-CAPS text "
+                    f"({t.total_all_caps_runs} total) -- could be intentional emphasis or an OCR artifact. "
+                    "Run with --details to see samples."
+                )
+            if t.chapters_with_repeated_punctuation:
+                self.log(
+                    f"{len(t.chapters_with_repeated_punctuation)} chapter(s) contain repeated punctuation "
+                    f"(e.g. '!!', '....') -- {t.total_repeated_punctuation} instance(s) total. "
+                    "Run with --details to see samples."
+                )
+
             # Render detailed breakdown if details=True is requested
             if details:
                 self.log("\n--- Detailed Chapter Analysis ---")
@@ -170,6 +238,38 @@ class Engine:
                         # Top 5 most used CSS classes in this chapter
                         top_classes = ", ".join(f".{cls} ({cnt})" for cls, cnt in ch.css_classes.most_common(5))
                         self.log(f"  • Top Classes: {top_classes}")
+
+                    typ = ch.typography
+                    self.log(
+                        f"  • Quote style: {typ.quote_style} "
+                        f"({typ.straight_double_quotes} straight-\", {typ.curly_double_quotes} curly-\")"
+                        f" | Apostrophe style: {typ.apostrophe_style} "
+                        f"({typ.straight_apostrophes} straight-', {typ.curly_apostrophes} curly-')"
+                    )
+                    if typ.sentence_count:
+                        self.log(
+                            f"  • Sentences: {typ.sentence_count} "
+                            f"(avg {typ.avg_sentence_words} words, "
+                            f"range {typ.shortest_sentence_words}-{typ.longest_sentence_words})"
+                        )
+                    if typ.mojibake_count:
+                        self.log(f"  ⚠ Possible mojibake ({typ.mojibake_count}): {typ.mojibake_samples}")
+                    if typ.bom_found:
+                        self.log(f"  ⚠ BOM character found in chapter text")
+                    if typ.zero_width_space_count:
+                        self.log(f"  ⚠ {typ.zero_width_space_count} zero-width space character(s)")
+                    if typ.soft_hyphen_count:
+                        self.log(f"  ⚠ {typ.soft_hyphen_count} soft hyphen character(s)")
+                    if typ.control_char_count:
+                        self.log(f"  ⚠ {typ.control_char_count} stray control character(s)")
+                    if typ.all_caps_run_count:
+                        self.log(f"  • ALL-CAPS runs ({typ.all_caps_run_count}): {typ.all_caps_samples}")
+                    if typ.repeated_punctuation_count:
+                        self.log(f"  • Repeated punctuation ({typ.repeated_punctuation_count}): {typ.repeated_punctuation_samples}")
+                    if typ.double_hyphen_count:
+                        self.log(f"  • Double-hyphen (--) possibly standing in for em dash: {typ.double_hyphen_count}")
+                    if typ.double_space_after_sentence:
+                        self.log(f"  • Double-space after sentence: {typ.double_space_after_sentence}")
 
             self.log("")
 
