@@ -31,7 +31,7 @@ Before the repair runs, it runs an analysis to map the structure and elements of
 
 <h3>Repair</h3>
 After the analysis, the repair will automatically fix issues it finds. These fixes can be changed in the config file (see below).
-<p>&emsp;<b>Run repair: </b><code>python src/cli.py repair "C:/path/to/file/ebook title.epub"</code></p>
+<p>&emsp;<b>Run repair: </b><code>python cli.py repair "C:/path/to/file/ebook title.epub"</code></p>
 
 <h3>File Integrity</h3>
 <p>Before <code>analyze</code> or <code>repair</code> touch a file, they first confirm it's actually a well-formed EPUB: readable, starts with the ZIP signature, opens as a ZIP, has an intact central directory, contains a META-INF/container.xml, and can locate its OPF package document. If any of these fail, the command stops there and reports which check failed instead of trying to work with a broken file.</p>
@@ -49,11 +49,11 @@ What it won't fix, and will instead report clearly:
 <li>An ambiguous or missing OPF (zero or multiple <code>.opf</code> candidates).</li>
 </ul>
 If the container repair succeeds, the run continues normally on the repaired copy — content fixes are applied on top, and <code>repair</code> writes out one clean, fully-fixed file. Pass <code>--no-container-repair</code> to skip this and just report the problem instead.
-<p>&emsp;<b>Run file integrity: </b><code>python src/cli.py validate "C:/path/to/file/ebook title.epub"</code></p>
+<p>&emsp;<b>Run file integrity: </b><code>python cli.py validate "C:/path/to/file/ebook title.epub"</code></p>
 
 <h3>Config File</h3>
 Every fix is on by default. To turn specific fixes off, generate a config file (if needed) and edit it:<br><br>
-<p>&emsp;<b>Create a config:</b><code>python src/cli.py init-config</code></p>
+<p>&emsp;<b>Create a config:</b><code>python cli.py init-config</code></p>
 This writes <code>ebook_fix.toml</code> in the current folder. Open it in any text editor and change <code>true</code> to <code>false</code> next to any fix you want to skip, then save.
-<p>&emsp;<b>Use it:</b> python src/cli.py analyze "C:/Books/ebook title.epub" --config ebook_fix.toml</p>
+<p>&emsp;<b>Use it:</b> python cli.py analyze "C:/Books/ebook title.epub" --config ebook_fix.toml</p>
 If a file named <code>ebook_fix.toml</code> is sitting in the folder you run the command from, it's picked up automatically — you don't need to pass <code>--config</code> at all. Delete the file (or don't create one) to run with every fix enabled.
