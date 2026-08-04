@@ -148,6 +148,54 @@ class Engine:
                         title = ch.title or "Untitled Chapter"
                         self.log(f"  • {ch.href} - {title} ({len(ch.heading_issues)} issue(s))")
 
+            ch_summary = analysis_report.chapters
+            if ch_summary.best_sequence:
+                seq = ch_summary.best_sequence
+                files_spanned = len({c.href for c in seq.candidates})
+                self.log(
+                    f"\n--- Chapters ---"
+                    f"\nDetected {seq.length} chapter boundaries ({seq.style.value}), "
+                    f"across {files_spanned} file(s)."
+                )
+                if len(ch_summary.candidates) > seq.length:
+                    self.log(
+                        f"({len(ch_summary.candidates) - seq.length} other candidate marker(s) "
+                        "considered and not used -- run with --details to see them.)"
+                    )
+            else:
+                self.log(
+                    f"\n--- Chapters ---"
+                    f"\nNo confident chapter sequence found "
+                    f"({len(ch_summary.candidates)} candidate marker(s) considered, none formed a "
+                    "believable run). This is normal if the book is already split one-file-per-chapter."
+                )
+
+            if details:
+                self.log("\n--- Detailed Chapter Boundaries ---")
+                if ch_summary.best_sequence:
+                    for c in ch_summary.best_sequence.candidates:
+                        self.log(f"  • #{c.number} - {c.href} <{c.tag}> {c.text!r} (score {c.score})")
+                if ch_summary.other_sequences:
+                    self.log("\n  Other candidate sequences (not used):")
+                    for s in ch_summary.other_sequences:
+                        self.log(f"    - {s.style.value}, length {s.length}")
+                unused = [c for c in ch_summary.candidates if not c.confirmed]
+                if unused:
+                    # Group identical (style, text) markers together --
+                    # a rejected marker like a repeated footnote "2" can
+                    # show up dozens of times and isn't worth a line each.
+                    grouped = {}
+                    for c in unused:
+                        key = (c.style.value, c.text)
+                        grouped.setdefault(key, []).append(c)
+                    self.log(f"\n  Unused candidate markers ({len(unused)} total, {len(grouped)} distinct):")
+                    for (style_name, text), group in list(grouped.items())[:20]:
+                        files = sorted({c.href for c in group})
+                        files_str = files[0] if len(files) == 1 else f"{len(files)} files"
+                        self.log(f"    • {style_name} {text!r} x{len(group)} ({files_str})")
+                    if len(grouped) > 20:
+                        self.log(f"    ... (+{len(grouped) - 20} more distinct marker(s))")
+
             t = analysis_report.typography
             self.log(
                 f"\n--- Typography ---"
