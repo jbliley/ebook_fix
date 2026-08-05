@@ -17,7 +17,7 @@ The ultimate goal of this project is to allow any type of eBook file to be analy
 Before the repair runs, it runs an analysis to map the structure and elements of the book, including:
 <ul>
 <li>Images</li>
-<li>Metadata</li>
+<li>Metadata/Version</li>
 <li>HTML Pages</li>
 <li>CSS Styles</li>
 <li>Chapter/Paragraph/Word Counts</li>
@@ -30,7 +30,7 @@ Before the repair runs, it runs an analysis to map the structure and elements of
 <p>&emsp;<b>Run analysis: </b><code>python cli.py analyze "C:/path/to/file/ebook title.epub"</code></p>
 
 <h3>Repair</h3>
-After the analysis, the repair will automatically fix issues it finds. These fixes can be changed in the config file (see below).
+After the analysis, the repair will automatically fix issues it finds. These fixes can be changed in the config file (see below). Besides the options in the config file, all repairs are done automatically without input. Nothing repaired should break the book, but if you find something does break it please pop it onto the Issues page.
 <p>&emsp;<b>Run repair: </b><code>python cli.py repair "C:/path/to/file/ebook title.epub"</code></p>
 
 <h3>File Integrity</h3>

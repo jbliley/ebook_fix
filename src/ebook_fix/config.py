@@ -44,9 +44,15 @@ class EPUB3UpgradeConfig:
 
 
 @dataclass(slots=True)
+class ChapterMarkupConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class Config:
     epub3_upgrade: EPUB3UpgradeConfig = field(default_factory=EPUB3UpgradeConfig)
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
+    chapter_markup: ChapterMarkupConfig = field(default_factory=ChapterMarkupConfig)
     image_repair: ImageRepairConfig = field(default_factory=ImageRepairConfig)
 
 
@@ -85,10 +91,12 @@ def load_config(path: str | Path | None = None) -> Config:
     modules = data.get("modules", {})
     _apply_module_toggle(config.epub3_upgrade, modules, "epub3_upgrade")
     _apply_module_toggle(config.paragraph_repair, modules, "paragraph_repair")
+    _apply_module_toggle(config.chapter_markup, modules, "chapter_markup")
     _apply_module_toggle(config.image_repair, modules, "image_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
+    _apply_section(config.chapter_markup, "chapter_markup", data.get("chapter_markup", {}))
     _apply_section(config.image_repair, "image_repair", data.get("image_repair", {}))
 
     return config
@@ -126,6 +134,7 @@ DEFAULT_CONFIG_TEXT = """\
 [modules]
 epub3_upgrade = true
 paragraph_repair = true
+chapter_markup = true
 image_repair = true
 
 # ---------------------------------------------------------------------
@@ -154,6 +163,17 @@ fix_watermark_junk = true
 
 # Merge paragraphs that were incorrectly split mid-sentence.
 fix_mid_sentence_splits = true
+
+# ---------------------------------------------------------------------
+# Chapter Markup
+# ---------------------------------------------------------------------
+[chapter_markup]
+
+# Wrap each confirmed chapter (see the chapter-detection scan in the
+# analysis output) in its own <section epub:type="chapter">, with a
+# page break before it. Only chapters the detector is confident about
+# get split; weak/ambiguous candidates are left alone.
+enabled = true
 
 # ---------------------------------------------------------------------
 # Image Repair

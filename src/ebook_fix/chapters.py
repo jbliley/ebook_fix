@@ -119,6 +119,10 @@ class ChapterCandidate:
     occurrence_count: int = 1       # how many consecutive files repeated this exact marker
     also_seen_hrefs: list = field(default_factory=list)  # the other files it was folded in from
     part_index: int = 0             # which Book/Part/Volume this candidate falls under (0 = before/without any)
+    element: object = None          # live reference to the lxml element this candidate was read from --
+                                     # descriptive-only consumers can ignore it; a repair module built on
+                                     # top of this analysis (see modules/chapter_markup.py) needs it to
+                                     # actually locate the boundary in the tree.
 
 
 @dataclass
@@ -424,6 +428,7 @@ def extract_candidates(href: str, tree) -> list:
             isolated=True,
             is_heading_tag=tag.startswith("h") and len(tag) == 2,
             css_hint=_css_mentions_chapter(el),
+            element=el,
         )
         cand.score = _score_candidate(cand)
         candidates.append(cand)

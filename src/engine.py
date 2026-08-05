@@ -12,6 +12,7 @@ from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
+from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 
@@ -33,6 +34,8 @@ class Engine:
             modules.append(EPUB3UpgradeRepair(self.config.epub3_upgrade))
         if getattr(self.config, "paragraph_repair", None) and getattr(self.config.paragraph_repair, "enabled", True):
             modules.append(ParagraphRepair(self.config.paragraph_repair))
+        if getattr(self.config, "chapter_markup", None) and getattr(self.config.chapter_markup, "enabled", True):
+            modules.append(ChapterMarkupRepair(self.config.chapter_markup))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
         if not hasattr(self.config, "whitespace_repair") or getattr(self.config.whitespace_repair, "enabled", True):
