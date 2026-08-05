@@ -52,8 +52,18 @@ MAX_CANDIDATE_WORDS = 8
 MAX_CANDIDATE_CHARS = 60
 
 # Words that strongly imply a chapter marker when they appear as a
-# prefix, regardless of what number style follows.
-LABEL_WORDS = ("chapter", "part", "book", "section")
+# prefix, regardless of what number style follows. Split into two
+# tiers: CHAPTER_LABEL_WORDS mark an ordinary chapter, PART_LABEL_WORDS
+# mark a bigger structural division (Book/Part/Volume) that a novel's
+# chapter numbering commonly restarts under -- "BOOK ONE" ... "CHAPTER
+# I" ... "CHAPTER II" ... "BOOK TWO" ... "CHAPTER I" again. Older public
+# -domain novels (Tolstoy, Hugo, Dumas) do this constantly, and without
+# recognizing the restart, only the first part's chapters get counted
+# as a "believable sequence" -- the rest look like broken numbering and
+# get thrown out.
+CHAPTER_LABEL_WORDS = ("chapter", "section")
+PART_LABEL_WORDS = ("book", "part", "volume")
+LABEL_WORDS = CHAPTER_LABEL_WORDS + PART_LABEL_WORDS
 
 ROMAN_NUMERAL_RE = re.compile(r"^[IVXLCDM]+$", re.IGNORECASE)
 ARABIC_RE = re.compile(r"^\d{1,4}$")
@@ -100,6 +110,7 @@ class ChapterCandidate:
     style: MarkerStyle | None = None
     number: int | None = None
     label_prefix: bool = False      # text started with "Chapter"/"Part"/etc.
+    label_kind: str | None = None   # "chapter", "part" (Book/Part/Volume), or None (bare numeral)
     isolated: bool = True           # element's own text is *only* the marker
     is_heading_tag: bool = False
     css_hint: bool = False          # class or id mentions chapter/title/heading
@@ -107,6 +118,7 @@ class ChapterCandidate:
     confirmed: bool = False         # part of the winning sequence
     occurrence_count: int = 1       # how many consecutive files repeated this exact marker
     also_seen_hrefs: list = field(default_factory=list)  # the other files it was folded in from
+    part_index: int = 0             # which Book/Part/Volume this candidate falls under (0 = before/without any)
 
 
 @dataclass
@@ -123,6 +135,7 @@ class BookChapterSummary:
     confirmed_boundaries: list = field(default_factory=list)
     best_sequence: ChapterSequence | None = None
     other_sequences: list = field(default_factory=list)
+    parts: list = field(default_factory=list)  # detected Book/Part/Volume-level markers, in book order
 
 
 # ---------------------------------------------------------------------
@@ -287,10 +300,13 @@ def _classify_number_only(text: str) -> tuple[MarkerStyle, int] | None:
     return None
 
 
-def _classify(text: str) -> tuple[MarkerStyle, int, bool] | None:
+def _classify(text: str) -> tuple[MarkerStyle, int, bool, str | None] | None:
     """
     Try to read `text` as a chapter marker. Returns (style, number,
-    had_label_prefix) or None if it doesn't look like one at all.
+    had_label_prefix, label_kind) or None if it doesn't look like one
+    at all. label_kind is "part" for a Book/Part/Volume-style division,
+    "chapter" for an ordinary chapter, or None when there's no label
+    word at all (a bare "4" or "IV").
     """
     stripped = text.strip()
     if not stripped:
@@ -311,14 +327,15 @@ def _classify(text: str) -> tuple[MarkerStyle, int, bool] | None:
         if result is None:
             return None
         style, number = result
-        return style, number, True
+        label_kind = "part" if first_word in PART_LABEL_WORDS else "chapter"
+        return style, number, True, label_kind
 
     # No label word. First try treating the whole text as a number
     # ("IV", "4", "Four").
     result = _classify_number_only(stripped)
     if result is not None:
         style, number = result
-        return style, number, False
+        return style, number, False, None
 
     # Fall back to "number word immediately followed by more words, no
     # separator" ("FOURTH MACHINATION"). Gated on the text reading like
@@ -328,7 +345,7 @@ def _classify(text: str) -> tuple[MarkerStyle, int, bool] | None:
     lead = _leading_spelled_number(words)
     if lead is not None and _looks_titleish(stripped):
         _, number, style = lead
-        return style, number, False
+        return style, number, False, None
 
     return None
 
@@ -394,7 +411,7 @@ def extract_candidates(href: str, tree) -> list:
         if classified is None:
             continue
 
-        style, number, label_prefix = classified
+        style, number, label_prefix, label_kind = classified
         cand = ChapterCandidate(
             href=href,
             tag=tag,
@@ -403,6 +420,7 @@ def extract_candidates(href: str, tree) -> list:
             style=style,
             number=number,
             label_prefix=label_prefix,
+            label_kind=label_kind,
             isolated=True,
             is_heading_tag=tag.startswith("h") and len(tag) == 2,
             css_hint=_css_mentions_chapter(el),
@@ -519,6 +537,12 @@ MAX_SEQUENCE_GAP = 2
 # Below this, an increasing run of two numbers is too easily coincidence.
 MIN_SEQUENCE_LENGTH = 3
 
+# After crossing into a new Book/Part/Volume, a chapter number this
+# small or smaller is treated as a legitimate restart ("CHAPTER I"
+# again) rather than a break in the sequence. Set higher than 1 to
+# tolerate a missing/unlabeled first chapter within the new part.
+PART_RESTART_MAX_NUMBER = 2
+
 
 def _find_best_sequence(candidates: list) -> ChapterSequence | None:
     """
@@ -537,6 +561,15 @@ def _find_best_sequence(candidates: list) -> ChapterSequence | None:
     the real chapter headings only increment a few dozen times. Summing
     score instead of counting candidates means that long, low-confidence
     run can't out-rank a shorter, well-labeled one just by being longer.
+
+    Crossing into a new Book/Part/Volume (candidate.part_index goes up,
+    see _assign_part_indices) is also allowed to "reset" the count back
+    down near 1 without breaking the run -- many classic novels number
+    chapters within each part rather than across the whole book
+    ("BOOK ONE" / "CHAPTER I"..."CHAPTER XXVIII", then "BOOK TWO" /
+    "CHAPTER I" again), and without this the chain would snap at every
+    part boundary and only the first part's chapters would ever be
+    reported.
     """
     by_style: dict = {}
     for c in candidates:
@@ -558,16 +591,27 @@ def _find_best_sequence(candidates: list) -> ChapterSequence | None:
             for j in range(i):
                 if group[j].number is None or group[i].number is None:
                     continue
-                gap = group[i].number - group[j].number
-                if 1 <= gap <= MAX_SEQUENCE_GAP:
-                    candidate_score = dp[j][0] + group[i].score
-                    candidate_len = dp[j][1] + 1
-                    # Compare on (score, length) together: score is the
-                    # primary signal, but when two paths score exactly
-                    # the same (e.g. a run of equally-weak bare numbers),
-                    # prefer the longer one rather than stopping early.
-                    if (candidate_score, candidate_len) > (dp[i][0], dp[i][1]):
-                        dp[i] = (candidate_score, candidate_len, j)
+                if group[i].part_index == group[j].part_index:
+                    gap = group[i].number - group[j].number
+                    valid = 1 <= gap <= MAX_SEQUENCE_GAP
+                elif group[i].part_index > group[j].part_index:
+                    # Crossed into a later Book/Part/Volume -- numbering
+                    # is allowed to restart near 1 instead of needing to
+                    # keep counting up from wherever the last part left
+                    # off.
+                    valid = group[i].number <= PART_RESTART_MAX_NUMBER
+                else:
+                    valid = False
+                if not valid:
+                    continue
+                candidate_score = dp[j][0] + group[i].score
+                candidate_len = dp[j][1] + 1
+                # Compare on (score, length) together: score is the
+                # primary signal, but when two paths score exactly
+                # the same (e.g. a run of equally-weak bare numbers),
+                # prefer the longer one rather than stopping early.
+                if (candidate_score, candidate_len) > (dp[i][0], dp[i][1]):
+                    dp[i] = (candidate_score, candidate_len, j)
 
         # Walk back from the best-scoring ending point to collect that
         # style's winning run. Same (score, length) tie-break as above --
@@ -598,6 +642,24 @@ def _find_best_sequence(candidates: list) -> ChapterSequence | None:
 # Book-level entry point
 # ---------------------------------------------------------------------
 
+def _assign_part_indices(chapter_candidates: list, part_candidates: list) -> None:
+    """
+    Stamps each chapter candidate with how many Book/Part/Volume
+    markers came before it in the book (0 if none yet). Mutates the
+    candidates in place. Both lists must already share the same
+    book_order numbering.
+    """
+    if not part_candidates:
+        return
+    parts_sorted = sorted(part_candidates, key=lambda c: c.book_order)
+    idx = 0
+    n = len(parts_sorted)
+    for c in sorted(chapter_candidates, key=lambda c: c.book_order):
+        while idx < n and parts_sorted[idx].book_order <= c.book_order:
+            idx += 1
+        c.part_index = idx
+
+
 def analyze_book_chapters(book) -> BookChapterSummary:
     all_candidates = []
     order = 0
@@ -612,12 +674,19 @@ def analyze_book_chapters(book) -> BookChapterSummary:
 
     all_candidates = merge_repeated_markers(all_candidates)
 
-    summary = BookChapterSummary(candidates=all_candidates)
+    part_candidates = [c for c in all_candidates if c.label_kind == "part"]
+    chapter_candidates = [c for c in all_candidates if c.label_kind != "part"]
+    _assign_part_indices(chapter_candidates, part_candidates)
 
-    if not all_candidates:
+    summary = BookChapterSummary(
+        candidates=all_candidates,
+        parts=sorted(part_candidates, key=lambda c: c.book_order),
+    )
+
+    if not chapter_candidates:
         return summary
 
-    best, all_sequences = _find_best_sequence(all_candidates)
+    best, all_sequences = _find_best_sequence(chapter_candidates)
     summary.best_sequence = best
     summary.other_sequences = [s for s in all_sequences if s is not best]
 

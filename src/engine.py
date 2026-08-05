@@ -149,6 +149,15 @@ class Engine:
                         self.log(f"  • {ch.href} - {title} ({len(ch.heading_issues)} issue(s))")
 
             ch_summary = analysis_report.chapters
+            if ch_summary.parts:
+                self.log(
+                    f"\n--- Parts ---"
+                    f"\nDetected {len(ch_summary.parts)} Book/Part/Volume-level division(s), "
+                    "chapter numbering is treated as restarting under each:"
+                )
+                for p in ch_summary.parts:
+                    self.log(f"  • {p.text!r} - {p.href}")
+
             if ch_summary.best_sequence:
                 seq = ch_summary.best_sequence
                 files_spanned = len({c.href for c in seq.candidates})
