@@ -16,6 +16,7 @@ from ebook_fix.modules.whitespace import WhitespaceRepair
 
 console = Console()
 
+
 class Engine:
     def __init__(self, verbose=False, config=None, auto_repair_container=True):
         self.verbose = verbose
@@ -93,8 +94,15 @@ class Engine:
             analysis_report = analyzer.analyze(book)
 
             s = analysis_report.summary
-            self.log("")
-            self.header("Book Info")
+            ch_summary = analysis_report.chapters
+            t = analysis_report.typography
+            css = analysis_report.css
+
+            # ==========================================
+            # 1. ANALYSIS & OVERVIEW (Top Section)
+            # ==========================================
+
+            self.header("/n[Book Metadata]")
             self.log(
                 f"Title: {s.title or '(none found)'}"
                 f"\nAuthor: {s.author or '(none found)'}"
@@ -111,7 +119,7 @@ class Engine:
                 self.log(f"Description: {s.description}")
 
             self.log("")
-            self.header("File Contents")
+            self.header("[File Contents]")
             self.log(
                 f"HTML/XHTML pages: {s.html_page_count}"
                 f"\nSpine entries: {s.spine_entry_count}"
@@ -126,294 +134,178 @@ class Engine:
             )
 
             self.log("")
-            self.header("Book Overview")
+            self.header("[Book Structure Overview]")
             self.log(
-                f"Chapters: {len(analysis_report.chapter_reports)}"
-                f"\nTotal Paragraphs: {analysis_report.total_paragraphs}"
+                f"Total Paragraphs: {analysis_report.total_paragraphs}"
                 f"\nTotal Images: {analysis_report.total_images}"
                 f"\nTotal Links: {analysis_report.total_links}"
             )
 
-            if analysis_report.thin_chapters:
-                self.log(
-                    f"\n⚠ {len(analysis_report.thin_chapters)} chapter(s) look thin/empty "
-                    "(0 paragraphs or under 50 words). This can be normal for a "
-                    "title/copyright page, or a sign of a bad chapter split. "
-                    "Run with --details to see which."
-                )
-                if not details:
-                    for ch in analysis_report.thin_chapters:
-                        title = ch.title or "Untitled Chapter"
-                        self.log(f"  • {ch.href} - {title} ({ch.word_count} words)")
-
-            if analysis_report.chapters_with_heading_issues:
-                total_issues = sum(len(ch.heading_issues) for ch in analysis_report.chapters_with_heading_issues)
-                self.log(
-                    f"\n⚠ {total_issues} heading hierarchy issue(s) found across "
-                    f"{len(analysis_report.chapters_with_heading_issues)} chapter(s) "
-                    "(skipped levels, e.g. h1 -> h3, or multiple h1s in one chapter). "
-                    "Run with --details to see which."
-                )
-                if not details:
-                    for ch in analysis_report.chapters_with_heading_issues:
-                        title = ch.title or "Untitled Chapter"
-                        self.log(f"  • {ch.href} - {title} ({len(ch.heading_issues)} issue(s))")
-
-            ch_summary = analysis_report.chapters
             if ch_summary.parts:
-                self.log("")
-                self.header("Parts")
-                self.log(
-                    f"Detected {len(ch_summary.parts)} Book/Part/Volume-level division(s), "
-                    "chapter numbering is treated as restarting under each:"
-                )
-                for p in ch_summary.parts:
-                    self.log(f"  • {p.text!r} - {p.href}")
+                self.log(f"Divisions/Parts: {len(ch_summary.parts)}")
+                if details:
+                    for p in ch_summary.parts:
+                        self.log(f"  • {p.text!r} - {p.href}")
 
-            self.log("")
-            self.header("Chapters")
             if ch_summary.best_sequence:
                 seq = ch_summary.best_sequence
                 files_spanned = len({c.href for c in seq.candidates})
                 self.log(
-                    f"Detected {seq.length} chapter boundaries ({seq.style.value}), "
-                    f"across {files_spanned} file(s)."
+                    f"Chapters Detected: {seq.length} ({seq.style.value}) "
+                    f"across {files_spanned} file(s)"
                 )
-                if len(ch_summary.candidates) > seq.length:
-                    self.log(
-                        f"({len(ch_summary.candidates) - seq.length} other candidate marker(s) "
-                        "considered and not used -- run with --details to see them.)"
-                    )
             else:
-                self.log(
-                    f"No confident chapter sequence found "
-                    f"({len(ch_summary.candidates)} candidate marker(s) considered, none formed a "
-                    "believable run). This is normal if the book is already split one-file-per-chapter."
-                )
+                self.log("Chapters Detected: None")
 
-            if details:
-                self.log("")
-                self.header("Detailed Chapter Boundaries")
-                if ch_summary.best_sequence:
-                    for c in ch_summary.best_sequence.candidates:
-                        repeat_note = (
-                            f" [repeated on {c.occurrence_count} pages, "
-                            "same heading folded into one chapter]"
-                            if c.occurrence_count > 1 else ""
-                        )
-                        self.log(f"  • #{c.number} - {c.href} <{c.tag}> {c.text!r} (score {c.score}){repeat_note}")
-                if ch_summary.other_sequences:
-                    self.log("\n  Other candidate sequences (not used):")
-                    for s in ch_summary.other_sequences:
-                        self.log(f"    - {s.style.value}, length {s.length}")
-                unused = [c for c in ch_summary.candidates if not c.confirmed]
-                if unused:
-                    # Group identical (style, text) markers together --
-                    # a rejected marker like a repeated footnote "2" can
-                    # show up dozens of times and isn't worth a line each.
-                    grouped = {}
-                    for c in unused:
-                        key = (c.style.value, c.text)
-                        grouped.setdefault(key, []).append(c)
-                    self.log(f"\n  Unused candidate markers ({len(unused)} total, {len(grouped)} distinct):")
-                    for (style_name, text), group in list(grouped.items())[:20]:
-                        files = sorted({c.href for c in group})
-                        files_str = files[0] if len(files) == 1 else f"{len(files)} files"
-                        self.log(f"    • {style_name} {text!r} x{len(group)} ({files_str})")
-                    if len(grouped) > 20:
-                        self.log(f"    ... (+{len(grouped) - 20} more distinct marker(s))")
-
-            t = analysis_report.typography
             self.log("")
-            self.header("Typography")
+            self.header("Typography Overview")
             self.log(
-                f"Quotes: {t.total_straight_double_quotes} straight double, "
-                f"{t.total_curly_double_quotes} curly double, "
-                f"{t.total_straight_apostrophes} straight apostrophe, "
-                f"{t.total_curly_apostrophes} curly apostrophe"
-                f"\nDashes: {t.total_hyphen} hyphen, {t.total_en_dash} en dash, "
-                f"{t.total_em_dash} em dash, {t.total_double_hyphen} double-hyphen (--)"
+                f"Quotes: {t.total_straight_double_quotes} straight double, {t.total_curly_double_quotes} curly double"
+                f"\nApostrophes: {t.total_straight_apostrophes} straight apostrophe, {t.total_curly_apostrophes} curly apostrophe"
+                f"\nDashes: {t.total_hyphen} hyphen, {t.total_en_dash} en dash, {t.total_em_dash} em dash, {t.total_double_hyphen} double-hyphen (--)"
                 f"\nEllipsis: {t.total_unicode_ellipsis} unicode (…), {t.total_ascii_ellipsis} ascii (...)"
-                f"\nSentence spacing: {t.total_single_space_after_sentence} single-space, "
-                f"{t.total_double_space_after_sentence} double-space"
+                f"\nSentence spacing: {t.total_single_space_after_sentence} single-space, {t.total_double_space_after_sentence} double-space"
             )
 
-            if t.quote_style_inconsistent:
-                self.log(
-                    f"\n⚠ Dialogue quote style is inconsistent across the book: "
-                    f"{len(t.straight_quote_chapters)} chapter(s) use straight quotes, "
-                    f"{len(t.curly_quote_chapters)} chapter(s) use curly quotes. "
-                    "This is a common sign of content merged from different sources."
-                )
-            if t.mixed_quote_chapters:
-                self.log(
-                    f"⚠ {len(t.mixed_quote_chapters)} chapter(s) mix straight and curly "
-                    "dialogue quotes within the same file. Run with --details to see which."
-                )
-            if t.apostrophe_style_inconsistent:
-                self.log(
-                    f"\nNote: apostrophe style differs across the book "
-                    f"({len(t.straight_apostrophe_chapters)} chapter(s) straight, "
-                    f"{len(t.curly_apostrophe_chapters)} chapter(s) curly). "
-                    "This is often intentional (many conversions only curl quotation "
-                    "marks, not contractions) but worth a look if unexpected."
-                )
-            if t.mixed_apostrophe_chapters:
-                self.log(
-                    f"⚠ {len(t.mixed_apostrophe_chapters)} chapter(s) mix straight and curly "
-                    "apostrophes within the same file. Run with --details to see which."
-                )
-
-            if t.chapters_with_mojibake:
-                self.log(
-                    f"\n⚠ Possible encoding corruption (mojibake) found in "
-                    f"{len(t.chapters_with_mojibake)} chapter(s), {t.total_mojibake} instance(s) total. "
-                    "Run with --details to see samples."
-                )
-            if t.chapters_with_bom:
-                self.log(f"⚠ {len(t.chapters_with_bom)} chapter(s) contain a stray BOM character.")
-            if t.total_zero_width_space:
-                self.log(f"⚠ {t.total_zero_width_space} zero-width space character(s) found across the book.")
-            if t.total_soft_hyphen:
-                self.log(f"⚠ {t.total_soft_hyphen} soft hyphen character(s) found across the book.")
-            if t.total_control_chars:
-                self.log(f"⚠ {t.total_control_chars} stray control character(s) found across the book.")
-
-            if t.chapters_with_all_caps_runs:
-                self.log(
-                    f"\n{len(t.chapters_with_all_caps_runs)} chapter(s) contain runs of ALL-CAPS text "
-                    f"({t.total_all_caps_runs} total) -- could be intentional emphasis or an OCR artifact. "
-                    "Run with --details to see samples."
-                )
-            if t.chapters_with_repeated_punctuation:
-                self.log(
-                    f"{len(t.chapters_with_repeated_punctuation)} chapter(s) contain repeated punctuation "
-                    f"(e.g. '!!', '....') -- {t.total_repeated_punctuation} instance(s) total. "
-                    "Run with --details to see samples."
-                )
-
-            css = analysis_report.css
             self.log("")
-            self.header("CSS")
+            self.header("CSS Overview")
             self.log(
-                f"Stylesheets: {css.css_file_count} | Rules: {css.total_rules} | "
-                f"!important uses: {css.total_important}"
+                f"Stylesheets: {css.css_file_count} | Rules: {css.total_rules} | !important uses: {css.total_important}"
                 f"\nDeclared classes: {css.declared_class_count} | Declared ids: {css.declared_id_count}"
                 f"\nInline style attributes used in HTML: {css.inline_style_element_count}"
             )
 
-            if css.unused_class_total:
-                self.log(
-                    f"\n{css.unused_class_total} CSS class(es) are declared but never used in any chapter. "
-                    "This is common in template/converter-generated stylesheets and isn't "
-                    "necessarily a problem. Run with --details to see samples."
-                )
-            if css.undeclared_class_total:
-                self.log(
-                    f"⚠ {css.undeclared_class_total} class(es) are used in chapter HTML but never "
-                    "declared in any stylesheet, so they have no styling. Run with --details to see which."
-                )
-            if css.duplicate_selectors_by_file:
-                total_dupes = sum(len(v) for v in css.duplicate_selectors_by_file.values())
-                self.log(
-                    f"⚠ {total_dupes} duplicate selector(s) found across "
-                    f"{len(css.duplicate_selectors_by_file)} stylesheet(s) (same selector declared "
-                    "more than once -- later rules silently override earlier ones). "
-                    "Run with --details to see which."
-                )
-            if css.unbalanced_brace_files:
-                self.log(f"⚠ {len(css.unbalanced_brace_files)} stylesheet(s) have unbalanced {{ }} braces: {css.unbalanced_brace_files}")
-            if css.unreadable_files:
-                self.log(f"⚠ {len(css.unreadable_files)} stylesheet(s) listed in the manifest couldn't be read: {css.unreadable_files}")
-            if css.missing_embedded_fonts:
-                self.log(
-                    f"⚠ {len(css.missing_embedded_fonts)} @font-face reference(s) point to a font file "
-                    f"that isn't actually in the EPUB: {css.missing_embedded_fonts}"
-                )
-
-            if details:
-                if css.unused_classes:
-                    more = f" (+{css.unused_class_total - len(css.unused_classes)} more)" if css.unused_class_total > len(css.unused_classes) else ""
-                    self.log(f"\n  Unused CSS classes: {', '.join(css.unused_classes)}{more}")
-                if css.undeclared_classes:
-                    more = f" (+{css.undeclared_class_total - len(css.undeclared_classes)} more)" if css.undeclared_class_total > len(css.undeclared_classes) else ""
-                    shown = ", ".join(f"{cls} ({cnt}x)" for cls, cnt in css.undeclared_classes)
-                    self.log(f"  Undeclared classes used in HTML: {shown}{more}")
-                for href, dupes in css.duplicate_selectors_by_file.items():
-                    shown = ", ".join(f"{sel!r} ({cnt}x)" for sel, cnt in dupes)
-                    self.log(f"  Duplicate selectors in {href}: {shown}")
-
-            # Render detailed breakdown if details=True is requested
+            # Optional detailed structural breakdown output
             if details:
                 self.log("")
-                self.header("Detailed Chapter Analysis")
+                self.header("Detailed Chapter Structure")
+                if ch_summary.best_sequence:
+                    for c in ch_summary.best_sequence.candidates:
+                        repeat_note = (
+                            f" [repeated on {c.occurrence_count} pages]"
+                            if c.occurrence_count > 1 else ""
+                        )
+                        self.log(f"  • #{c.number} - {c.href} <{c.tag}> {c.text!r} (score {c.score}){repeat_note}")
+
                 for ch in analysis_report.chapter_reports:
                     title = ch.title or "Untitled Chapter"
-                    thin_marker = "  [THIN/EMPTY]" if ch.is_thin else ""
+                    thin_marker = " [THIN/EMPTY]" if ch.is_thin else ""
                     self.log(f"\n[Chapter: {ch.href} - {title}]{thin_marker}")
                     self.log(f"  • Paragraphs: {ch.paragraphs} | Images: {ch.images} | Links: {ch.links} | Words: {ch.word_count}")
                     self.log(f"  • Tables: {ch.tables} | Lists: {ch.lists}")
-                    
                     if ch.headings:
-                        headings_str = ", ".join(f"{h.upper()}: {cnt}" for h, cnt in ch.headings.items())
-                        self.log(f"  • Headings: {headings_str}")
-
-                    if ch.heading_issues:
-                        for issue in ch.heading_issues:
-                            self.log(f"  ⚠ {issue}")
-                    
+                        self.log(f"  • Headings: " + ", ".join(f"{h.upper()}: {cnt}" for h, cnt in ch.headings.items()))
                     if ch.css_classes:
-                        # Top 5 most used CSS classes in this chapter
                         top_classes = ", ".join(f".{cls} ({cnt})" for cls, cnt in ch.css_classes.most_common(5))
                         self.log(f"  • Top Classes: {top_classes}")
 
-                    typ = ch.typography
-                    self.log(
-                        f"  • Quote style: {typ.quote_style} "
-                        f"({typ.straight_double_quotes} straight-\", {typ.curly_double_quotes} curly-\")"
-                        f" | Apostrophe style: {typ.apostrophe_style} "
-                        f"({typ.straight_apostrophes} straight-', {typ.curly_apostrophes} curly-')"
-                    )
-                    if typ.sentence_count:
-                        self.log(
-                            f"  • Sentences: {typ.sentence_count} "
-                            f"(avg {typ.avg_sentence_words} words, "
-                            f"range {typ.shortest_sentence_words}-{typ.longest_sentence_words})"
-                        )
-                    if typ.mojibake_count:
-                        self.log(f"  ⚠ Possible mojibake ({typ.mojibake_count}): {typ.mojibake_samples}")
-                    if typ.bom_found:
-                        self.log(f"  ⚠ BOM character found in chapter text")
-                    if typ.zero_width_space_count:
-                        self.log(f"  ⚠ {typ.zero_width_space_count} zero-width space character(s)")
-                    if typ.soft_hyphen_count:
-                        self.log(f"  ⚠ {typ.soft_hyphen_count} soft hyphen character(s)")
-                    if typ.control_char_count:
-                        self.log(f"  ⚠ {typ.control_char_count} stray control character(s)")
-                    if typ.all_caps_run_count:
-                        self.log(f"  • ALL-CAPS runs ({typ.all_caps_run_count}): {typ.all_caps_samples}")
-                    if typ.repeated_punctuation_count:
-                        self.log(f"  • Repeated punctuation ({typ.repeated_punctuation_count}): {typ.repeated_punctuation_samples}")
-                    if typ.double_hyphen_count:
-                        self.log(f"  • Double-hyphen (--) possibly standing in for em dash: {typ.double_hyphen_count}")
-                    if typ.double_space_after_sentence:
-                        self.log(f"  • Double-space after sentence: {typ.double_space_after_sentence}")
+            # ==========================================
+            # 2. ISSUES & FINDINGS (Bottom Section)
+            # ==========================================
+
+            self.log("")
+            self.header("Issues & Findings Summary")
+
+            # Structure Issues
+            structural_issues = []
+            if analysis_report.thin_chapters:
+                structural_issues.append(f"Thin/Empty Chapters: {len(analysis_report.thin_chapters)}")
+            
+            heading_issue_count = sum(len(ch.heading_issues) for ch in analysis_report.chapters_with_heading_issues)
+            if heading_issue_count:
+                structural_issues.append(
+                    f"Heading Hierarchy Issues: {heading_issue_count} across {len(analysis_report.chapters_with_heading_issues)} chapter(s)"
+                )
+
+            if structural_issues:
+                self.log("\n[Structure]")
+                for issue in structural_issues:
+                    self.log(f"  • {issue}")
+                
+                if details:
+                    if analysis_report.thin_chapters:
+                        self.log("    Thin chapters detail:")
+                        for ch in analysis_report.thin_chapters:
+                            self.log(f"      - {ch.href} ({ch.word_count} words)")
+                    if analysis_report.chapters_with_heading_issues:
+                        self.log("    Heading issues detail:")
+                        for ch in analysis_report.chapters_with_heading_issues:
+                            for issue in ch.heading_issues:
+                                self.log(f"      - {ch.href}: {issue}")
+
+            # Typography Issues
+            typo_issues = []
+            if t.quote_style_inconsistent:
+                typo_issues.append("Inconsistent dialogue quote styles across chapters")
+            if t.mixed_quote_chapters:
+                typo_issues.append(f"Mixed quote styles within same file ({len(t.mixed_quote_chapters)} chapters)")
+            if t.apostrophe_style_inconsistent:
+                typo_issues.append("Inconsistent apostrophe styles across chapters")
+            if t.mixed_apostrophe_chapters:
+                typo_issues.append(f"Mixed apostrophe styles within same file ({len(t.mixed_apostrophe_chapters)} chapters)")
+            if t.chapters_with_mojibake:
+                typo_issues.append(f"Possible Encoding Corruption (mojibake): {t.total_mojibake} instance(s) in {len(t.chapters_with_mojibake)} chapter(s)")
+            if t.chapters_with_bom:
+                typo_issues.append(f"Stray BOM characters in {len(t.chapters_with_bom)} chapter(s)")
+            if t.total_zero_width_space:
+                typo_issues.append(f"Zero-width spaces: {t.total_zero_width_space}")
+            if t.total_soft_hyphen:
+                typo_issues.append(f"Soft hyphens: {t.total_soft_hyphen}")
+            if t.total_control_chars:
+                typo_issues.append(f"Stray control characters: {t.total_control_chars}")
+            if t.chapters_with_all_caps_runs:
+                typo_issues.append(f"ALL-CAPS text runs: {t.total_all_caps_runs} across {len(t.chapters_with_all_caps_runs)} chapter(s)")
+            if t.chapters_with_repeated_punctuation:
+                typo_issues.append(f"Repeated punctuation runs: {t.total_repeated_punctuation} across {len(t.chapters_with_repeated_punctuation)} chapter(s)")
+
+            if typo_issues:
+                self.log("\n[Typography]")
+                for issue in typo_issues:
+                    self.log(f"  • {issue}")
+
+            # CSS Issues
+            css_issues = []
+            if css.unused_class_total:
+                css_issues.append(f"Unused CSS classes declared: {css.unused_class_total}")
+            if css.undeclared_class_total:
+                css_issues.append(f"Undeclared classes used in HTML: {css.undeclared_class_total}")
+            if css.duplicate_selectors_by_file:
+                total_dupes = sum(len(v) for v in css.duplicate_selectors_by_file.values())
+                css_issues.append(f"Duplicate selectors: {total_dupes} across {len(css.duplicate_selectors_by_file)} file(s)")
+            if css.unbalanced_brace_files:
+                css_issues.append(f"Stylesheets with unbalanced braces: {len(css.unbalanced_brace_files)}")
+            if css.unreadable_files:
+                css_issues.append(f"Unreadable stylesheets: {len(css.unreadable_files)}")
+            if css.missing_embedded_fonts:
+                css_issues.append(f"Missing font file references (@font-face): {len(css.missing_embedded_fonts)}")
+
+            if css_issues:
+                self.log("\n[CSS]")
+                for issue in css_issues:
+                    self.log(f"  • {issue}")
+                
+                if details:
+                    if css.unused_classes:
+                        self.log(f"    Unused classes: {', '.join(css.unused_classes)}")
+                    if css.undeclared_classes:
+                        shown = ", ".join(f"{cls} ({cnt}x)" for cls, cnt in css.undeclared_classes)
+                        self.log(f"    Undeclared classes: {shown}")
+
+            # Module Diagnostics Execution
+            self.log("\n[Module Checks]")
+            if not self.modules:
+                self.log("  No repair modules enabled.")
+            else:
+                total_module_issues = 0
+                for module in self.modules:
+                    report = module.analyze(book)
+                    total_module_issues += report.count
+                    self.log(f"  • {module.name}: {report.count} issue(s) found")
+                    #if details and report.count > 0:
+                        #report.print(details=True)
 
             self.log("")
 
-            if not self.modules:
-                self.log("No repair modules are enabled in the config. Nothing to do.")
-                return
-
-            self.log("Running module analysis...\n")
-            total_issues = 0
-            for module in self.modules:
-                self.log(f"[{module.name}]")
-                report = module.analyze(book)
-                report.print(details=details)
-                total_issues += report.count
-                self.log("")
-            self.log(f"Finished. {total_issues} issue(s) found total.")
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
