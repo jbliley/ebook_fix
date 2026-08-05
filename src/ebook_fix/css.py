@@ -88,6 +88,10 @@ def analyze_css_text(css_text: str, href: str = "") -> CSSFileReport:
             r.declared_classes[cm.group(1)] += 1
         for im in ID_SELECTOR_RE.finditer(selector):
             r.declared_ids[im.group(1)] += 1
+        if "page-break" in body or "break-before" in body or "break-after" in body:
+            s.page_break_rule_count += 1
+        if "height:" in body or "max-height:" in body:
+            s.forced_height_count += 1
 
     r.duplicate_selectors = [(sel, cnt) for sel, cnt in selector_counts.items() if cnt > 1]
     return r
@@ -135,6 +139,14 @@ class BookCSSSummary:
 
     declared_class_count: int = 0
     declared_id_count: int = 0
+    
+    # Detect hazardous properties in rule bodies
+    page_break_rule_count: int = 0
+    forced_height_count: int = 0
+
+    # Count and list of default named "calibre" css classes from calibre conversion
+    calibre_class_count: int = 0
+    calibre_classes: list = field(default_factory=list)
 
     # Classes declared in CSS but never used by any chapter's HTML.
     unused_classes: list = field(default_factory=list)
@@ -224,5 +236,9 @@ def analyze_book_css(book, chapter_reports: list) -> BookCSSSummary:
             # Skip obvious remote/system font references; only flag local-looking paths.
             if not src_clean.lower().startswith(("http://", "https://", "data:")):
                 s.missing_embedded_fonts.append(src)
+
+    calibre_found = [c for c in all_declared_classes if c.startswith("calibre")]
+    s.calibre_class_count = len(calibre_found)
+    s.calibre_classes = sorted(calibre_found)
 
     return s

@@ -4,7 +4,7 @@ ebook_fix.modules.chapter_markup
 Turns the chapter boundaries found by ebook_fix.chapters (a confirmed,
 in-order run of "Chapter Four" / "IV" / "FOURTH MACHINATION"-style
 markers) into real structure: each chapter's content gets wrapped in
-its own <section epub:type="chapter">, with a page break before it so
+its own <div epub:type="chapter">, with a page break before it so
 it starts on a fresh page in reflowable readers.
 
 This is the repair module chapters.py's own docstring points at --
@@ -66,7 +66,7 @@ class ChapterMarkupRepair:
                 candidate.href,
                 "Chapter boundary to be split out",
                 f"Chapter {i} ({candidate.text!r}) will be wrapped in its own "
-                f"<section epub:type=\"chapter\">.",
+                f"<div epub:type=\"chapter\">.",
             )
         return report
 
@@ -116,6 +116,7 @@ class ChapterMarkupRepair:
             changed = self._split_group(book, chapter, group["parent"], group["blocks"], chapter_number)
             chapter_number += len(group["blocks"])
             if changed:
+                self._inject_page_break_css(chapter)
                 chapter.modified = True
 
         book.mark_modified()
@@ -145,6 +146,44 @@ class ChapterMarkupRepair:
             node = parent
         return None
 
+    def _inject_page_break_css(self, chapter):
+        """Injects explicit stylesheet rules into <head> so readers like Calibre
+        properly evaluate CSS page breaks during cascade parsing."""
+        # chapter.document is already an lxml _Element (usually <html>)
+        root = chapter.document if hasattr(chapter.document, "find") else chapter.document.getroot()
+
+        # Find or create <head>
+        head = root.find(".//{*}head")
+        if head is None:
+            head = etree.Element("head")
+            root.insert(0, head)
+
+        # Check if style block was already injected
+        for style_el in head.findall(".//{*}style"):
+            if style_el.get("id") == "ebookfix-pagebreak-rules":
+                return
+
+        css_content = """
+            .ebookfix-chapter-wrapper {
+                display: block !important;
+                page-break-before: always !important;
+                break-before: page !important;
+                -webkit-break-before: page !important;
+                clear: both !important;
+                margin-top: 0 !important;
+                padding-top: 1px !important;
+            }
+            .ebookfix-chapter-wrapper > *[data-ebookfix-chapter="true"] {
+                page-break-before: always !important;
+                break-before: page !important;
+                margin-top: 0 !important;
+            }
+        """
+
+        style_node = etree.Element("style", attrib={"type": "text/css", "id": "ebookfix-pagebreak-rules"})
+        style_node.text = css_content
+        head.append(style_node)
+
     def _split_group(self, book, chapter, parent, blocks, start_number):
         children = list(parent)
         indices = []
@@ -159,8 +198,6 @@ class ChapterMarkupRepair:
         used_ids = {el.get("id") for el in chapter.document.iter() if el.get("id")}
         changed = False
 
-        # Walk in reverse so earlier insertions don't shift the indices
-        # of groups we haven't processed yet.
         for pos, start_idx in reversed(list(enumerate(indices))):
             end_idx = indices[pos + 1] if pos + 1 < len(indices) else len(children)
             slice_children = children[start_idx:end_idx]
@@ -177,20 +214,51 @@ class ChapterMarkupRepair:
             used_ids.add(section_id)
 
             section = etree.Element(
-                element_tag_qname(parent, "section"),
+                element_tag_qname(parent, "div"),
                 nsmap={"epub": EPUB_OPS_NS},
             )
             section.set(f"{{{EPUB_OPS_NS}}}type", "chapter")
             section.set("id", section_id)
+            section.set("class", "ebookfix-chapter-wrapper")
+
             if not is_very_first_chapter:
-                section.set("style", "page-break-before: always; break-before: page;")
+                section.set(
+                    "style",
+                    "display: block !important; page-break-before: always !important; break-before: page !important; margin-top: 0 !important; padding-top: 1px !important;"
+                )
 
             marker_block = slice_children[0]
             marker_block.set(MARKER_ATTR, "true")
 
+            if not is_very_first_chapter:
+                existing_style = marker_block.get("style", "")
+                marker_block.set(
+                    "style",
+                    f"clear: both; page-break-before: always !important; break-before: page !important; {existing_style}".strip()
+                )
+
+            # --- STEP B: CLEAN UP ANCHORS FROM PRECEDING SIBLING ---
+            # Check if the element directly preceding this chapter marker has anchor tags at the end
+            preceding_node = marker_block.getprevious()
+            anchors_to_move = []
+
+            if preceding_node is not None:
+                # Find <a> tags inside the preceding paragraph/block
+                for anchor in preceding_node.findall(".//a"):
+                    # Check if it looks like a chapter target (has id/name)
+                    anchor_id = anchor.get("id") or anchor.get("name") or ""
+                    if anchor_id:
+                        anchors_to_move.append(anchor)
+
+            # Reparent extracted anchors into the new chapter div
+            for anchor in anchors_to_move:
+                anchor.getparent().remove(anchor)
+                section.append(anchor)
+            # -----------------------------------------------------
+
             parent.insert(start_idx, section)
             for child in slice_children:
-                section.append(child)  # lxml re-parents; also carries the child's tail text
+                section.append(child)
 
             changed = True
 
