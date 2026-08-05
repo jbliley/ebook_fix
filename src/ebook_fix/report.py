@@ -10,6 +10,15 @@ the summary view) plus a free-text `description` with the specific
 detail (which file, which src, etc). Modules pick the category;
 callers who want the full line-by-line list can still get it via
 print(details=True).
+
+Output style
+------------
+All analysis output across the project follows the same plain-text
+format: an underlined header, then "Category: Count" lines beneath
+it. No tables, no color, except for pass/fail or warning markers.
+`print_header()` is the shared helper for that header style -- other
+modules (validation, container_repair, engine) import it from here
+so every section of output looks the same.
 """
 
 from __future__ import annotations
@@ -19,6 +28,11 @@ from rich.console import Console
 from rich.table import Table
 
 console = Console()
+
+
+def print_header(text: str) -> None:
+    """Print a section/category header, underlined, no color."""
+    console.print(f"[underline]{text}[/underline]")
 
 
 @dataclass(slots=True)
@@ -62,12 +76,9 @@ class Report:
         console.print(
             f"  {self.count} issue(s) found across {self.locations_affected} file(s):"
         )
-        table = Table(show_header=True, header_style="bold")
-        table.add_column("Issue Type")
-        table.add_column("Count", justify="right")
+        print_header("  Issue Type")
         for category, count in self.category_counts.most_common():
-            table.add_row(category, str(count))
-        console.print(table)
+            console.print(f"  {category}: {count}")
         console.print("  (run with --details for the full list)")
 
     def _print_details(self) -> None:
@@ -75,9 +86,6 @@ class Report:
             console.print("  No issues found.")
             return
 
-        table = Table(show_header=True, header_style="bold")
-        table.add_column("Location")
-        table.add_column("Issue")
+        print_header("  Location: Issue")
         for issue in self.issues:
-            table.add_row(issue.location, issue.description)
-        console.print(table)
+            console.print(f"  {issue.location}: {issue.description}")

@@ -31,7 +31,8 @@ from pathlib import Path
 
 from lxml import etree
 from rich.console import Console
-from rich.table import Table
+
+from ebook_fix.report import print_header
 
 console = Console()
 
@@ -62,14 +63,10 @@ class ValidationResult:
         return None
 
     def print(self) -> None:
-        console.print("[bold]File integrity check[/bold]")
-        table = Table(show_header=True, header_style="bold")
-        table.add_column("Check")
-        table.add_column("Result")
+        print_header("File integrity check")
         for check in self.checks:
             status = "[green]PASS[/green]" if check.passed else "[red]FAIL[/red]"
-            table.add_row(check.name, status)
-        console.print(table)
+            console.print(f"  {check.name}: {status}")
 
         failed = self.failed_check
         if failed is not None:

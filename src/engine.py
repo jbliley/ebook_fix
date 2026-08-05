@@ -1,15 +1,20 @@
 import tempfile
 from pathlib import Path
 
+from rich.console import Console
+
 from ebook_fix.parser import EPUBParser
 from ebook_fix.writer import EPUBWriter
 from ebook_fix.config import Config
+from ebook_fix.report import print_header
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
+
+console = Console()
 
 class Engine:
     def __init__(self, verbose=False, config=None, auto_repair_container=True):
@@ -29,7 +34,10 @@ class Engine:
         return modules
 
     def log(self, message):
-        print(message)
+        console.print(message)
+
+    def header(self, text):
+        print_header(text)
 
     def _resolve_source(self, epub):
         """
@@ -85,9 +93,10 @@ class Engine:
             analysis_report = analyzer.analyze(book)
 
             s = analysis_report.summary
+            self.log("")
+            self.header("Book Info")
             self.log(
-                f"\n--- Book Info ---"
-                f"\nTitle: {s.title or '(none found)'}"
+                f"Title: {s.title or '(none found)'}"
                 f"\nAuthor: {s.author or '(none found)'}"
                 f"\nLanguage: {s.language or '(none found)'}"
                 f"\nPublisher: {s.publisher or '(none found)'}"
@@ -101,9 +110,10 @@ class Engine:
             if s.description:
                 self.log(f"Description: {s.description}")
 
+            self.log("")
+            self.header("File Contents")
             self.log(
-                f"\n--- File Contents ---"
-                f"\nHTML/XHTML pages: {s.html_page_count}"
+                f"HTML/XHTML pages: {s.html_page_count}"
                 f"\nSpine entries: {s.spine_entry_count}"
                 f"\nTOC entries: {s.toc_entry_count}"
                 f"\nCSS files: {s.css_file_count}"
@@ -115,9 +125,10 @@ class Engine:
                 f"\nTotal word count: {s.total_word_count:,}"
             )
 
+            self.log("")
+            self.header("Book Overview")
             self.log(
-                f"\n--- Book Overview ---"
-                f"\nChapters: {len(analysis_report.chapter_reports)}"
+                f"Chapters: {len(analysis_report.chapter_reports)}"
                 f"\nTotal Paragraphs: {analysis_report.total_paragraphs}"
                 f"\nTotal Images: {analysis_report.total_images}"
                 f"\nTotal Links: {analysis_report.total_links}"
@@ -150,20 +161,22 @@ class Engine:
 
             ch_summary = analysis_report.chapters
             if ch_summary.parts:
+                self.log("")
+                self.header("Parts")
                 self.log(
-                    f"\n--- Parts ---"
-                    f"\nDetected {len(ch_summary.parts)} Book/Part/Volume-level division(s), "
+                    f"Detected {len(ch_summary.parts)} Book/Part/Volume-level division(s), "
                     "chapter numbering is treated as restarting under each:"
                 )
                 for p in ch_summary.parts:
                     self.log(f"  • {p.text!r} - {p.href}")
 
+            self.log("")
+            self.header("Chapters")
             if ch_summary.best_sequence:
                 seq = ch_summary.best_sequence
                 files_spanned = len({c.href for c in seq.candidates})
                 self.log(
-                    f"\n--- Chapters ---"
-                    f"\nDetected {seq.length} chapter boundaries ({seq.style.value}), "
+                    f"Detected {seq.length} chapter boundaries ({seq.style.value}), "
                     f"across {files_spanned} file(s)."
                 )
                 if len(ch_summary.candidates) > seq.length:
@@ -173,14 +186,14 @@ class Engine:
                     )
             else:
                 self.log(
-                    f"\n--- Chapters ---"
-                    f"\nNo confident chapter sequence found "
+                    f"No confident chapter sequence found "
                     f"({len(ch_summary.candidates)} candidate marker(s) considered, none formed a "
                     "believable run). This is normal if the book is already split one-file-per-chapter."
                 )
 
             if details:
-                self.log("\n--- Detailed Chapter Boundaries ---")
+                self.log("")
+                self.header("Detailed Chapter Boundaries")
                 if ch_summary.best_sequence:
                     for c in ch_summary.best_sequence.candidates:
                         repeat_note = (
@@ -211,9 +224,10 @@ class Engine:
                         self.log(f"    ... (+{len(grouped) - 20} more distinct marker(s))")
 
             t = analysis_report.typography
+            self.log("")
+            self.header("Typography")
             self.log(
-                f"\n--- Typography ---"
-                f"\nQuotes: {t.total_straight_double_quotes} straight double, "
+                f"Quotes: {t.total_straight_double_quotes} straight double, "
                 f"{t.total_curly_double_quotes} curly double, "
                 f"{t.total_straight_apostrophes} straight apostrophe, "
                 f"{t.total_curly_apostrophes} curly apostrophe"
@@ -279,9 +293,10 @@ class Engine:
                 )
 
             css = analysis_report.css
+            self.log("")
+            self.header("CSS")
             self.log(
-                f"\n--- CSS ---"
-                f"\nStylesheets: {css.css_file_count} | Rules: {css.total_rules} | "
+                f"Stylesheets: {css.css_file_count} | Rules: {css.total_rules} | "
                 f"!important uses: {css.total_important}"
                 f"\nDeclared classes: {css.declared_class_count} | Declared ids: {css.declared_id_count}"
                 f"\nInline style attributes used in HTML: {css.inline_style_element_count}"
@@ -330,7 +345,8 @@ class Engine:
 
             # Render detailed breakdown if details=True is requested
             if details:
-                self.log("\n--- Detailed Chapter Analysis ---")
+                self.log("")
+                self.header("Detailed Chapter Analysis")
                 for ch in analysis_report.chapter_reports:
                     title = ch.title or "Untitled Chapter"
                     thin_marker = "  [THIN/EMPTY]" if ch.is_thin else ""

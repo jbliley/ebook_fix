@@ -42,6 +42,7 @@ from pathlib import Path
 from lxml import etree
 from rich.console import Console
 
+from ebook_fix.report import print_header
 from ebook_fix.validation import (
     CONTAINER_NAMESPACE,
     CONTAINER_PATH,
@@ -84,7 +85,7 @@ class RepairResult:
 
     def print(self) -> None:
         if self.actions:
-            console.print("[bold]Repair attempt[/bold]")
+            print_header("Repair attempt")
             for action in self.actions:
                 mark = "[green]done[/green]" if action.succeeded else "[red]skipped[/red]"
                 console.print(f"  [{mark}] {action.description}")
