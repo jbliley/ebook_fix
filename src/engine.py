@@ -10,6 +10,7 @@ from ebook_fix.report import print_header
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
+from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
@@ -26,6 +27,10 @@ class Engine:
 
     def _build_modules(self):
         modules = []
+        # Runs first: every other module should see the upgraded
+        # (EPUB3, nav-document-having) structure, not the original.
+        if getattr(self.config, "epub3_upgrade", None) and getattr(self.config.epub3_upgrade, "enabled", True):
+            modules.append(EPUB3UpgradeRepair(self.config.epub3_upgrade))
         if getattr(self.config, "paragraph_repair", None) and getattr(self.config.paragraph_repair, "enabled", True):
             modules.append(ParagraphRepair(self.config.paragraph_repair))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
@@ -112,6 +117,10 @@ class Engine:
                 f"\nDate: {s.date or '(none found)'}"
                 f"\nRights: {s.rights or '(none found)'}"
                 f"\nEPUB Version: {s.epub_version or 'unknown'}"
+                + (
+                    f" (will be upgraded to EPUB {s.epub_target_version})"
+                    if s.epub_needs_upgrade else ""
+                )
             )
             if s.subjects:
                 self.log(f"Subjects/Genre: {', '.join(s.subjects)}")

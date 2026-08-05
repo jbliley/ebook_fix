@@ -77,6 +77,9 @@ class Book:
     source: str | Path | None = None
     version: str = ""
     package_path: str = ""
+    opf_document: Any = None
+    opf_modified: bool = False
+    new_files: dict = field(default_factory=dict)
     metadata: Metadata = field(default_factory=Metadata)
     manifest: list[ManifestItem] = field(default_factory=list)
     spine: list[str] = field(default_factory=list)
@@ -89,6 +92,16 @@ class Book:
     video: list[Resource] = field(default_factory=list)
     other: list[Resource] = field(default_factory=list)
     modified: bool = False
+
+# opf_document: the raw lxml <package> element from content.opf, kept
+#     around so modules that need to edit package-level structure
+#     (version, manifest, metadata -- e.g. an EPUB2->EPUB3 upgrade)
+#     have something to edit. Set opf_modified=True after changing it
+#     so the writer knows to re-serialize it instead of copying the
+#     original bytes through untouched.
+# new_files: files that don't exist in the source archive at all yet
+#     (e.g. a generated EPUB3 nav.xhtml), keyed by their full in-zip
+#     path, value is the raw bytes to write.
 
 # -------------------------------------------------------------
 # Convenience Properties

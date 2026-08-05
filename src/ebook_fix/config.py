@@ -39,7 +39,13 @@ class ImageRepairConfig:
 
 
 @dataclass(slots=True)
+class EPUB3UpgradeConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class Config:
+    epub3_upgrade: EPUB3UpgradeConfig = field(default_factory=EPUB3UpgradeConfig)
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
     image_repair: ImageRepairConfig = field(default_factory=ImageRepairConfig)
 
@@ -77,9 +83,11 @@ def load_config(path: str | Path | None = None) -> Config:
         data = tomllib.load(f)
 
     modules = data.get("modules", {})
+    _apply_module_toggle(config.epub3_upgrade, modules, "epub3_upgrade")
     _apply_module_toggle(config.paragraph_repair, modules, "paragraph_repair")
     _apply_module_toggle(config.image_repair, modules, "image_repair")
 
+    _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
     _apply_section(config.image_repair, "image_repair", data.get("image_repair", {}))
 
@@ -116,8 +124,21 @@ DEFAULT_CONFIG_TEXT = """\
 # enabled.
 
 [modules]
+epub3_upgrade = true
 paragraph_repair = true
 image_repair = true
+
+# ---------------------------------------------------------------------
+# EPUB 3 Upgrade
+# ---------------------------------------------------------------------
+[epub3_upgrade]
+
+# Upgrade EPUB 2.x (or older Open Packaging Format) books to EPUB 3:
+# bumps the package version, adds the required dcterms:modified
+# metadata entry, and generates an EPUB 3 Navigation Document. Runs
+# first, before every other repair module. The existing NCX is left
+# in place for backwards compatibility with EPUB2-only readers.
+enabled = true
 
 # ---------------------------------------------------------------------
 # Paragraph Repair

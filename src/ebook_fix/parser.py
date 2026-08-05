@@ -29,6 +29,8 @@ class EPUBParser:
                 archive,
                 rootfile
             )
+            book.opf_document = package
+            book.version = package.get("version", "").strip()
             self._read_metadata(
                 package,
                 book
