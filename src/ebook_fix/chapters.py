@@ -105,6 +105,8 @@ class ChapterCandidate:
     css_hint: bool = False          # class or id mentions chapter/title/heading
     score: float = 0.0
     confirmed: bool = False         # part of the winning sequence
+    occurrence_count: int = 1       # how many consecutive files repeated this exact marker
+    also_seen_hrefs: list = field(default_factory=list)  # the other files it was folded in from
 
 
 @dataclass
@@ -112,6 +114,7 @@ class ChapterSequence:
     style: MarkerStyle | None
     length: int
     candidates: list = field(default_factory=list)
+    score_sum: float = 0.0
 
 
 @dataclass
@@ -434,6 +437,76 @@ def _score_candidate(c: ChapterCandidate) -> float:
 
 
 # ---------------------------------------------------------------------
+# Repeated-header merging
+# ---------------------------------------------------------------------
+# PDF-to-EPUB conversions frequently split one file per *printed page*
+# rather than one file per chapter, and carry the print edition's
+# running header -- the chapter title repeated at the top of every
+# page -- along with it. Left alone, that repetition makes a single
+# chapter look like dozens of them: "CHAPTER I" showing up at the top
+# of eleven separate files is one chapter, not eleven. This step folds
+# consecutive, identically-worded markers into a single candidate
+# before sequence detection ever runs, so a repeated running header
+# can't inflate the chapter count.
+
+_MARKER_NORMALIZE_RE = re.compile(r"\s+")
+
+
+def _normalize_marker_text(text: str) -> str:
+    return _MARKER_NORMALIZE_RE.sub(" ", text.strip().lower())
+
+
+def merge_repeated_markers(candidates: list) -> list:
+    """
+    Collapse runs of consecutive-in-book-order candidates that share
+    the same normalized text, style, and number -- the signature of a
+    running header repeating across pages -- into a single candidate.
+    The first occurrence is kept as the representative; later ones are
+    recorded on it via `occurrence_count` / `also_seen_hrefs` rather
+    than discarded outright, so repair modules can still see every
+    file the chapter's heading actually touched.
+
+    Runs are tracked per marker style, not across the raw mixed stream:
+    a running chapter-title header and a running page number are often
+    two separate candidates sitting side by side on every page, and
+    that page number changing between occurrences shouldn't stop the
+    chapter title's repeats from being recognized as the same run.
+    """
+    if not candidates:
+        return candidates
+
+    by_style: dict = {}
+    for c in candidates:
+        by_style.setdefault(c.style, []).append(c)
+
+    merged = []
+    for style, group in by_style.items():
+        ordered = sorted(group, key=lambda c: c.book_order)
+        i = 0
+        n = len(ordered)
+        while i < n:
+            current = ordered[i]
+            norm = _normalize_marker_text(current.text)
+            seen_hrefs = []
+            j = i + 1
+            while j < n:
+                nxt = ordered[j]
+                if _normalize_marker_text(nxt.text) != norm or nxt.number != current.number:
+                    break
+                if nxt.href not in seen_hrefs and nxt.href != current.href:
+                    seen_hrefs.append(nxt.href)
+                j += 1
+            if j - i > 1:
+                current.occurrence_count = j - i
+                current.also_seen_hrefs = seen_hrefs
+            merged.append(current)
+            i = j
+
+    merged.sort(key=lambda c: c.book_order)
+    return merged
+
+
+# ---------------------------------------------------------------------
 # Sequence validation
 # ---------------------------------------------------------------------
 
@@ -449,10 +522,21 @@ MIN_SEQUENCE_LENGTH = 3
 
 def _find_best_sequence(candidates: list) -> ChapterSequence | None:
     """
-    Longest-increasing-run search, grouped by marker style (a book
+    Best-scoring-increasing-run search, grouped by marker style (a book
     normally sticks to one numbering style throughout). Within a style,
-    finds the longest run of candidates, in book order, where each
-    number is greater than the last by no more than MAX_SEQUENCE_GAP.
+    finds the run of candidates, in book order, where each number is
+    greater than the last by no more than MAX_SEQUENCE_GAP, maximizing
+    total candidate score rather than raw run length.
+
+    Score, not length, decides the winner across styles. A run of bare,
+    unlabeled numbers (score close to 0 each, see _score_candidate) can
+    easily outnumber a run of confidently-labeled markers like "CHAPTER
+    I", "CHAPTER II" -- that's exactly what happens when a print-to-EPUB
+    conversion leaves the printed page number in a running header: the
+    page numbers count up across nearly every file in the book, while
+    the real chapter headings only increment a few dozen times. Summing
+    score instead of counting candidates means that long, low-confidence
+    run can't out-rank a shorter, well-labeled one just by being longer.
     """
     by_style: dict = {}
     for c in candidates:
@@ -467,22 +551,30 @@ def _find_best_sequence(candidates: list) -> ChapterSequence | None:
         if n == 0:
             continue
 
-        # dp[i] = (run_length, predecessor_index) for the best run ending at i
-        dp = [(1, -1)] * n
+        # dp[i] = (score_sum, run_length, predecessor_index) for the
+        # best-scoring run ending at i.
+        dp = [(group[i].score, 1, -1) for i in range(n)]
         for i in range(n):
             for j in range(i):
                 if group[j].number is None or group[i].number is None:
                     continue
                 gap = group[i].number - group[j].number
                 if 1 <= gap <= MAX_SEQUENCE_GAP:
-                    candidate_len = dp[j][0] + 1
-                    if candidate_len > dp[i][0]:
-                        dp[i] = (candidate_len, j)
+                    candidate_score = dp[j][0] + group[i].score
+                    candidate_len = dp[j][1] + 1
+                    # Compare on (score, length) together: score is the
+                    # primary signal, but when two paths score exactly
+                    # the same (e.g. a run of equally-weak bare numbers),
+                    # prefer the longer one rather than stopping early.
+                    if (candidate_score, candidate_len) > (dp[i][0], dp[i][1]):
+                        dp[i] = (candidate_score, candidate_len, j)
 
-        # Walk back from every ending point to collect each maximal run,
-        # keep the longest one for this style.
-        end_idx = max(range(n), key=lambda i: dp[i][0])
-        length = dp[end_idx][0]
+        # Walk back from the best-scoring ending point to collect that
+        # style's winning run. Same (score, length) tie-break as above --
+        # otherwise a tie on score alone would arbitrarily settle on
+        # whichever index came first, even a length-1 one.
+        end_idx = max(range(n), key=lambda i: (dp[i][0], dp[i][1]))
+        score_sum, length, _ = dp[end_idx]
         if length < MIN_SEQUENCE_LENGTH:
             continue
 
@@ -490,15 +582,15 @@ def _find_best_sequence(candidates: list) -> ChapterSequence | None:
         idx = end_idx
         while idx != -1:
             chain.append(group[idx])
-            idx = dp[idx][1]
+            idx = dp[idx][2]
         chain.reverse()
 
-        seq = ChapterSequence(style=style, length=length, candidates=chain)
+        seq = ChapterSequence(style=style, length=length, candidates=chain, score_sum=score_sum)
         all_sequences.append(seq)
-        if best is None or seq.length > best.length:
+        if best is None or seq.score_sum > best.score_sum:
             best = seq
 
-    all_sequences.sort(key=lambda s: s.length, reverse=True)
+    all_sequences.sort(key=lambda s: s.score_sum, reverse=True)
     return best, all_sequences
 
 
@@ -517,6 +609,8 @@ def analyze_book_chapters(book) -> BookChapterSummary:
             order += 1
             c.book_order = order
         all_candidates.extend(chapter_candidates)
+
+    all_candidates = merge_repeated_markers(all_candidates)
 
     summary = BookChapterSummary(candidates=all_candidates)
 

@@ -84,9 +84,14 @@ class WhitespaceRepair:
         return text
 
     def _skip(self, element):
-        tag = element.tag
-        if "}" in tag:
+        tag = getattr(element, "tag", None)
+
+        if not isinstance(tag, str):
+            return True
+
+        if tag.startswith("{"):
             tag = tag.split("}", 1)[1]
+
         return tag.lower() in _SKIP_TAGS
 
     def _count_issues(self, root):
@@ -105,7 +110,7 @@ class WhitespaceRepair:
                     continue
                 if text != text.strip():
                     counts["Leading/trailing whitespace"] += 1
-                if _COLLAPSE_RE.search(text) and "  " in text:
+                if _COLLAPSE_RE.sub(" ", text) != text:
                     counts["Repeated whitespace"] += 1
                 if _SPACE_BEFORE_PUNCT.search(text):
                     counts["Space before punctuation"] += 1

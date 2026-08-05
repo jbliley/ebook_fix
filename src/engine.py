@@ -174,7 +174,12 @@ class Engine:
                 self.log("\n--- Detailed Chapter Boundaries ---")
                 if ch_summary.best_sequence:
                     for c in ch_summary.best_sequence.candidates:
-                        self.log(f"  • #{c.number} - {c.href} <{c.tag}> {c.text!r} (score {c.score})")
+                        repeat_note = (
+                            f" [repeated on {c.occurrence_count} pages, "
+                            "same heading folded into one chapter]"
+                            if c.occurrence_count > 1 else ""
+                        )
+                        self.log(f"  • #{c.number} - {c.href} <{c.tag}> {c.text!r} (score {c.score}){repeat_note}")
                 if ch_summary.other_sequences:
                     self.log("\n  Other candidate sequences (not used):")
                     for s in ch_summary.other_sequences:
