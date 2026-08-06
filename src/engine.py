@@ -389,13 +389,26 @@ class Engine:
 
             modules = list(self.modules)
             if class_mapping:
+                mapping_path = Path(class_mapping)
+                if not mapping_path.exists():
+                    self.log(f"'{class_mapping}' doesn't exist yet -- generating it from this book's CSS...")
+                    profiles = build_class_profiles(book)
+                    write_mapping_file(profiles, mapping_path)
+                    self.log(f"Wrote editable mapping to: {mapping_path}")
+                    self.log(
+                        "\nReview it before applying it -- especially anything marked \"low\" "
+                        "confidence, or any class the guess looks wrong for. Once it looks "
+                        "right, re-run this same repair command to apply it."
+                    )
+                    return
+
                 try:
                     entries = load_mapping_file(class_mapping)
                 except MappingError as exc:
                     self.log(f"ERROR: {exc}")
                     return
                 if not entries:
-                    self.log(f"Note: '{class_mapping}' has no [[class]] entries -- nothing to standardize.")
+                    self.log(f"Note: '{class_mapping}' has no class entries -- nothing to standardize.")
                 else:
                     modules.append(ClassStandardizeRepair(entries))
 
