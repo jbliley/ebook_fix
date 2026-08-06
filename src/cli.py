@@ -67,6 +67,11 @@ def build_parser():
         help="Analyze repairs without writing a file."
     )
     repair.add_argument(
+        "--class-mapping",
+        metavar="FILE",
+        help="Apply a confirmed class-standardization mapping (from `map-css --write-mapping`, reviewed by hand) as part of this repair -- renames chapter-heading/body-text classes and standardizes their CSS."
+    )
+    repair.add_argument(
         "--verbose",
         action="store_true",
         help="Verbose output."
@@ -191,7 +196,8 @@ def main():
         engine.repair(
             epub,
             Path(output),
-            dry_run=args.dry_run
+            dry_run=args.dry_run,
+            class_mapping=getattr(args, "class_mapping", None),
         )
 
 if __name__ == "__main__":

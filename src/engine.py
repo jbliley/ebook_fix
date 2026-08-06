@@ -16,6 +16,7 @@ from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
+from ebook_fix.modules.class_standardize import ClassStandardizeRepair, load_mapping_file, MappingError
 
 console = Console()
 
@@ -376,7 +377,7 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
-    def repair(self, epub, output, dry_run=False):
+    def repair(self, epub, output, dry_run=False, class_mapping=None):
         source, temp_path = self._resolve_source(epub)
         if source is None:
             return
@@ -385,10 +386,23 @@ class Engine:
             parser = EPUBParser()
             book = parser.load(source)
             self.log("")
-            if not self.modules:
+
+            modules = list(self.modules)
+            if class_mapping:
+                try:
+                    entries = load_mapping_file(class_mapping)
+                except MappingError as exc:
+                    self.log(f"ERROR: {exc}")
+                    return
+                if not entries:
+                    self.log(f"Note: '{class_mapping}' has no [[class]] entries -- nothing to standardize.")
+                else:
+                    modules.append(ClassStandardizeRepair(entries))
+
+            if not modules:
                 self.log("No repair modules are enabled in the config. Nothing to do.")
                 return
-            for module in self.modules:
+            for module in modules:
                 self.log(f"Repairing: {module.name}")
                 module.repair(book)
             if dry_run:
