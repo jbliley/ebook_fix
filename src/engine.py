@@ -290,6 +290,26 @@ class Engine:
                 css_issues.append(f"Unreadable stylesheets: {len(css.unreadable_files)}")
             if css.missing_embedded_fonts:
                 css_issues.append(f"Missing font file references (@font-face): {len(css.missing_embedded_fonts)}")
+            if css.page_break_rule_count:
+                css_issues.append(f"Page-break rules declared: {css.page_break_rule_count}")
+            if css.forced_height_count:
+                css_issues.append(f"Forced height/max-height rules: {css.forced_height_count}")
+            if css.calibre_class_count:
+                css_issues.append(f"Leftover Calibre-conversion classes: {css.calibre_class_count}")
+            if css.embedded_style_block_count:
+                injected_note = (
+                    f" ({css.injected_style_block_count} added by ebook_fix)"
+                    if css.injected_style_block_count else ""
+                )
+                css_issues.append(f"Inline <style> blocks in chapter HTML: {css.embedded_style_block_count}{injected_note}")
+            if css.embedded_page_break_rule_count:
+                css_issues.append(f"Page-break rules in embedded <style> blocks: {css.embedded_page_break_rule_count}")
+            if css.embedded_forced_height_count:
+                css_issues.append(f"Forced height/max-height in embedded <style> blocks: {css.embedded_forced_height_count}")
+            if css.inline_style_attr_page_break_count:
+                css_issues.append(f"Page-break declarations on style= attributes: {css.inline_style_attr_page_break_count}")
+            if css.inline_style_attr_forced_height_count:
+                css_issues.append(f"Forced height/max-height on style= attributes: {css.inline_style_attr_forced_height_count}")
 
             if css_issues:
                 self.log("\n[CSS]")
@@ -302,6 +322,10 @@ class Engine:
                     if css.undeclared_classes:
                         shown = ", ".join(f"{cls} ({cnt}x)" for cls, cnt in css.undeclared_classes)
                         self.log(f"    Undeclared classes: {shown}")
+                    if css.calibre_classes:
+                        self.log(f"    Calibre classes: {', '.join(css.calibre_classes)}")
+                    if css.chapters_with_page_break_styling:
+                        self.log(f"    Chapters with page-break styling: {', '.join(css.chapters_with_page_break_styling)}")
 
             # Module Diagnostics Execution
             self.log("\n[Module Checks]")

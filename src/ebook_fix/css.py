@@ -24,6 +24,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
+from lxml import etree
+
 COMMENT_RE = re.compile(r'/\*.*?\*/', re.S)
 FONT_FACE_RE = re.compile(r'@font-face\s*\{([^}]*)\}', re.S)
 RULE_RE = re.compile(r'([^{}]+)\{([^{}]*)\}', re.S)
@@ -33,6 +35,11 @@ FONT_FAMILY_RE = re.compile(r'font-family\s*:\s*([^;]+)')
 URL_RE = re.compile(r'url\(\s*[\'"]?([^\'")]+)[\'"]?\s*\)')
 
 SAMPLE_LIMIT = 30
+
+# Repair modules (e.g. chapter_markup) that inject their own <style id="ebookfix-...">
+# blocks tag them with this prefix. Used to separate "CSS the source book shipped
+# with" from "CSS ebook_fix itself put there" when scanning inline/embedded styles.
+INJECTED_STYLE_ID_PREFIX = "ebookfix-"
 
 
 # ---------------------------------------------------------------------
@@ -51,6 +58,8 @@ class CSSFileReport:
     font_face_srcs: list = field(default_factory=list)
     braces_balanced: bool = True
     read_error: str = ""
+    page_break_rule_count: int = 0
+    forced_height_count: int = 0
 
 
 def analyze_css_text(css_text: str, href: str = "") -> CSSFileReport:
@@ -89,9 +98,9 @@ def analyze_css_text(css_text: str, href: str = "") -> CSSFileReport:
         for im in ID_SELECTOR_RE.finditer(selector):
             r.declared_ids[im.group(1)] += 1
         if "page-break" in body or "break-before" in body or "break-after" in body:
-            s.page_break_rule_count += 1
+            r.page_break_rule_count += 1
         if "height:" in body or "max-height:" in body:
-            s.forced_height_count += 1
+            r.forced_height_count += 1
 
     r.duplicate_selectors = [(sel, cnt) for sel, cnt in selector_counts.items() if cnt > 1]
     return r
@@ -166,6 +175,73 @@ class BookCSSSummary:
 
     inline_style_element_count: int = 0
 
+    # --- Inline/embedded CSS the external-stylesheet scan above can't see:
+    # <style> blocks written directly into a chapter's <head>, and style=""
+    # attributes on individual elements. Repair modules (e.g. chapter_markup)
+    # inject page-break CSS this way rather than via a linked stylesheet.
+    embedded_style_block_count: int = 0          # <style> elements found in chapter HTML
+    injected_style_block_count: int = 0          # ...of those, ones ebook_fix itself added
+    embedded_style_rule_count: int = 0
+    embedded_page_break_rule_count: int = 0
+    embedded_forced_height_count: int = 0
+
+    inline_style_attr_page_break_count: int = 0  # style="" attrs with page-break/break-before/after
+    inline_style_attr_forced_height_count: int = 0  # style="" attrs with height/max-height
+
+    chapters_with_page_break_styling: list = field(default_factory=list)  # hrefs
+
+
+def analyze_inline_chapter_css(book, s: BookCSSSummary) -> None:
+    """
+    Walk every chapter's DOM (already-parsed lxml tree, no re-reading from
+    disk) looking for CSS that never touches a linked stylesheet: <style>
+    blocks in the chapter's own <head>, and style="" attributes on
+    individual elements. `read_book_css`/`analyze_book_css` above only see
+    `book.css` resources, so a module that injects markup-level CSS
+    directly (like chapter_markup's page-break rules) is invisible to that
+    scan -- this is the counterpart that catches it. Mutates `s` in place.
+    """
+    for ch in getattr(book, "chapters", []) or []:
+        tree = getattr(ch, "document", None)
+        if tree is None:
+            continue
+        root = tree if hasattr(tree, "iter") else tree.getroot()
+        if root is None:
+            continue
+        href = getattr(ch, "href", "")
+        flagged = False
+
+        for el in root.iter():
+            if not isinstance(el.tag, str):
+                continue  # comments, PIs, etc.
+            local = etree.QName(el).localname.lower()
+
+            if local == "style":
+                s.embedded_style_block_count += 1
+                style_id = el.get("id", "") or ""
+                if style_id.startswith(INJECTED_STYLE_ID_PREFIX):
+                    s.injected_style_block_count += 1
+                file_report = analyze_css_text(el.text or "", href=f"{href}#style[{style_id or 'inline'}]")
+                s.embedded_style_rule_count += file_report.rule_count
+                s.embedded_page_break_rule_count += file_report.page_break_rule_count
+                s.embedded_forced_height_count += file_report.forced_height_count
+                if file_report.page_break_rule_count:
+                    flagged = True
+                continue
+
+            style_val = el.get("style")
+            if not style_val:
+                continue
+            low = style_val.lower()
+            if "page-break" in low or "break-before" in low or "break-after" in low:
+                s.inline_style_attr_page_break_count += 1
+                flagged = True
+            if "height:" in low or "max-height:" in low:
+                s.inline_style_attr_forced_height_count += 1
+
+        if flagged:
+            s.chapters_with_page_break_styling.append(href)
+
 
 def analyze_book_css(book, chapter_reports: list) -> BookCSSSummary:
     """
@@ -191,6 +267,8 @@ def analyze_book_css(book, chapter_reports: list) -> BookCSSSummary:
 
         s.total_rules += file_report.rule_count
         s.total_important += file_report.important_count
+        s.page_break_rule_count += file_report.page_break_rule_count
+        s.forced_height_count += file_report.forced_height_count
         all_declared_classes.update(file_report.declared_classes)
         all_declared_ids.update(file_report.declared_ids)
 
@@ -240,5 +318,7 @@ def analyze_book_css(book, chapter_reports: list) -> BookCSSSummary:
     calibre_found = [c for c in all_declared_classes if c.startswith("calibre")]
     s.calibre_class_count = len(calibre_found)
     s.calibre_classes = sorted(calibre_found)
+
+    analyze_inline_chapter_css(book, s)
 
     return s
