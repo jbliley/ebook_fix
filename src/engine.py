@@ -10,6 +10,7 @@ from ebook_fix.report import print_header
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
+from ebook_fix.class_map import build_class_profiles, format_class_map
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -342,6 +343,31 @@ class Engine:
 
             self.log("")
 
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+    def map_css(self, epub):
+        source, temp_path = self._resolve_source(epub)
+        if source is None:
+            return
+        try:
+            self.log("Opening EPUB...")
+            parser = EPUBParser()
+            book = parser.load(source)
+            self.log("")
+
+            self.header("[CSS Class Map]")
+            self.log(
+                "Best-guess role per class, for review before renaming --\n"
+                "not something to apply unattended, especially on \"low\" confidence guesses.\n"
+            )
+            profiles = build_class_profiles(book)
+            if not profiles:
+                self.log("No classed elements found in this book.")
+                return
+            self.log(format_class_map(profiles))
+            self.log("")
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)

@@ -100,6 +100,21 @@ def build_parser():
         help="If the file fails validation, also try to repair its ZIP/EPUB container and report the result."
     )
 
+    # Map CSS classes
+    map_css = sub.add_parser(
+        "map-css",
+        help="Show a best-guess semantic role for every CSS class used in the book (e.g. 'calibre3' -> likely body-text), for review before renaming."
+    )
+    map_css.add_argument(
+        "input",
+        help="Input EPUB"
+    )
+    map_css.add_argument(
+        "--no-container-repair",
+        action="store_true",
+        help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
+    )
+
     # Init-config
     init_config = sub.add_parser(
         "init-config",
@@ -147,7 +162,7 @@ def main():
         sys.exit(1)
 
     try:
-        config = load_config(args.config)
+        config = load_config(getattr(args, "config", None))
     except FileNotFoundError as e:
         print(f"ERROR: {e}")
         sys.exit(1)
@@ -162,6 +177,8 @@ def main():
     )
     if args.command == "analyze":
         engine.analyze(epub, details=args.details)
+    elif args.command == "map-css":
+        engine.map_css(epub)
     elif args.command == "repair":
         output = args.output
         if output is None:
