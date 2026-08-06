@@ -1,9 +1,14 @@
 """
 ebook_fix.writer
 
-Saves a Book back out to a valid EPUB file. Only chapters that were
-actually modified are re-serialized; everything else is copied through
-from the original file untouched, byte for byte.
+Saves a Book back out to a valid EPUB file. Chapters flagged as
+modified are re-serialized from their DOM; the OPF is re-serialized if
+opf_modified is set. Any other file -- including one that already
+exists in the source archive -- can be overridden by putting its full
+in-zip path in book.new_files (e.g. a repair module that rewrote a CSS
+file's bytes directly, without going through a Chapter/DOM). Anything
+not covered by one of those is copied through from the original file
+untouched, byte for byte.
 """
 
 from __future__ import annotations
@@ -55,6 +60,8 @@ class EPUBWriter:
                         data = self._serialize(chapter)
                     elif name == book.package_path and opf_modified:
                         data = self._serialize_opf(book.opf_document)
+                    elif name in new_files:
+                        data = new_files[name]
                     else:
                         data = src.read(name)
 

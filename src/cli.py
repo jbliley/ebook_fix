@@ -114,6 +114,11 @@ def build_parser():
         action="store_true",
         help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
     )
+    map_css.add_argument(
+        "--write-mapping",
+        metavar="FILE",
+        help="Also write an editable TOML mapping of high/medium-confidence chapter-heading and body-text classes to FILE, for review ahead of a future standardize/rename repair pass."
+    )
 
     # Init-config
     init_config = sub.add_parser(
@@ -178,7 +183,7 @@ def main():
     if args.command == "analyze":
         engine.analyze(epub, details=args.details)
     elif args.command == "map-css":
-        engine.map_css(epub)
+        engine.map_css(epub, write_mapping=getattr(args, "write_mapping", None))
     elif args.command == "repair":
         output = args.output
         if output is None:

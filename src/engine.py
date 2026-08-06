@@ -10,7 +10,7 @@ from ebook_fix.report import print_header
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
-from ebook_fix.class_map import build_class_profiles, format_class_map
+from ebook_fix.class_map import build_class_profiles, format_class_map, write_mapping_file
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -347,7 +347,7 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
-    def map_css(self, epub):
+    def map_css(self, epub, write_mapping=None):
         source, temp_path = self._resolve_source(epub)
         if source is None:
             return
@@ -368,6 +368,10 @@ class Engine:
                 return
             self.log(format_class_map(profiles))
             self.log("")
+
+            if write_mapping:
+                write_mapping_file(profiles, write_mapping)
+                self.log(f"Wrote editable mapping to: {write_mapping}")
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
