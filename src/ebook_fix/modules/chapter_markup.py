@@ -4,13 +4,23 @@ ebook_fix.modules.chapter_markup
 Turns the chapter boundaries found by ebook_fix.chapters (a confirmed,
 in-order run of "Chapter Four" / "IV" / "FOURTH MACHINATION"-style
 markers) into real structure: each chapter's content gets wrapped in
-its own <div epub:type="chapter">, with a page break before it so
-it starts on a fresh page in reflowable readers.
+its own <div epub:type="chapter">, with a page break so it starts on
+a fresh page in reflowable readers.
 
 This is the repair module chapters.py's own docstring points at --
 that module deliberately only detects and scores candidates, it
 doesn't touch the DOM. This is where the detection actually gets
 turned into a split.
+
+The page break itself is page-break-after on the block immediately
+before the new chapter (see ebook_fix.page_breaks for the walk/marking
+logic and why -after instead of -before). This used to be three
+separate page-break-before injections stacked on top of each other --
+an embedded <style> block, the wrapper div's inline style, and the
+marker element's own inline style -- which was not just redundant but
+actively working against the more reliable property. It's now one
+property, one location, shared with class_standardize.py's own
+chapter-heading handling so the two don't fight each other either.
 
 Scope / limitations
 --------------------
@@ -27,7 +37,12 @@ Scope / limitations
   marker starts its own group there instead of being skipped.
 - Re-running this module on an already-split book is a no-op: each
   marker's block is stamped with a data attribute the first time it's
-  wrapped, and that's checked before wrapping again.
+  wrapped, and that's checked before wrapping again. The page-break
+  marker itself is separately idempotent too (see
+  ebook_fix.page_breaks.mark_page_break_after).
+- The very first chapter in the book's spine gets no page break at
+  all -- it's already the start of the book, there's nothing to break
+  away from.
 """
 
 from __future__ import annotations
@@ -35,6 +50,7 @@ from lxml import etree
 
 from ebook_fix.chapters import analyze_book_chapters
 from ebook_fix.report import Report
+from ebook_fix.page_breaks import closest_preceding_block, mark_page_break_after
 
 EPUB_OPS_NS = "http://www.idpf.org/2007/ops"
 MARKER_ATTR = "data-ebookfix-chapter"
@@ -116,7 +132,6 @@ class ChapterMarkupRepair:
             changed = self._split_group(book, chapter, group["parent"], group["blocks"], chapter_number)
             chapter_number += len(group["blocks"])
             if changed:
-                self._inject_page_break_css(chapter)
                 chapter.modified = True
 
         book.mark_modified()
@@ -145,44 +160,6 @@ class ChapterMarkupRepair:
                 return node
             node = parent
         return None
-
-    def _inject_page_break_css(self, chapter):
-        """Injects explicit stylesheet rules into <head> so readers like Calibre
-        properly evaluate CSS page breaks during cascade parsing."""
-        # chapter.document is already an lxml _Element (usually <html>)
-        root = chapter.document if hasattr(chapter.document, "find") else chapter.document.getroot()
-
-        # Find or create <head>
-        head = root.find(".//{*}head")
-        if head is None:
-            head = etree.Element("head")
-            root.insert(0, head)
-
-        # Check if style block was already injected
-        for style_el in head.findall(".//{*}style"):
-            if style_el.get("id") == "ebookfix-pagebreak-rules":
-                return
-
-        css_content = """
-            .ebookfix-chapter-wrapper {
-                display: block !important;
-                page-break-before: always !important;
-                break-before: page !important;
-                -webkit-break-before: page !important;
-                clear: both !important;
-                margin-top: 0 !important;
-                padding-top: 1px !important;
-            }
-            .ebookfix-chapter-wrapper > *[data-ebookfix-chapter="true"] {
-                page-break-before: always !important;
-                break-before: page !important;
-                margin-top: 0 !important;
-            }
-        """
-
-        style_node = etree.Element("style", attrib={"type": "text/css", "id": "ebookfix-pagebreak-rules"})
-        style_node.text = css_content
-        head.append(style_node)
 
     def _split_group(self, book, chapter, parent, blocks, start_number):
         children = list(parent)
@@ -221,21 +198,25 @@ class ChapterMarkupRepair:
             section.set("id", section_id)
             section.set("class", "ebookfix-chapter-wrapper")
 
-            if not is_very_first_chapter:
-                section.set(
-                    "style",
-                    "display: block !important; page-break-before: always !important; break-before: page !important; margin-top: 0 !important; padding-top: 1px !important;"
-                )
-
             marker_block = slice_children[0]
             marker_block.set(MARKER_ATTR, "true")
 
             if not is_very_first_chapter:
-                existing_style = marker_block.get("style", "")
-                marker_block.set(
+                section.set(
                     "style",
-                    f"clear: both; page-break-before: always !important; break-before: page !important; {existing_style}".strip()
+                    "display: block !important; margin-top: 0 !important; padding-top: 1px !important;"
                 )
+                existing_style = marker_block.get("style", "")
+                marker_block.set("style", f"clear: both; {existing_style}".strip())
+
+                # The page break itself: page-break-after on the nearest
+                # actual block of content before this marker, not
+                # page-break-before on the marker. Computed now, while
+                # marker_block is still in its original tree position --
+                # see ebook_fix.page_breaks for why -after and not
+                # -before, and why this has to be a DOM walk rather than
+                # a CSS rule.
+                break_target = closest_preceding_block(marker_block)
 
             # --- STEP B: CLEAN UP ANCHORS FROM PRECEDING SIBLING ---
             # Check if the element directly preceding this chapter marker has anchor tags at the end
@@ -255,6 +236,9 @@ class ChapterMarkupRepair:
                 anchor.getparent().remove(anchor)
                 section.append(anchor)
             # -----------------------------------------------------
+
+            if not is_very_first_chapter and break_target is not None:
+                mark_page_break_after(break_target)
 
             parent.insert(start_idx, section)
             for child in slice_children:

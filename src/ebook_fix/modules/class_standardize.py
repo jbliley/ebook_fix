@@ -22,15 +22,13 @@ Deliberately narrow scope:
   is dropped along with the properties this module exists to remove.
 - Chapter breaks are applied as page-break-after on the block right
   before each chapter-heading element, not page-break-before on the
-  heading -- see the comment above CHAPTER_BREAK_PROPERTIES for why.
-- Does not touch chapter_markup's own injected page-break-before CSS
-  (the .ebookfix-chapter-wrapper / marker-block styling) -- that's a
-  separate cleanup for chapter_markup itself, not yet done. Having
-  both page-break-before (from chapter_markup) and page-break-after
-  (from here) active on the same boundary risks a blank page in some
-  reading systems; revisiting chapter_markup to drop its own
-  page-break-before once a chapter-heading mapping exists is the
-  follow-up this module's chapter-break marking is meant to replace.
+  heading -- see ebook_fix.page_breaks for why, and the same logic
+  chapter_markup.py uses for its own default marking.
+- Also strips any leftover page-break-before chapter_markup put
+  directly on the heading element it detected (chapter_markup itself
+  no longer injects that -- see its own docstring -- but this guards
+  against a book repaired with an older version of this tool, or any
+  other source of a stray page-break-before on a mapped heading).
 - Two mapped classes with the same new_name collapse into one class,
   intentionally -- that's how "these two are really the same thing"
   gets expressed in the mapping file.
@@ -48,6 +46,7 @@ from lxml import etree
 from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE
 from ebook_fix.class_map import SIMPLE_CLASS_SELECTOR_RE
 from ebook_fix.report import Report
+from ebook_fix.page_breaks import closest_preceding_block, mark_page_break_after
 
 VALID_ROLES = ("chapter-heading", "body-text")
 
@@ -71,17 +70,10 @@ STANDARD_RULES = {
 
 # The chapter-break itself is NOT part of the static rule above -- CSS has
 # no "the element right before this one" selector, so it can't be expressed
-# as a class rule at all. It's applied at repair time (see
-# _mark_page_break_before_chapter below) as page-break-after on the block
-# immediately preceding each chapter-heading element, rather than
-# page-break-before on the heading itself. Two reasons for after-not-before:
-# Apple's own iBooks Asset Guide recommends page-break-after for marking
-# chapter breaks specifically because reading-system support for
-# page-break-before is weaker; and using both at once risks a blank page in
-# some reading systems, so it's one or the other, not both.
-CHAPTER_BREAK_PROPERTIES = {"page-break-after": "always", "break-after": "page"}
-BLOCK_TAGS = {"p", "div", "blockquote", "ul", "ol", "li", "table", "pre", "section",
-              "h1", "h2", "h3", "h4", "h5", "h6"}
+# as a class rule at all. It's applied at repair time as page-break-after
+# on the block immediately preceding each chapter-heading element (see
+# ebook_fix.page_breaks for the actual walk/marking logic and why
+# page-break-after, not page-break-before, is used).
 
 # Stripped from a mapped class's rule (and any inline style="" on an
 # element carrying that class) even though they're not part of the
@@ -182,59 +174,6 @@ def _strip_inline_style(style_value: str, extra_strip: frozenset = frozenset()) 
         val = m.group(2).strip().rstrip(";").strip()
         kept.append(f"{prop}: {val};")
     return " ".join(kept)
-
-
-def _is_block(el) -> bool:
-    return isinstance(el.tag, str) and etree.QName(el).localname.lower() in BLOCK_TAGS
-
-
-def _deepest_last_block(el):
-    """The last block-level element you'd actually reach reading `el`
-    (and everything inside it) top to bottom -- e.g. for a <div> whose
-    last child is a <p>, that's the <p>, not the <div>. Marking this
-    (rather than the outer wrapper) is what actually sits visually
-    right before the next chapter heading."""
-    if not isinstance(el.tag, str):
-        return None
-    children = [c for c in el if isinstance(c.tag, str)]
-    if children:
-        deeper = _deepest_last_block(children[-1])
-        if deeper is not None:
-            return deeper
-    return el if _is_block(el) else None
-
-
-def _closest_preceding_block(el):
-    """Walk backwards from `el` in reading order to find the nearest
-    block-level element that comes right before it -- checking
-    preceding siblings first (descending into the last one's own last
-    block-level descendant), then climbing to the parent and repeating
-    if `el` is a first child. Returns None if there's nothing before
-    `el` at all (it's the very first content in its chapter file --
-    already a fresh page by virtue of being a separate spine item, so
-    no marker is needed)."""
-    node = el
-    while node is not None:
-        prev = node.getprevious()
-        if prev is not None:
-            deepest = _deepest_last_block(prev)
-            return deepest if deepest is not None else (prev if _is_block(prev) else None)
-        node = node.getparent()
-    return None
-
-
-def _mark_page_break_after(el) -> bool:
-    """Add page-break-after/break-after to el's inline style, unless
-    it's already there (idempotent across repeated repair runs).
-    Returns whether anything changed."""
-    existing = el.get("style") or ""
-    if "page-break-after" in existing.lower():
-        return False
-    parts = [p.strip() for p in existing.split(";") if p.strip()]
-    for prop, val in CHAPTER_BREAK_PROPERTIES.items():
-        parts.append(f"{prop}: {val}")
-    el.set("style", "; ".join(parts) + ";")
-    return True
 
 
 class ClassStandardizeRepair:
@@ -361,10 +300,10 @@ class ClassStandardizeRepair:
                     classes = (el.get("class") or "").split()
                     if not any(c in self.chapter_heading_new_names for c in classes):
                         continue
-                    target = _closest_preceding_block(el)
+                    target = closest_preceding_block(el)
                     if target is None:
                         continue  # first thing in its chapter file -- already a fresh page
-                    if _mark_page_break_after(target):
+                    if mark_page_break_after(target):
                         chapter.modified = True
                         changed_anything = True
 
