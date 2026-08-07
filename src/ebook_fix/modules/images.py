@@ -31,7 +31,7 @@ class ImageRepair:
     # Analysis
     # -----------------------------------------------------
 
-    def analyze(self, book):
+    def analyze(self, book, analysis=None):
         report = Report(self.name)
         archive_names = self._archive_names(book)
         base = PurePosixPath(book.package_path).parent
@@ -71,7 +71,7 @@ class ImageRepair:
     # Repair
     # -----------------------------------------------------
 
-    def repair(self, book):
+    def repair(self, book, analysis=None):
         if not self.config.fix_broken_images:
             return
 

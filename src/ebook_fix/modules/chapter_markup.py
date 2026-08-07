@@ -68,12 +68,12 @@ class ChapterMarkupRepair:
     # Analysis
     # -----------------------------------------------------
 
-    def analyze(self, book):
+    def analyze(self, book, analysis=None):
         report = Report(self.name)
         if self.config is not None and not getattr(self.config, "enabled", True):
             return report
 
-        summary = analyze_book_chapters(book)
+        summary = analysis.chapters if analysis is not None else analyze_book_chapters(book)
         for i, candidate in enumerate(summary.confirmed_boundaries or [], start=1):
             block = self._find_block(candidate.element)
             if block is not None and block.get(MARKER_ATTR):
@@ -90,11 +90,11 @@ class ChapterMarkupRepair:
     # Repair
     # -----------------------------------------------------
 
-    def repair(self, book):
+    def repair(self, book, analysis=None):
         if self.config is not None and not getattr(self.config, "enabled", True):
             return
 
-        summary = analyze_book_chapters(book)
+        summary = analysis.chapters if analysis is not None else analyze_book_chapters(book)
         confirmed = summary.confirmed_boundaries or []
         if not confirmed:
             return

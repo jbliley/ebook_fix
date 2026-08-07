@@ -190,7 +190,7 @@ class ClassStandardizeRepair:
     # Analysis
     # -----------------------------------------------------
 
-    def analyze(self, book):
+    def analyze(self, book, analysis=None):
         report = Report(self.name)
         if not self.mapping:
             return report
@@ -218,7 +218,7 @@ class ClassStandardizeRepair:
     # Repair
     # -----------------------------------------------------
 
-    def repair(self, book):
+    def repair(self, book, analysis=None):
         if not self.mapping:
             return
 

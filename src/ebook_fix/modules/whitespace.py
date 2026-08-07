@@ -31,7 +31,7 @@ _MISSING_AFTER_PUNCT = re.compile(r"([,.;:!?])([A-Za-z])")
 
 class WhitespaceRepair:
     name = "Whitespace Normalizer"
-    def analyze(self, book):
+    def analyze(self, book, analysis=None):
         report = Report(self.name)
         for chapter in book.chapters:
             if chapter.document is None:
@@ -42,7 +42,7 @@ class WhitespaceRepair:
                     report.add(chapter.href, issue)
         return report
 
-    def repair(self, book):
+    def repair(self, book, analysis=None):
         for chapter in book.chapters:
             if chapter.document is None:
                 continue

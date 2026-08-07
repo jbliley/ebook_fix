@@ -341,7 +341,7 @@ class Engine:
             else:
                 total_module_issues = 0
                 for module in self.modules:
-                    report = module.analyze(book)
+                    report = module.analyze(book, analysis_report)
                     total_module_issues += report.count
                     self.log(f"  • {module.name}: {report.count} issue(s) found")
                     #if details and report.count > 0:
@@ -392,6 +392,13 @@ class Engine:
             book = parser.load(source)
             self.log("")
 
+            self.log("Analyzing book structure...")
+            analyzer = EPUBAnalyzer()
+            analysis_report = analyzer.analyze(book)
+            cache_file = save_report(analysis_report, epub)
+            self.log(f"Saved analysis cache: {cache_file}")
+            self.log("")
+
             modules = list(self.modules)
             if class_mapping:
                 mapping_path = Path(class_mapping)
@@ -422,7 +429,7 @@ class Engine:
                 return
             for module in modules:
                 self.log(f"Repairing: {module.name}")
-                module.repair(book)
+                module.repair(book, analysis_report)
             if dry_run:
                 self.log("\nDry run complete.")
                 return

@@ -41,7 +41,7 @@ class ParagraphRepair:
     # Analysis
     # -----------------------------------------------------
 
-    def analyze(self, book):
+    def analyze(self, book, analysis=None):
         report = Report(self.name)
 
         for chapter in book.chapters:
@@ -78,7 +78,7 @@ class ParagraphRepair:
     # Repair
     # -----------------------------------------------------
 
-    def repair(self, book):
+    def repair(self, book, analysis=None):
 
         for chapter in book.chapters:
 
