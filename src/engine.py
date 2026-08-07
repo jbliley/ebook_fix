@@ -334,6 +334,31 @@ class Engine:
                     if css.chapters_with_page_break_styling:
                         self.log(f"    Chapters with page-break styling: {', '.join(css.chapters_with_page_break_styling)}")
 
+            # Paragraph Issues
+            para = analysis_report.paragraphs
+            paragraph_issues = []
+            if para.junk_element_count:
+                paragraph_issues.append(f"Watermark / junk paragraphs: {para.junk_element_count}")
+            if para.empty_paragraph_count:
+                paragraph_issues.append(f"Empty paragraphs: {para.empty_paragraph_count}")
+            if para.mid_sentence_split_count:
+                paragraph_issues.append(f"Mid-sentence paragraph splits: {para.mid_sentence_split_count}")
+
+            if paragraph_issues:
+                self.log("\n[Paragraphs]")
+                for issue in paragraph_issues:
+                    self.log(f"  • {issue}")
+
+                if details:
+                    for chapter_summary in para.chapters:
+                        if not (chapter_summary.junk_elements or chapter_summary.empty_paragraphs or chapter_summary.mid_sentence_splits):
+                            continue
+                        self.log(f"    {chapter_summary.href}:")
+                        for el in chapter_summary.junk_elements:
+                            self.log(f"      - junk: {el.preview!r}")
+                        for split in chapter_summary.mid_sentence_splits:
+                            self.log(f"      - split: ...{split.first_preview!r} | {split.second_preview!r}...")
+
             # Image Issues
             img = analysis_report.images
             image_issues = []
