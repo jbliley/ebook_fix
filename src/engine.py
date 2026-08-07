@@ -456,6 +456,12 @@ class Engine:
             for module in modules:
                 self.log(f"Repairing: {module.name}")
                 module.repair(book, analysis_report)
+
+            # The cache existed to hand this run's findings to the repair
+            # modules above -- once they've all had their turn, it's just
+            # a leftover file sitting next to the book, so clean it up.
+            cache_file.unlink(missing_ok=True)
+
             if dry_run:
                 self.log("\nDry run complete.")
                 return
