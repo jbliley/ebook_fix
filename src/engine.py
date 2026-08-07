@@ -334,6 +334,32 @@ class Engine:
                     if css.chapters_with_page_break_styling:
                         self.log(f"    Chapters with page-break styling: {', '.join(css.chapters_with_page_break_styling)}")
 
+            # Image Issues
+            img = analysis_report.images
+            image_issues = []
+            if img.broken_image_count:
+                image_issues.append(
+                    f"Broken image references: {img.broken_image_count} across "
+                    f"{len(img.chapters_with_broken_images)} chapter(s)"
+                )
+            if img.missing_manifest_image_count:
+                image_issues.append(f"Manifest entries pointing at missing images: {img.missing_manifest_image_count}")
+
+            if image_issues:
+                self.log("\n[Images]")
+                for issue in image_issues:
+                    self.log(f"  • {issue}")
+
+                if details:
+                    if img.broken_image_refs:
+                        self.log("    Broken image references:")
+                        for ref in img.broken_image_refs:
+                            self.log(f"      - {ref.href}: {ref.src}")
+                    if img.missing_manifest_images:
+                        self.log("    Missing manifest images:")
+                        for entry in img.missing_manifest_images:
+                            self.log(f"      - {entry.href}")
+
             # Module Diagnostics Execution
             self.log("\n[Module Checks]")
             if not self.modules:

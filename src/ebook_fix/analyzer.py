@@ -15,6 +15,7 @@ from lxml import etree
 from ebook_fix.typography import TypographyReport, BookTypographySummary, analyze_text, summarize_book
 from ebook_fix.css import BookCSSSummary, analyze_book_css
 from ebook_fix.chapters import BookChapterSummary, analyze_book_chapters
+from ebook_fix.images import BookImageSummary, analyze_book_images
 from ebook_fix import epub_version
 
 # A chapter is flagged as "thin" if it has no paragraphs at all, or if its
@@ -81,6 +82,7 @@ class AnalysisReport:
     typography:BookTypographySummary=field(default_factory=BookTypographySummary)
     css:BookCSSSummary=field(default_factory=BookCSSSummary)
     chapters:BookChapterSummary=field(default_factory=BookChapterSummary)
+    images:BookImageSummary=field(default_factory=BookImageSummary)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -169,4 +171,5 @@ class EPUBAnalyzer:
         r.typography=summarize_book([(c.href,c.typography) for c in r.chapter_reports])
         r.css=analyze_book_css(book,r.chapter_reports)
         r.chapters=analyze_book_chapters(book)
+        r.images=analyze_book_images(book)
         return r
