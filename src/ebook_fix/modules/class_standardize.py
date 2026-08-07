@@ -20,12 +20,17 @@ Deliberately narrow scope:
   below. This is a standardize, not a merge: anything else the
   original rule declared (letter-spacing, a custom font stack, etc.)
   is dropped along with the properties this module exists to remove.
-- Does not touch chapter_markup's own injected page-break CSS (the
-  .ebookfix-chapter-wrapper / marker-block styling) -- that's a
-  separate cleanup for chapter_markup itself, not yet done. A mapped
-  chapter-heading class gets its own clean page-break-before rule
-  here; the older triple-injected version from chapter_markup is left
-  in place until that module is revisited.
+- Chapter breaks are applied as page-break-after on the block right
+  before each chapter-heading element, not page-break-before on the
+  heading -- see the comment above CHAPTER_BREAK_PROPERTIES for why.
+- Does not touch chapter_markup's own injected page-break-before CSS
+  (the .ebookfix-chapter-wrapper / marker-block styling) -- that's a
+  separate cleanup for chapter_markup itself, not yet done. Having
+  both page-break-before (from chapter_markup) and page-break-after
+  (from here) active on the same boundary risks a blank page in some
+  reading systems; revisiting chapter_markup to drop its own
+  page-break-before once a chapter-heading mapping exists is the
+  follow-up this module's chapter-break marking is meant to replace.
 - Two mapped classes with the same new_name collapse into one class,
   intentionally -- that's how "these two are really the same thing"
   gets expressed in the mapping file.
@@ -61,10 +66,22 @@ STANDARD_RULES = {
         "text-indent": "0",
         "margin-top": "2em",
         "margin-bottom": "1em",
-        "page-break-before": "always",
-        "break-before": "page",
     },
 }
+
+# The chapter-break itself is NOT part of the static rule above -- CSS has
+# no "the element right before this one" selector, so it can't be expressed
+# as a class rule at all. It's applied at repair time (see
+# _mark_page_break_before_chapter below) as page-break-after on the block
+# immediately preceding each chapter-heading element, rather than
+# page-break-before on the heading itself. Two reasons for after-not-before:
+# Apple's own iBooks Asset Guide recommends page-break-after for marking
+# chapter breaks specifically because reading-system support for
+# page-break-before is weaker; and using both at once risks a blank page in
+# some reading systems, so it's one or the other, not both.
+CHAPTER_BREAK_PROPERTIES = {"page-break-after": "always", "break-after": "page"}
+BLOCK_TAGS = {"p", "div", "blockquote", "ul", "ol", "li", "table", "pre", "section",
+              "h1", "h2", "h3", "h4", "h5", "h6"}
 
 # Stripped from a mapped class's rule (and any inline style="" on an
 # element carrying that class) even though they're not part of the
@@ -74,6 +91,16 @@ STRIP_PROPERTIES = {
     "font-family", "color", "background", "background-color",
     "font-size", "height", "max-height", "min-height", "line-height",
 }
+
+# Stripped specifically from a chapter-heading element's own inline
+# style (not from body-text elements). This module marks the chapter
+# break as page-break-after on the *preceding* block instead -- if the
+# heading itself still carries a leftover page-break-before from
+# chapter_markup's own injection, both properties end up active on the
+# same boundary, which is the "risks a blank page in some reading
+# systems" case. Clearing it here is the actual fix for that, not just
+# a note about it.
+CHAPTER_HEADING_STRIP_PROPERTIES = {"page-break-before", "break-before"}
 
 PROPERTY_RE = re.compile(r'([a-zA-Z-]+)\s*:\s*([^;]+)')
 
@@ -139,19 +166,75 @@ def _rule_text(role: str) -> str:
     return " ".join(f"{k}: {v};" for k, v in props.items())
 
 
-def _strip_inline_style(style_value: str) -> str:
+def _strip_inline_style(style_value: str, extra_strip: frozenset = frozenset()) -> str:
     """Remove any STRIP_PROPERTIES declarations from an inline style=""
-    value, keeping everything else. Declaration order/formatting of
+    value, keeping everything else. `extra_strip` adds more properties
+    to remove on top of that (used for chapter-heading elements, see
+    CHAPTER_HEADING_STRIP_PROPERTIES). Declaration order/formatting of
     kept properties is normalized to 'prop: value;', not preserved
     verbatim."""
+    to_strip = STRIP_PROPERTIES | extra_strip
     kept = []
     for m in PROPERTY_RE.finditer(style_value):
         prop = m.group(1).strip()
-        if prop.lower() in STRIP_PROPERTIES:
+        if prop.lower() in to_strip:
             continue
         val = m.group(2).strip().rstrip(";").strip()
         kept.append(f"{prop}: {val};")
     return " ".join(kept)
+
+
+def _is_block(el) -> bool:
+    return isinstance(el.tag, str) and etree.QName(el).localname.lower() in BLOCK_TAGS
+
+
+def _deepest_last_block(el):
+    """The last block-level element you'd actually reach reading `el`
+    (and everything inside it) top to bottom -- e.g. for a <div> whose
+    last child is a <p>, that's the <p>, not the <div>. Marking this
+    (rather than the outer wrapper) is what actually sits visually
+    right before the next chapter heading."""
+    if not isinstance(el.tag, str):
+        return None
+    children = [c for c in el if isinstance(c.tag, str)]
+    if children:
+        deeper = _deepest_last_block(children[-1])
+        if deeper is not None:
+            return deeper
+    return el if _is_block(el) else None
+
+
+def _closest_preceding_block(el):
+    """Walk backwards from `el` in reading order to find the nearest
+    block-level element that comes right before it -- checking
+    preceding siblings first (descending into the last one's own last
+    block-level descendant), then climbing to the parent and repeating
+    if `el` is a first child. Returns None if there's nothing before
+    `el` at all (it's the very first content in its chapter file --
+    already a fresh page by virtue of being a separate spine item, so
+    no marker is needed)."""
+    node = el
+    while node is not None:
+        prev = node.getprevious()
+        if prev is not None:
+            deepest = _deepest_last_block(prev)
+            return deepest if deepest is not None else (prev if _is_block(prev) else None)
+        node = node.getparent()
+    return None
+
+
+def _mark_page_break_after(el) -> bool:
+    """Add page-break-after/break-after to el's inline style, unless
+    it's already there (idempotent across repeated repair runs).
+    Returns whether anything changed."""
+    existing = el.get("style") or ""
+    if "page-break-after" in existing.lower():
+        return False
+    parts = [p.strip() for p in existing.split(";") if p.strip()]
+    for prop, val in CHAPTER_BREAK_PROPERTIES.items():
+        parts.append(f"{prop}: {val}")
+    el.set("style", "; ".join(parts) + ";")
+    return True
 
 
 class ClassStandardizeRepair:
@@ -160,6 +243,9 @@ class ClassStandardizeRepair:
     def __init__(self, mapping: list[ClassMappingEntry] | None = None):
         self.mapping = mapping or []
         self.by_old_name = {m.old_name: m for m in self.mapping}
+        self.chapter_heading_new_names = {
+            m.new_name for m in self.mapping if m.role == "chapter-heading"
+        }
 
     # -----------------------------------------------------
     # Analysis
@@ -245,9 +331,12 @@ class ClassStandardizeRepair:
                     el.set("class", " ".join(deduped))
                     changed = True
 
+                el_roles = {self.by_old_name[c].role for c in classes if c in self.by_old_name}
+                extra_strip = CHAPTER_HEADING_STRIP_PROPERTIES if "chapter-heading" in el_roles else frozenset()
+
                 style_val = el.get("style")
                 if style_val:
-                    stripped = _strip_inline_style(style_val)
+                    stripped = _strip_inline_style(style_val, extra_strip)
                     if stripped != style_val:
                         if stripped:
                             el.set("style", stripped)
@@ -258,6 +347,26 @@ class ClassStandardizeRepair:
             if changed:
                 chapter.modified = True
                 changed_anything = True
+
+            # 3. Mark the chapter break itself: page-break-after on the
+            #    block immediately preceding each (now-renamed) chapter
+            #    heading, not page-break-before on the heading -- see the
+            #    comment above CHAPTER_BREAK_PROPERTIES for why. Runs
+            #    after renaming above so class="" already reflects the
+            #    new names.
+            if self.chapter_heading_new_names:
+                for el in root.iter():
+                    if not isinstance(el.tag, str):
+                        continue
+                    classes = (el.get("class") or "").split()
+                    if not any(c in self.chapter_heading_new_names for c in classes):
+                        continue
+                    target = _closest_preceding_block(el)
+                    if target is None:
+                        continue  # first thing in its chapter file -- already a fresh page
+                    if _mark_page_break_after(target):
+                        chapter.modified = True
+                        changed_anything = True
 
         if changed_anything:
             book.mark_modified()
