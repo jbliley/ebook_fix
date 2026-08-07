@@ -51,13 +51,22 @@ class EPUB3UpgradeRepair:
         if self.config is not None and not getattr(self.config, "enabled", True):
             return report
 
-        info = epub_version.detect(book)
-        if info.needs_upgrade:
+        if analysis is not None:
+            needs_upgrade = analysis.summary.epub_needs_upgrade
+            detected_version = analysis.summary.epub_version
+            target_version = analysis.summary.epub_target_version
+        else:
+            info = epub_version.detect(book)
+            needs_upgrade = info.needs_upgrade
+            detected_version = info.detected_version
+            target_version = info.target_version
+
+        if needs_upgrade:
             report.add(
                 "content.opf",
                 "EPUB version below 3.0",
-                f"Package version is {info.detected_version!r}; "
-                f"will be upgraded to EPUB {info.target_version}.",
+                f"Package version is {detected_version!r}; "
+                f"will be upgraded to EPUB {target_version}.",
             )
         return report
 
@@ -69,8 +78,15 @@ class EPUB3UpgradeRepair:
         if self.config is not None and not getattr(self.config, "enabled", True):
             return
 
-        info = epub_version.detect(book)
-        if not info.needs_upgrade:
+        if analysis is not None:
+            needs_upgrade = analysis.summary.epub_needs_upgrade
+            target_version = analysis.summary.epub_target_version
+        else:
+            info = epub_version.detect(book)
+            needs_upgrade = info.needs_upgrade
+            target_version = info.target_version
+
+        if not needs_upgrade:
             return
 
         opf = getattr(book, "opf_document", None)
@@ -78,11 +94,11 @@ class EPUB3UpgradeRepair:
             # Nothing parsed to edit against -- can't safely upgrade.
             return
 
-        opf.set("version", info.target_version)
+        opf.set("version", target_version)
         self._ensure_modified_meta(opf)
         self._add_nav_document(book, opf)
 
-        book.version = info.target_version
+        book.version = target_version
         book.opf_modified = True
         book.mark_modified()
 
