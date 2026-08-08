@@ -6,8 +6,7 @@
 
 ## The idea
 
-The analysis-first migration (now mostly finished, see
-`analysis_first_migration_plan.md` before it's deleted) fixed *how*
+The analysis-first migration (now deleted) fixed *how*
 analysis and repair talk to each other -- one pass, one shared report,
 repair reads instead of re-scanning. This doc is the opposite kind of
 list: *what else* is worth having the analyzer notice in that one
