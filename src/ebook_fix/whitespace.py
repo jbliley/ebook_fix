@@ -117,10 +117,6 @@ def _local_tag(element) -> str:
 # Text normalization rules
 # ---------------------------------------------------------------------
 
-_LEADING_WS_RE = re.compile(r"^[ \t\r\n]+")
-_TRAILING_WS_RE = re.compile(r"[ \t\r\n]+$")
-_INTERNAL_WS_RE = re.compile(r"[ \t\r\n]+")
-_TAB_RE = re.compile(r"\t")
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"[ \t]+([,.;:!?])")
 
 # Common abbreviations/titles/initials that legitimately end in a
@@ -193,6 +189,24 @@ def _sub_with_count(pattern: re.Pattern, repl: str, text: str) -> tuple[str, int
     return result, count
 
 
+@dataclass(frozen=True)
+class NormalizationRules:
+    """Which categories of fix are active. Passed through to
+    normalize_fragment so ebook_fix.modules.whitespace can recompute
+    the exact text a config with some categories turned off would
+    produce, from the same `before` string the analyzer already
+    captured -- no need to re-walk the DOM to honor a config toggle."""
+    fix_leading_indent: bool = True
+    fix_trailing_indent: bool = True
+    fix_repeated_whitespace: bool = True
+    fix_tabs: bool = True
+    fix_space_before_punct: bool = True
+    fix_missing_sentence_space: bool = True
+
+
+ALL_RULES = NormalizationRules()
+
+
 @dataclass
 class NormalizeResult:
     text: str
@@ -205,7 +219,12 @@ class NormalizeResult:
     changed: bool = False
 
 
-def normalize_fragment(text: str, leading_glue: bool, trailing_glue: bool) -> NormalizeResult:
+def normalize_fragment(
+    text: str,
+    leading_glue: bool,
+    trailing_glue: bool,
+    rules: NormalizationRules = ALL_RULES,
+) -> NormalizeResult:
     """
     Pure, unit-testable normalization of one piece of text (an
     element's .text or .tail). Does not know or care where in the DOM
@@ -218,58 +237,66 @@ def normalize_fragment(text: str, leading_glue: bool, trailing_glue: bool) -> No
     boundary on one side and an inline neighbor on the other (e.g. a
     paragraph's own text running right up against an inline <b> at
     its end).
+
+    `rules` gates each category of fix independently (see
+    NormalizationRules) -- the analyzer always calls this with every
+    rule on, to find everything there is to find; the repair module
+    calls it again per-issue with whatever the config currently has
+    enabled, to decide what to actually write back.
+
+    fix_tabs governs whether '\\t' counts as whitespace at all here --
+    off means tab characters are invisible to every other rule below
+    (never stripped, never collapsed, never counted as "repeated"),
+    not just left unconverted to a space.
     """
     result = NormalizeResult(text=text)
     if not text:
         return result
 
+    ws_chars = " \t\r\n" if rules.fix_tabs else " \r\n"
+    leading_re = re.compile(f"^[{ws_chars}]+")
+    trailing_re = re.compile(f"[{ws_chars}]+$")
+    internal_re = re.compile(f"[{ws_chars}]{{2,}}")
+
     working = text
 
-    has_tabs = bool(_TAB_RE.search(working))
-    collapsed = _INTERNAL_WS_RE.sub(" ", working)
-    if collapsed != working:
-        # Distinguish "just tabs became spaces" from "multiple
-        # whitespace chars became one" for the category breakdown --
-        # a lone tab collapsing to a lone space is a tab conversion;
-        # anything collapsing more than one whitespace char together
-        # is repeated whitespace (the two can overlap and both count).
-        if has_tabs:
-            result.tabs_converted = True
-        if re.search(r"[ \t\r\n]{2,}", working):
+    if rules.fix_tabs and "\t" in working:
+        result.tabs_converted = True
+        # Fold every tab to a plain space up front so the
+        # leading/trailing/internal steps below can treat it exactly
+        # like any other whitespace character from here on.
+        working = working.replace("\t", " ")
+
+    if rules.fix_leading_indent:
+        m = leading_re.match(working)
+        if m:
+            result.leading_indent = True
+            working = (" " if leading_glue else "") + working[m.end():]
+
+    if rules.fix_trailing_indent:
+        m = trailing_re.search(working)
+        if m:
+            result.trailing_indent = True
+            working = working[: m.start()] + (" " if trailing_glue else "")
+
+    if rules.fix_repeated_whitespace:
+        collapsed = internal_re.sub(" ", working)
+        if collapsed != working:
             result.repeated_whitespace = True
         working = collapsed
 
-    leading_match = _LEADING_WS_RE.match(working)
-    trailing_match = _TRAILING_WS_RE.search(working)
-    has_leading = leading_match is not None
-    has_trailing = trailing_match is not None and (
-        not has_leading or trailing_match.start() > 0
-    )
+    if rules.fix_space_before_punct:
+        before = working
+        working = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", working)
+        if working != before:
+            result.space_before_punct = True
 
-    if has_leading:
-        if leading_glue:
-            working = " " + working[leading_match.end():]
-        else:
-            working = working[leading_match.end():]
-        result.leading_indent = True
-    if has_trailing:
-        trailing_match2 = _TRAILING_WS_RE.search(working)
-        if trailing_glue:
-            working = working[: trailing_match2.start()] + " "
-        else:
-            working = working[: trailing_match2.start()]
-        result.trailing_indent = True
-
-    before = working
-    working = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", working)
-    if working != before:
-        result.space_before_punct = True
-
-    before = working
-    working, n1 = _fix_missing_space_after_sentence(working)
-    working, n2 = _fix_missing_space_after_mid_punct(working)
-    if working != before:
-        result.missing_sentence_space = True
+    if rules.fix_missing_sentence_space:
+        before = working
+        working, _n1 = _fix_missing_space_after_sentence(working)
+        working, _n2 = _fix_missing_space_after_mid_punct(working)
+        if working != before:
+            result.missing_sentence_space = True
 
     result.text = working
     result.changed = working != text
@@ -371,6 +398,9 @@ class WhitespaceIssue:
     category: str = ""
     before: str = ""
     after: str = ""
+    leading_glue: bool = False
+    trailing_glue: bool = False
+    is_whitespace_only: bool = False   # collapsed to a single space, not a mix of real text + padding
 
 
 @dataclass
@@ -470,6 +500,7 @@ def analyze_chapter_whitespace(href: str, tree) -> ChapterWhitespaceSummary:
                         href=href, element=host, attr=attr,
                         category="Whitespace-only node",
                         before=text, after=" ",
+                        is_whitespace_only=True,
                     )
                 )
             continue
@@ -496,6 +527,7 @@ def analyze_chapter_whitespace(href: str, tree) -> ChapterWhitespaceSummary:
                 href=href, element=host, attr=attr,
                 category=_primary_category(result),
                 before=text, after=result.text,
+                leading_glue=leading_glue, trailing_glue=trailing_glue,
             )
         )
 

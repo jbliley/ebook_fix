@@ -51,6 +51,13 @@ class ChapterMarkupConfig:
 @dataclass(slots=True)
 class WhitespaceRepairConfig:
     enabled: bool = True
+    fix_leading_indent: bool = True
+    fix_trailing_indent: bool = True
+    fix_repeated_whitespace: bool = True
+    fix_tabs: bool = True
+    fix_space_before_punct: bool = True
+    fix_missing_sentence_space: bool = True
+    collapse_whitespace_only_nodes: bool = True
 
 
 @dataclass(slots=True)
@@ -206,6 +213,38 @@ report_missing_manifest_images = true
 # content is never touched. See the analysis output for a category
 # breakdown before turning this off.
 enabled = true
+
+# Remove leading whitespace/indentation at the start of a text node.
+fix_leading_indent = true
+
+# Remove trailing whitespace/indentation at the end of a text node.
+fix_trailing_indent = true
+
+# Collapse runs of 2+ whitespace characters (anywhere, not just at
+# the edges) down to a single space.
+fix_repeated_whitespace = true
+
+# Treat tab characters as whitespace at all. Turning this off leaves
+# every tab untouched -- not just unconverted, but invisible to every
+# other option above too, so a tab is never stripped or collapsed.
+fix_tabs = true
+
+# Remove a stray space/tab sitting directly before a punctuation mark
+# (" ,text" -> ",text").
+fix_space_before_punct = true
+
+# Insert a missing space after . / ! / ? / , / ; / : where a new word
+# or sentence clearly starts with no space at all. Narrow and
+# conservative -- see the module docstring in ebook_fix/whitespace.py
+# for exactly what it will and won't touch (things like "3.14",
+# "U.S.A.", and "Mr.Smith" are deliberately left alone).
+fix_missing_sentence_space = true
+
+# Collapse a text/tail node that's nothing but whitespace down to a
+# single space. Never deletes one outright, even between two
+# block-level tags -- see the module docstring, "Standalone
+# whitespace-only nodes", for why that's the safe default.
+collapse_whitespace_only_nodes = true
 """
 
 

@@ -1,8 +1,8 @@
 # Analysis-First Migration -- Planning Doc
 
-**Status:** In progress. Four of six repair tools fully converted;
-Phase 5 (Whitespace Normalizer) rebuilt and wired to the analysis
-cache, config toggle still coarse-grained (see below).
+**Status:** In progress. Five of six repair tools fully converted --
+Phase 5 (Whitespace Normalizer) is done, including per-category
+config toggles.
 **Started:** session that added `serialize.py` (the analysis cache).
 
 ## The problem
@@ -81,10 +81,9 @@ looking at the book directly.
   three-paragraph chain-merge test to confirm merging still cascades
   correctly (it does -- collapses to one paragraph, same as before).
 
-### Phase 5 -- Whitespace Normalizer (in progress)
-- Full rebuild done, not just wired to the analysis cache yet (see
-  below). New `ebook_fix/whitespace.py` replaces the old flat regex
-  pass with a real DOM-aware engine:
+### Phase 5 -- Whitespace Normalizer (done)
+- Full rebuild. New `ebook_fix/whitespace.py` replaces the old flat
+  regex pass with a real DOM-aware engine:
   - A recursive walker (`iter_text_slots`) tracks protected subtrees
     (pre/code/style/script/svg/math) at any depth, not just an
     element's own tag -- the old code let content nested inside a
@@ -111,29 +110,37 @@ looking at the book directly.
     rule requiring the actual shape of a missed sentence break, plus
     an explicit abbreviation list. Verified against all four cases
     from the original bug report plus real catches pulled from
-    RunTogetherText.epub -- see session notes below for the specific
-    test cases if this needs revisiting.
+    RunTogetherText.epub.
   - Granular category breakdown (leading/trailing indentation,
     repeated whitespace, tabs, space before punctuation, missing
     sentence spacing, whitespace-only nodes, protected nodes skipped)
-    now shows in `analyze`'s `[Whitespace]` section, matching the CSS/
-    Paragraphs/Images sections.
+    shows in `analyze`'s `[Whitespace]` section, matching the CSS/
+    Paragraphs/Images sections. This section always reflects every
+    rule on, same as the other top-level sections -- config only
+    changes what the module itself reports/does (see below).
 - `ebook_fix/modules/whitespace.py` rewritten to match the Phase 1-4
   pattern: reads `analysis.whitespace` instead of scanning the book
-  itself, applies each issue's precomputed `after` text directly to
-  the live element, with a staleness guard (skip if the live
-  text/tail no longer matches what analysis saw, in case an earlier
-  repair module already touched that exact node).
-- Wired into `analyzer.py` (single pass) and `config.py` (new
-  `WhitespaceRepairConfig`, currently just an `enabled` toggle).
+  itself, with a staleness guard (skip if the live text/tail no
+  longer matches what analysis saw, in case an earlier repair module
+  already touched that exact node).
+- Wired into `analyzer.py` (single pass) and `config.py`
+  (`WhitespaceRepairConfig`, one `enabled` toggle plus a `fix_*` flag
+  per category, same shape as `ParagraphRepairConfig`/`ImageRepairConfig`).
+- Per-category config toggles: `WhitespaceIssue` carries the node's
+  original `before` text and its leading/trailing glue-sensitivity
+  alongside the always-on-rules `after`. The module's `analyze()`/
+  `repair()` re-run `normalize_fragment()` per issue with a
+  `NormalizationRules` built from the config's current `fix_*` flags
+  before deciding what to report or write -- cheap (a few regexes on
+  a string already in memory), and doesn't require re-walking the
+  book to honor a toggle. `fix_tabs=False` makes tab characters
+  invisible to every other rule (never stripped, converted, or
+  counted as part of a repeated-whitespace run), not just left
+  unconverted. Verified: toggling `fix_missing_sentence_space` off
+  changes repair output exactly where expected on RunTogetherText.epub
+  and is a no-op on books with nothing in that category; turning every
+  `fix_*` flag off produces zero issues and a no-op repair.
 - What's NOT done yet:
-  - Per-category config toggles (e.g. disable "missing sentence
-    space" fixes but keep indentation cleanup). The analyzer currently
-    bakes all applicable fixes into one `after` string per node, so
-    granular toggles would need repair to recompute with a
-    config-aware rule set rather than just applying what analysis
-    found -- worth deciding whether that's worth the added complexity
-    before building it.
   - `--log` output capture (separate item, already on the roadmap).
   - Further inline-spacing edge cases (deeply nested inline runs,
     right-to-left text) haven't been stress-tested beyond the sample
@@ -141,8 +148,10 @@ looking at the book directly.
 - Verified same way as Phase 3/4: ran `analyze` and full `repair`
   against all five sample books, diffed word sequences before/after
   with `difflib` to catch merged/lost words (not just raw counts,
-  since counts alone hid the bug above), and directly unit-tested the
-  abbreviation/decimal false-positive cases from the bug report.
+  since counts alone hid the bug above), directly unit-tested the
+  abbreviation/decimal false-positive cases from the bug report, and
+  ran a full `cli.py repair --config ...` pass with categories toggled
+  off to confirm the config actually threads through end to end.
 
 ### Out of scope -- Class Standardize
 - Still scans on its own too, but it's a different kind of tool: it
@@ -152,8 +161,9 @@ looking at the book directly.
   changes.
 
 ## Open questions to resolve when picking this back up
-- Whether per-category whitespace config toggles are worth the extra
-  complexity (see Phase 5 above) -- no decision made yet.
+- None currently open for Phase 5. Next candidate for conversion, if
+  picking this back up, would be Class Standardize -- though see "Out
+  of scope" above for why that one may not fit this pattern at all.
 
 ## Continuity note
 This file is the source of truth for where this migration stands --
