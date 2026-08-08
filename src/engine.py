@@ -112,6 +112,7 @@ class Engine:
             ch_summary = analysis_report.chapters
             t = analysis_report.typography
             css = analysis_report.css
+            fm = analysis_report.frontmatter
 
             # ==========================================
             # 1. ANALYSIS & OVERVIEW (Top Section)
@@ -176,6 +177,19 @@ class Engine:
             else:
                 self.log("Chapters Detected: None")
 
+            if fm.boundaries_confirmed:
+                self.log(
+                    f"Front Matter: {fm.front_matter_count} page(s) | "
+                    f"Back Matter: {fm.back_matter_count} page(s) | "
+                    f"Main Content: {fm.main_content_count} page(s)"
+                )
+                if details:
+                    for entry in fm.chapters:
+                        if entry.zone in ("front", "back"):
+                            self.log(f"  • [{entry.zone}] {entry.href} - {entry.label} ({entry.confidence} confidence)")
+            else:
+                self.log("Front/Back Matter: not classified (no confirmed chapter sequence to anchor on)")
+
             self.log("")
             self.header("Typography Overview")
             self.log(
@@ -209,7 +223,8 @@ class Engine:
                 for ch in analysis_report.chapter_reports:
                     title = ch.title or "Untitled Chapter"
                     thin_marker = " [THIN/EMPTY]" if ch.is_thin else ""
-                    self.log(f"\n[Chapter: {ch.href} - {title}]{thin_marker}")
+                    matter_marker = f" [{ch.matter_label}]" if ch.matter_zone in ("front", "back") else ""
+                    self.log(f"\n[Chapter: {ch.href} - {title}]{thin_marker}{matter_marker}")
                     self.log(f"  • Paragraphs: {ch.paragraphs} | Images: {ch.images} | Links: {ch.links} | Words: {ch.word_count}")
                     self.log(f"  • Tables: {ch.tables} | Lists: {ch.lists}")
                     if ch.headings:
@@ -227,9 +242,21 @@ class Engine:
 
             # Structure Issues
             structural_issues = []
-            if analysis_report.thin_chapters:
-                structural_issues.append(f"Thin/Empty Chapters: {len(analysis_report.thin_chapters)}")
-            
+            if analysis_report.unexplained_thin_chapters:
+                explained_count = len(analysis_report.thin_chapters) - len(analysis_report.unexplained_thin_chapters)
+                explained_note = (
+                    f" ({explained_count} more thin page(s) explained by front/back matter, not counted here)"
+                    if explained_count else ""
+                )
+                structural_issues.append(
+                    f"Thin/Empty Chapters: {len(analysis_report.unexplained_thin_chapters)}{explained_note}"
+                )
+            elif analysis_report.thin_chapters:
+                structural_issues.append(
+                    f"Thin/Empty Chapters: 0 unexplained "
+                    f"({len(analysis_report.thin_chapters)} explained by front/back matter)"
+                )
+
             heading_issue_count = sum(len(ch.heading_issues) for ch in analysis_report.chapters_with_heading_issues)
             if heading_issue_count:
                 structural_issues.append(
@@ -242,10 +269,19 @@ class Engine:
                     self.log(f"  • {issue}")
                 
                 if details:
-                    if analysis_report.thin_chapters:
-                        self.log("    Thin chapters detail:")
-                        for ch in analysis_report.thin_chapters:
+                    if analysis_report.unexplained_thin_chapters:
+                        self.log("    Thin chapters detail (unexplained):")
+                        for ch in analysis_report.unexplained_thin_chapters:
                             self.log(f"      - {ch.href} ({ch.word_count} words)")
+                    unexplained_hrefs = {ch.href for ch in analysis_report.unexplained_thin_chapters}
+                    explained = [
+                        ch for ch in analysis_report.thin_chapters
+                        if ch.href not in unexplained_hrefs
+                    ]
+                    if explained:
+                        self.log("    Thin chapters detail (explained by front/back matter):")
+                        for ch in explained:
+                            self.log(f"      - {ch.href} ({ch.word_count} words) - {ch.matter_label}")
                     if analysis_report.chapters_with_heading_issues:
                         self.log("    Heading issues detail:")
                         for ch in analysis_report.chapters_with_heading_issues:

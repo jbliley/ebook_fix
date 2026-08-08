@@ -18,12 +18,16 @@ from ebook_fix.chapters import BookChapterSummary, analyze_book_chapters
 from ebook_fix.images import BookImageSummary, analyze_book_images
 from ebook_fix.paragraphs import BookParagraphSummary, analyze_book_paragraphs
 from ebook_fix.whitespace import BookWhitespaceSummary, analyze_book_whitespace
+from ebook_fix.frontmatter import (
+    BookFrontMatterSummary, analyze_book_frontmatter, FRONT_ZONE, BACK_ZONE,
+)
 from ebook_fix import epub_version
 
 # A chapter is flagged as "thin" if it has no paragraphs at all, or if its
-# total word count falls below this threshold. Front-matter pages (title
-# page, copyright page, etc.) will often trip this and that's fine -- the
-# flag is meant to draw attention, not to declare something broken.
+# total word count falls below this threshold. Front/back-matter pages
+# (title page, copyright page, etc.) will often trip this, which is
+# expected -- see ebook_fix.frontmatter and unexplained_thin_chapters
+# below for how those get told apart from an actually broken chapter.
 THIN_CHAPTER_WORD_THRESHOLD = 50
 
 @dataclass
@@ -44,6 +48,9 @@ class ChapterAnalysis:
     ids:list=field(default_factory=list)
     inline_style_count:int=0
     typography:TypographyReport=field(default_factory=TypographyReport)
+    matter_zone:str="unknown"       # "front", "back", "main", or "unknown" -- see ebook_fix.frontmatter
+    matter_label:str=""             # best-guess label, e.g. "copyright page", "dedication"
+    matter_confidence:str="low"     # "high", "medium", "low"
 
 @dataclass
 class BookSummary:
@@ -79,6 +86,11 @@ class AnalysisReport:
     tag_counts:Counter=field(default_factory=Counter)
     css_classes:Counter=field(default_factory=Counter)
     thin_chapters:list=field(default_factory=list)
+    # Thin chapters that AREN'T explained by being classified front/back
+    # matter -- this is the list worth actually flagging as a possible
+    # problem. thin_chapters above stays complete/descriptive; this is
+    # the filtered version engine.py's issue count should use.
+    unexplained_thin_chapters:list=field(default_factory=list)
     chapters_with_heading_issues:list=field(default_factory=list)
     summary:BookSummary=field(default_factory=BookSummary)
     typography:BookTypographySummary=field(default_factory=BookTypographySummary)
@@ -87,10 +99,22 @@ class AnalysisReport:
     images:BookImageSummary=field(default_factory=BookImageSummary)
     paragraphs:BookParagraphSummary=field(default_factory=BookParagraphSummary)
     whitespace:BookWhitespaceSummary=field(default_factory=BookWhitespaceSummary)
+    frontmatter:BookFrontMatterSummary=field(default_factory=BookFrontMatterSummary)
 
 class EPUBAnalyzer:
     def analyze(self,book):
         r=AnalysisReport()
+
+        # Computed ahead of the per-chapter loop below (rather than at
+        # the end, alongside css/images/paragraphs/whitespace) because
+        # frontmatter classification needs the confirmed chapter
+        # sequence to anchor its zones on, and the loop below needs
+        # frontmatter's answer to decide whether a thin chapter is an
+        # actual problem or an expected short front/back-matter page.
+        r.chapters=analyze_book_chapters(book)
+        r.frontmatter=analyze_book_frontmatter(book,chapter_summary=r.chapters)
+        matter_by_href={m.href:m for m in r.frontmatter.chapters}
+
         for ch in book.chapters:
             c=ChapterAnalysis(href=getattr(ch,"href",""),title=getattr(ch,"title",""))
             tree=getattr(ch,"document",None)
@@ -136,6 +160,11 @@ class EPUBAnalyzer:
                 c.word_count=len(full_text.split())
                 c.typography=analyze_text(full_text)
             c.is_thin = c.paragraphs==0 or c.word_count<THIN_CHAPTER_WORD_THRESHOLD
+            matter=matter_by_href.get(c.href)
+            if matter is not None:
+                c.matter_zone=matter.zone
+                c.matter_label=matter.label
+                c.matter_confidence=matter.confidence
             r.chapter_reports.append(c)
             r.total_paragraphs+=c.paragraphs
             r.total_images+=c.images
@@ -144,6 +173,8 @@ class EPUBAnalyzer:
             r.css_classes.update(c.css_classes)
             if c.is_thin:
                 r.thin_chapters.append(c)
+                if c.matter_zone not in (FRONT_ZONE,BACK_ZONE):
+                    r.unexplained_thin_chapters.append(c)
             if c.heading_issues:
                 r.chapters_with_heading_issues.append(c)
             r.summary.total_word_count+=c.word_count
@@ -174,7 +205,6 @@ class EPUBAnalyzer:
 
         r.typography=summarize_book([(c.href,c.typography) for c in r.chapter_reports])
         r.css=analyze_book_css(book,r.chapter_reports)
-        r.chapters=analyze_book_chapters(book)
         r.images=analyze_book_images(book)
         r.paragraphs=analyze_book_paragraphs(book)
         r.whitespace=analyze_book_whitespace(book)
