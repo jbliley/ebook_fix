@@ -6,7 +6,8 @@
 
 ## The idea
 
-The analysis-first migration (now deleted) fixed *how*
+The analysis-first migration (now mostly finished, see
+`analysis_first_migration_plan.md` before it's deleted) fixed *how*
 analysis and repair talk to each other -- one pass, one shared report,
 repair reads instead of re-scanning. This doc is the opposite kind of
 list: *what else* is worth having the analyzer notice in that one
@@ -21,6 +22,7 @@ this is a holding pen, not a commitment.
 ## Candidates
 
 ### Structure & navigation
+- **NCX/nav label parsing and reuse -- see "Picked up next" below.**
 - Internal link/anchor validation -- flag `href="#..."` links
   (footnotes, cross-references, TOC entries) that point at an id
   which doesn't exist anywhere in the book.
@@ -130,8 +132,68 @@ First item off this list, picked up right after this doc was written.
   analysis only for now, per the "picked up next" plan. TOC/nav
   consistency (above) is the natural next consumer of this data.
 
+## Picked up next: NCX/nav label parsing and reuse
+
+Found while investigating a bug report (real-world book,
+`Deathwatch` by Robb White, libgen conversion), not from this list --
+worth its own writeup since it's actually two bugs with the same
+root cause.
+
+**Bug report:** running `repair` on a book whose EPUB reader showed
+correct chapter names in its table of contents (Cover, Title Page,
+Copyright, Dedication, Contents, Chapter 1...17, pulled straight from
+the book's `toc.ncx`) resulted in every single entry showing the
+same generic label ("Deathwatch," the book title) after repair.
+
+**Root cause, confirmed against the actual file:**
+
+1. `book.toc` (declared in `models.py`) is never populated.
+   `parser.py` has no code anywhere that reads a book's `toc.ncx` --
+   the field is always an empty list, and `analyze`'s "TOC entries"
+   count always reads 0 as a result. This means none of a book's
+   real, already-correct NCX labels are available anywhere in memory
+   for anything else to reuse.
+2. `epub3_upgrade.py`'s `_chapter_label()` -- which builds the labels
+   for the brand-new `nav.xhtml` that an EPUB2->3 upgrade is required
+   to generate -- checks a chapter's own `<head><title>` text FIRST,
+   before checking its headings. `Deathwatch`'s converter (a common
+   pattern) stamped the same generic `<title>Deathwatch</title>` into
+   every single page in the book, cover through chapter 17. Since
+   step 1 always finds *something*, it never gets to step 2, which
+   would have actually found the right answer -- every chapter file
+   has its own numbered `<h1>` (`<h1>1</h1>`, `<h1>2</h1>`, etc.)
+   sitting right in the body.
+
+The original `toc.ncx` itself is untouched by repair (confirmed --
+`epub3_upgrade.py` deliberately leaves it alone and keeps
+`<spine toc="ncx">` pointing at it) and still has all 23 correct
+labels. But EPUB3 requires the nav document, and readers that prefer
+or require `nav.xhtml` for their chapter list (Apple Books, among
+others) end up showing the new, wrong labels instead of the old,
+right ones.
+
+**Shape of the fix, not yet scoped in detail:**
+- Add real NCX parsing to `parser.py`, populating `book.toc` with
+  each navPoint's label + target href (making `book.toc` an actual
+  list of something, not just a placeholder that was declared and
+  forgotten).
+- `_add_nav_document()`/`_chapter_label()` in `epub3_upgrade.py`
+  should check the NCX's own label for that chapter FIRST, ahead of
+  the chapter's own `<head><title>`, since a per-page `<title>` tag
+  is frequently just the book title repeated -- not a reliable
+  per-chapter answer the way an NCX navLabel is.
+- Once NCX parsing exists, it's also the natural evidence base for
+  "TOC/nav consistency" above (comparing NCX entries against actual
+  chapter structure) -- these two probably want to land as the same
+  piece of work, or at least in the same session.
+- Worth deciding whether this belongs in `frontmatter.py` (front
+  matter labels like "Copyright"/"Dedication" already come straight
+  from this same NCX in `Deathwatch`'s case) or stays a separate
+  concern that `frontmatter.py` can optionally consult.
+
 ## Open questions
-- None yet -- nothing on this list has been scoped in detail.
+- Whether NCX-label parsing lands as its own module or folds into
+  `frontmatter.py` -- see the last bullet above.
 
 ## Continuity note
 This file is the source of truth for "what's next" on the analysis
