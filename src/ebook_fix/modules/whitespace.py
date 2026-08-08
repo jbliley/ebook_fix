@@ -1,119 +1,81 @@
 """
 ebook_fix.modules.whitespace
 
-Normalizes whitespace while preserving the DOM structure.
+Uses the whitespace findings the analyzer already collected (see
+ebook_fix.whitespace) instead of scanning the book itself. This used
+to be the one repair tool left in the analysis-first migration that
+still scanned the book twice -- once during `analyze`, again during
+`repair` -- see docs/analysis_first_migration_plan.md, Phase 5.
 
-Goals
------
-- Remove leading/trailing whitespace from text nodes.
-- Collapse repeated whitespace into a single space.
-- Remove spaces before punctuation.
-- Preserve required spaces around inline elements.
-- Leave <pre>, <code>, SVG, MathML, etc. untouched.
+Every issue the analyzer found already carries the exact normalized
+replacement text alongside a live reference to the element it came
+from, so repair just applies `issue.after` directly rather than
+recomputing anything.
+
+If this ever runs without an analysis handed to it, it falls back to
+scanning the book itself via ebook_fix.whitespace.analyze_book_whitespace.
 """
 
 from __future__ import annotations
-import re
+from ebook_fix.config import WhitespaceRepairConfig
 from ebook_fix.report import Report
-
-
-_SKIP_TAGS = {
-    "pre",
-    "code",
-    "svg",
-    "math",
-}
-
-_COLLAPSE_RE = re.compile(r"[ \t\r\n]+")
-_SPACE_BEFORE_PUNCT = re.compile(r"\s+([,.;:!?])")
-_MISSING_AFTER_PUNCT = re.compile(r"([,.;:!?])([A-Za-z])")
+from ebook_fix.whitespace import analyze_book_whitespace
 
 
 class WhitespaceRepair:
     name = "Whitespace Normalizer"
+
+    def __init__(self, config: WhitespaceRepairConfig | None = None):
+        self.config = config or WhitespaceRepairConfig()
+
+    # -----------------------------------------------------
+    # Analysis
+    # -----------------------------------------------------
+
     def analyze(self, book, analysis=None):
         report = Report(self.name)
-        for chapter in book.chapters:
-            if chapter.document is None:
-                continue
-            changes = self._count_issues(chapter.document)
-            for issue, count in changes.items():
-                for _ in range(count):
-                    report.add(chapter.href, issue)
+        if not self.config.enabled:
+            return report
+
+        whitespace = analysis.whitespace if analysis is not None else analyze_book_whitespace(book)
+        for chapter_summary in whitespace.chapters:
+            for issue in chapter_summary.issues:
+                report.add(
+                    issue.href,
+                    issue.category,
+                    f"{issue.category}: {issue.before!r} -> {issue.after!r}",
+                )
         return report
 
+    # -----------------------------------------------------
+    # Repair
+    # -----------------------------------------------------
+
     def repair(self, book, analysis=None):
-        for chapter in book.chapters:
-            if chapter.document is None:
-                continue
-            changed = self._normalize_tree(chapter.document)
-            if changed:
-                chapter.modified = True
-                book.mark_modified()
+        if not self.config.enabled:
+            return
 
-    # -------------------------------------------------
+        whitespace = analysis.whitespace if analysis is not None else analyze_book_whitespace(book)
 
-    def _normalize_tree(self, root):
-        changed = False
-        for element in root.iter():
-            if self._skip(element):
-                continue
-            if element.text is not None:
-                new = self._normalize_text(element.text)
-                if new != element.text:
-                    element.text = new
-                    changed = True
-            if element.tail is not None:
-                new = self._normalize_tail(element.tail)
-                if new != element.tail:
-                    element.tail = new
-                    changed = True
-        return changed
-
-    def _normalize_text(self, text):
-        text = _COLLAPSE_RE.sub(" ", text)
-        text = text.strip()
-        text = _SPACE_BEFORE_PUNCT.sub(r"\1", text)
-        text = _MISSING_AFTER_PUNCT.sub(r"\1 \2", text)
-        return text
-
-    def _normalize_tail(self, text):
-        text = _COLLAPSE_RE.sub(" ", text)
-        text = _SPACE_BEFORE_PUNCT.sub(r"\1", text)
-        text = _MISSING_AFTER_PUNCT.sub(r"\1 \2", text)
-        return text
-
-    def _skip(self, element):
-        tag = getattr(element, "tag", None)
-
-        if not isinstance(tag, str):
-            return True
-
-        if tag.startswith("{"):
-            tag = tag.split("}", 1)[1]
-
-        return tag.lower() in _SKIP_TAGS
-
-    def _count_issues(self, root):
-        counts = {
-            "Leading/trailing whitespace": 0,
-            "Repeated whitespace": 0,
-            "Space before punctuation": 0,
-            "Missing space after punctuation": 0,
-        }
-
-        for element in root.iter():
-            if self._skip(element):
-                continue
-            for text in (element.text, element.tail):
-                if not text:
+        changed_hrefs = set()
+        for chapter_summary in whitespace.chapters:
+            for issue in chapter_summary.issues:
+                host = issue.element
+                if host is None:
                     continue
-                if text != text.strip():
-                    counts["Leading/trailing whitespace"] += 1
-                if _COLLAPSE_RE.sub(" ", text) != text:
-                    counts["Repeated whitespace"] += 1
-                if _SPACE_BEFORE_PUNCT.search(text):
-                    counts["Space before punctuation"] += 1
-                if _MISSING_AFTER_PUNCT.search(text):
-                    counts["Missing space after punctuation"] += 1
-        return counts
+                # If an earlier repair module in this same run (e.g.
+                # Paragraph Repair merging paragraphs) already changed
+                # this exact text/tail since analysis ran, don't
+                # overwrite something we no longer recognize.
+                if getattr(host, issue.attr, None) != issue.before:
+                    continue
+                setattr(host, issue.attr, issue.after if issue.after else None)
+                changed_hrefs.add(issue.href)
+
+        if not changed_hrefs:
+            return
+
+        for chapter in book.chapters:
+            if chapter.href in changed_hrefs:
+                chapter.modified = True
+        book.mark_modified()

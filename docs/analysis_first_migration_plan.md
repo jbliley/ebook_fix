@@ -1,6 +1,8 @@
 # Analysis-First Migration -- Planning Doc
 
-**Status:** In progress. Four of six repair tools are converted.
+**Status:** In progress. Four of six repair tools fully converted;
+Phase 5 (Whitespace Normalizer) rebuilt and wired to the analysis
+cache, config toggle still coarse-grained (see below).
 **Started:** session that added `serialize.py` (the analysis cache).
 
 ## The problem
@@ -79,14 +81,68 @@ looking at the book directly.
   three-paragraph chain-merge test to confirm merging still cascades
   correctly (it does -- collapses to one paragraph, same as before).
 
-### Phase 5 -- Whitespace Normalizer (not started, bigger than the rest)
-- Also still scans the book itself, twice. But this one shouldn't be
-  patched the same way as Phases 1-4 -- it's already flagged
-  separately for a full rebuild (a proper structure-aware whitespace
-  engine, replacing the current regex approach, which has a known bug
-  where it mangles things like "3.14" or "U.S.A."). Wiring it to the
-  analysis should happen as part of that rewrite, not before it.
-- Treat this as its own project, not a quick swap-in.
+### Phase 5 -- Whitespace Normalizer (in progress)
+- Full rebuild done, not just wired to the analysis cache yet (see
+  below). New `ebook_fix/whitespace.py` replaces the old flat regex
+  pass with a real DOM-aware engine:
+  - A recursive walker (`iter_text_slots`) tracks protected subtrees
+    (pre/code/style/script/svg/math) at any depth, not just an
+    element's own tag -- the old code let content nested inside a
+    `<pre>` get whitespace-collapsed anyway, since `root.iter()`
+    doesn't know about ancestry.
+  - Inline-element spacing is handled per edge: leading and trailing
+    whitespace on a text/tail node are each independently checked
+    against their actual neighbor (`_leading_glue_sensitive` /
+    `_trailing_glue_sensitive`), collapsing to a single space instead
+    of disappearing wherever an inline element sits on that side.
+  - Standalone whitespace-only nodes (nothing but whitespace) always
+    collapse to a single space now, never delete outright -- an
+    earlier version of this rewrite treated block/block boundaries as
+    safe to delete since the tags already force a line break when
+    rendered, but that's only true for rendering. `BrokenSentences.epub`
+    (a PDF conversion with one printed line per `<p>` tag) exposed the
+    real cost: deleting the inter-tag whitespace glued mid-sentence
+    line fragments into single words with no space at all, invisible
+    on screen but destructive to the actual text content. Caught this
+    by comparing total word count before/after across all five sample
+    books -- worth repeating that check for any future change here.
+  - The old known bug (`([,.;:!?])([A-Za-z])` mangling "3.14",
+    "U.S.A.", "example.com", "Mr.Smith") is fixed with a narrower
+    rule requiring the actual shape of a missed sentence break, plus
+    an explicit abbreviation list. Verified against all four cases
+    from the original bug report plus real catches pulled from
+    RunTogetherText.epub -- see session notes below for the specific
+    test cases if this needs revisiting.
+  - Granular category breakdown (leading/trailing indentation,
+    repeated whitespace, tabs, space before punctuation, missing
+    sentence spacing, whitespace-only nodes, protected nodes skipped)
+    now shows in `analyze`'s `[Whitespace]` section, matching the CSS/
+    Paragraphs/Images sections.
+- `ebook_fix/modules/whitespace.py` rewritten to match the Phase 1-4
+  pattern: reads `analysis.whitespace` instead of scanning the book
+  itself, applies each issue's precomputed `after` text directly to
+  the live element, with a staleness guard (skip if the live
+  text/tail no longer matches what analysis saw, in case an earlier
+  repair module already touched that exact node).
+- Wired into `analyzer.py` (single pass) and `config.py` (new
+  `WhitespaceRepairConfig`, currently just an `enabled` toggle).
+- What's NOT done yet:
+  - Per-category config toggles (e.g. disable "missing sentence
+    space" fixes but keep indentation cleanup). The analyzer currently
+    bakes all applicable fixes into one `after` string per node, so
+    granular toggles would need repair to recompute with a
+    config-aware rule set rather than just applying what analysis
+    found -- worth deciding whether that's worth the added complexity
+    before building it.
+  - `--log` output capture (separate item, already on the roadmap).
+  - Further inline-spacing edge cases (deeply nested inline runs,
+    right-to-left text) haven't been stress-tested beyond the sample
+    books and one synthetic DOM test.
+- Verified same way as Phase 3/4: ran `analyze` and full `repair`
+  against all five sample books, diffed word sequences before/after
+  with `difflib` to catch merged/lost words (not just raw counts,
+  since counts alone hid the bug above), and directly unit-tested the
+  abbreviation/decimal false-positive cases from the bug report.
 
 ### Out of scope -- Class Standardize
 - Still scans on its own too, but it's a different kind of tool: it
@@ -96,8 +152,8 @@ looking at the book directly.
   changes.
 
 ## Open questions to resolve when picking this back up
-- Whether Phase 5's rewrite happens before or after some other future
-  phase -- no strong reason either way yet.
+- Whether per-category whitespace config toggles are worth the extra
+  complexity (see Phase 5 above) -- no decision made yet.
 
 ## Continuity note
 This file is the source of truth for where this migration stands --

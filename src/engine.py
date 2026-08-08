@@ -41,8 +41,8 @@ class Engine:
             modules.append(ChapterMarkupRepair(self.config.chapter_markup))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
-        if not hasattr(self.config, "whitespace_repair") or getattr(self.config.whitespace_repair, "enabled", True):
-            modules.append(WhitespaceRepair())
+        if getattr(self.config, "whitespace_repair", None) and getattr(self.config.whitespace_repair, "enabled", True):
+            modules.append(WhitespaceRepair(self.config.whitespace_repair))
         return modules
 
     def log(self, message):
@@ -384,6 +384,39 @@ class Engine:
                         self.log("    Missing manifest images:")
                         for entry in img.missing_manifest_images:
                             self.log(f"      - {entry.href}")
+
+            # Whitespace Issues
+            ws = analysis_report.whitespace
+            whitespace_issues = []
+            if ws.leading_indent_count:
+                whitespace_issues.append(f"Leading indentation removed: {ws.leading_indent_count}")
+            if ws.trailing_indent_count:
+                whitespace_issues.append(f"Trailing indentation removed: {ws.trailing_indent_count}")
+            if ws.repeated_whitespace_count:
+                whitespace_issues.append(f"Repeated whitespace collapsed: {ws.repeated_whitespace_count}")
+            if ws.tabs_converted_count:
+                whitespace_issues.append(f"Tabs converted to spaces: {ws.tabs_converted_count}")
+            if ws.space_before_punct_count:
+                whitespace_issues.append(f"Space before punctuation removed: {ws.space_before_punct_count}")
+            if ws.missing_sentence_space_count:
+                whitespace_issues.append(f"Missing space after punctuation added: {ws.missing_sentence_space_count}")
+            if ws.whitespace_only_node_count:
+                whitespace_issues.append(f"Whitespace-only text nodes: {ws.whitespace_only_node_count}")
+            if ws.protected_nodes_skipped_count:
+                whitespace_issues.append(f"Protected nodes skipped (pre/code/script/style/svg/math): {ws.protected_nodes_skipped_count}")
+
+            if whitespace_issues:
+                self.log("\n[Whitespace]")
+                for issue in whitespace_issues:
+                    self.log(f"  • {issue}")
+
+                if details:
+                    for chapter_summary in ws.chapters:
+                        if not chapter_summary.issues:
+                            continue
+                        self.log(f"    {chapter_summary.href}:")
+                        for issue in chapter_summary.issues:
+                            self.log(f"      - {issue.category}: {issue.before!r} -> {issue.after!r}")
 
             # Module Diagnostics Execution
             self.log("\n[Module Checks]")
