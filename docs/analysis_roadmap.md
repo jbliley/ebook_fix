@@ -1,8 +1,9 @@
 # Analysis Roadmap -- Planning Doc
 
-**Status:** Active. Front/back matter classification and NCX/nav
-label parsing + reuse + link validation are done (see below). TOC
-generation when a book has none is the next item picked up from here.
+**Status:** Active. Front/back matter classification, NCX/nav label
+parsing + reuse + link validation, and Project Gutenberg boilerplate
+detection are done (see below). TOC generation when a book has none
+is the next item picked up from here.
 **Started:** session that closed out the analysis-first migration
 (see "Carried over" below).
 
@@ -42,6 +43,25 @@ this is a holding pen, not a commitment.
   resolve to a matching note, or notes nothing points to.
 - Span soup -- excessive, purposeless nested `<span>` wrapping left
   behind by conversion tools.
+- Fake page-bookmark headings -- found while looking into
+  `ChaptersMisaligned.epub` (a `pdftohtml` conversion, one file per
+  original PDF page). Chapter detection itself is fine on this book;
+  it correctly finds all 24 real "-N-" markers via sequence
+  validation and ignores everything else. The actual defect is that
+  `pdftohtml` stamps the first sentence of *every* page into an
+  `<h2 class="calibre4" id="calibre_pb_N">` as a page-bookmark label,
+  and that class happens to render oversized/bold, so random
+  mid-chapter sentences look like headings. Not a chapter-detection
+  problem, a leftover-heading-markup problem. Likely candidate: flag
+  any heading element that isn't part of `chapters.py`'s confirmed
+  sequence and doesn't look like a real title (ordinary sentence-case
+  prose rather than a short label), then a small repair module to
+  unwrap it back to a `<p>`. The `calibre_pb_` id is a reliable
+  fingerprint for this specific converter, but the general check
+  (unconfirmed heading + prose-shaped text) should catch other
+  converters too -- this is expected to recur, not a one-off (worth
+  keeping in mind for scoping: it should be pattern-based rather than
+  id-based, so it isn't Calibre/pdftohtml-specific).
 
 ### Files & packaging
 - Orphaned zip files -- files sitting in the archive that aren't
@@ -216,6 +236,73 @@ that last one still open, see "Next" below):**
   "broken TOC links" path is implemented but not yet exercised against
   a real broken example -- worth testing against a book that actually
   has one, next time a good candidate turns up.
+
+## Done: Project Gutenberg boilerplate detection
+
+New `ebook_fix/gutenberg.py`, same "analysis, not repair" pattern as
+`frontmatter.py`/`toc.py`. Picked up after looking into two example
+books already in `examples/` and finding the two Gutenberg conversion
+eras don't look alike at all:
+
+- **Modern "Ebookmaker" format** (`The Call of Cthulhu by H. P.
+  Lovecraft.epub`) -- the front disclaimer is a `<header
+  class="pg-boilerplate" id="pg-header">` with a `*** START OF THE
+  PROJECT GUTENBERG EBOOK ... ***` marker inside it, the back license
+  is a `<footer class="pg-boilerplate" id="pg-footer">` with a
+  matching `*** END OF ... ***`. The footer is its own whole spine
+  file; the header sits at the top of the same file as the real title
+  page and story.
+- **Older plain-text style** (`GutenbergText-ChapterSplit.epub`, a Tom
+  Sawyer text) -- same marker text, but as ordinary untagged `<p>`
+  text, and the back matter isn't confined to one file either: the
+  `*** END OF...` marker lands mid-file, and the "Small Print" legal
+  text carries on into further spine files with no marker of their
+  own at all.
+
+What shipped:
+
+- Detection keys off the marker TEXT first (`*** START OF [THIS|THE]
+  PROJECT GUTENBERG EBOOK ... ***` / `*** END OF ... ***`, tolerant of
+  asterisk/spacing variation), since that's the only signal the older
+  conversions have. The modern semantic tags (`pg-header`/`pg-footer`
+  ids, `pg-boilerplate` class) are checked as a fast path, and each
+  tagged candidate is still classified by the marker text found inside
+  it rather than by the class alone -- Ebookmaker stamps the same
+  class value on both the header and the footer, so the class by
+  itself can't tell front from back.
+- `BookGutenbergSummary` records a `front`/`back` `GutenbergMarker`
+  (href, detection method, matched marker text, and a live element
+  reference for a future repair module to anchor on) plus
+  `trailing_back_matter_hrefs` -- every spine entry after the file
+  containing the `*** END OF...*** ` marker, folded in as more back
+  matter even with no marker of its own. Safe to assume for a
+  PG-sourced book: PG's own plain-text source never puts anything but
+  its own license after that line.
+- Wired into the single analyzer pass (`AnalysisReport.gutenberg`) and
+  a new `[Project Gutenberg Boilerplate]` findings section in
+  `analyze`'s CLI output (front/back href + detection method,
+  `--details` adds the matched marker text and the trailing-file
+  list).
+- Deliberately does NOT anchor on `frontmatter.py`'s zone
+  classification -- confirmed while investigating that Cthulhu is an
+  un-chaptered short story, so `frontmatter.py` reports "not
+  classified" for it (no confirmed chapter sequence to anchor zones
+  on) and would never have caught this on its own.
+- Verified across all six sample EPUBs: correctly detects both
+  Gutenberg books (front/back, right href, right method for each
+  era) and stays silent -- no false positives -- on the four
+  non-Gutenberg ones. Confirmed the JSON analysis cache round-trips
+  clean (the live `element` reference is dropped by serialize.py the
+  same way chapters.py's candidates already are).
+- Not covered: the very old (pre-1997) "*END*THE SMALL PRINT!" style
+  header some early PG texts use -- noted in the module's own
+  docstring as a deliberate scope cut, not an oversight.
+- Not done yet: no repair module built on top of this -- it's
+  analysis only for now. Front-matter removal needs a subtree cut
+  (the marker's file also holds real content in both eras); back
+  matter is a clean whole-file drop in the modern format but a
+  subtree cut for the marker's own file in the older one, plus
+  dropping every file in `trailing_back_matter_hrefs` outright.
 
 ## Next: TOC generation when missing
 

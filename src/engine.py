@@ -316,6 +316,33 @@ class Engine:
                         for href in toc.chapters_missing_from_toc:
                             self.log(f"      - {href}")
 
+            # Project Gutenberg Boilerplate
+            gb = analysis_report.gutenberg
+            if gb.detected:
+                self.log("\n[Project Gutenberg Boilerplate]")
+                if gb.front_found:
+                    self.log(f"  • Front disclaimer found in {gb.front.href} (via {gb.front.method})")
+                else:
+                    self.log("  • Front disclaimer: not found")
+                if gb.back_found:
+                    trailing_note = (
+                        f", plus {len(gb.trailing_back_matter_hrefs)} trailing file(s)"
+                        if gb.trailing_back_matter_hrefs else ""
+                    )
+                    self.log(f"  • Back license found in {gb.back.href} (via {gb.back.method}){trailing_note}")
+                else:
+                    self.log("  • Back license: not found")
+
+                if details:
+                    if gb.front_found and gb.front.marker_text:
+                        self.log(f"    Front marker text: {gb.front.marker_text!r}")
+                    if gb.back_found and gb.back.marker_text:
+                        self.log(f"    Back marker text: {gb.back.marker_text!r}")
+                    if gb.trailing_back_matter_hrefs:
+                        self.log("    Trailing back-matter files:")
+                        for href in gb.trailing_back_matter_hrefs:
+                            self.log(f"      - {href}")
+
             # Typography Issues
             typo_issues = []
             if t.quote_style_inconsistent:
