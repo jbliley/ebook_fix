@@ -6,9 +6,11 @@ modified are re-serialized from their DOM; the OPF is re-serialized if
 opf_modified is set. Any other file -- including one that already
 exists in the source archive -- can be overridden by putting its full
 in-zip path in book.new_files (e.g. a repair module that rewrote a CSS
-file's bytes directly, without going through a Chapter/DOM). Anything
-not covered by one of those is copied through from the original file
-untouched, byte for byte.
+file's bytes directly, without going through a Chapter/DOM). A file
+can also be dropped entirely by putting its full in-zip path in
+book.removed_files (e.g. a whole Gutenberg back-matter page with no
+real content left after repair). Anything not covered by one of those
+is copied through from the original file untouched, byte for byte.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ class EPUBWriter:
         # turns out to already be a real archive entry is skipped here
         # since the main loop will handle it.
         new_files = dict(getattr(book, "new_files", {}) or {})
+        removed_files = set(getattr(book, "removed_files", set()) or set())
         opf_modified = bool(getattr(book, "opf_modified", False))
 
         with zipfile.ZipFile(book.source, "r") as src:
@@ -55,6 +58,10 @@ class EPUBWriter:
                     if name == "mimetype":
                         continue
 
+                    if name in removed_files:
+                        new_files.pop(name, None)
+                        continue
+
                     if name in modified_chapters:
                         chapter = modified_chapters[name]
                         data = self._serialize(chapter)
@@ -71,6 +78,8 @@ class EPUBWriter:
                 # Anything genuinely new that wasn't already an entry
                 # in the original archive.
                 for name, data in new_files.items():
+                    if name in removed_files:
+                        continue
                     dest.writestr(name, data)
 
     # ---------------------------------------------------------
@@ -89,3 +98,4 @@ class EPUBWriter:
             xml_declaration=True,
             encoding="utf-8",
         )
+

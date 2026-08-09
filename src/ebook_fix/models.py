@@ -96,6 +96,7 @@ class Book:
     opf_document: Any = None
     opf_modified: bool = False
     new_files: dict = field(default_factory=dict)
+    removed_files: set = field(default_factory=set)
     metadata: Metadata = field(default_factory=Metadata)
     manifest: list[ManifestItem] = field(default_factory=list)
     spine: list[str] = field(default_factory=list)
@@ -119,6 +120,11 @@ class Book:
 # new_files: files that don't exist in the source archive at all yet
 #     (e.g. a generated EPUB3 nav.xhtml), keyed by their full in-zip
 #     path, value is the raw bytes to write.
+# removed_files: full in-zip paths (same format as new_files' keys) to
+#     drop entirely from the saved EPUB -- e.g. a whole Gutenberg
+#     back-matter file with no real content left. A module that drops
+#     one should also update book.manifest/book.spine/book.chapters
+#     to match, or the OPF will reference a file that no longer exists.
 
 # -------------------------------------------------------------
 # Convenience Properties

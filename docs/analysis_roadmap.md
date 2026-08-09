@@ -2,8 +2,8 @@
 
 **Status:** Active. Front/back matter classification, NCX/nav label
 parsing + reuse + link validation, and Project Gutenberg boilerplate
-detection are done (see below). TOC generation when a book has none
-is the next item picked up from here.
+detection + removal are done (see below). TOC generation when a book
+has none is the next item picked up from here.
 **Started:** session that closed out the analysis-first migration
 (see "Carried over" below).
 
@@ -297,12 +297,86 @@ What shipped:
 - Not covered: the very old (pre-1997) "*END*THE SMALL PRINT!" style
   header some early PG texts use -- noted in the module's own
   docstring as a deliberate scope cut, not an oversight.
-- Not done yet: no repair module built on top of this -- it's
-  analysis only for now. Front-matter removal needs a subtree cut
-  (the marker's file also holds real content in both eras); back
-  matter is a clean whole-file drop in the modern format but a
-  subtree cut for the marker's own file in the older one, plus
-  dropping every file in `trailing_back_matter_hrefs` outright.
+- Repair module built on top of this in the next session -- see
+  "Done: Project Gutenberg boilerplate removal" below.
+
+## Done: Project Gutenberg boilerplate removal
+
+New `ebook_fix/modules/gutenberg_repair.py`, reading the front/back
+`GutenbergMarker` the detector above already found rather than
+re-scanning. Also picked up two things the writer/model layer needed
+that didn't exist yet, and one correctness fix in the detector itself.
+
+Bug fixed in the detector first: `trailing_back_matter_hrefs` was
+sweeping up `toc.xhtml` on the Cthulhu book, treating the book's own
+EPUB3 nav document as leftover Gutenberg license text. Cause: the nav
+document isn't in `book.spine` at all (manifest-only), but the local
+spine-ordering helper still tacks manifest-only entries onto the end
+of its list, and the trailing-matter sweep didn't know the difference.
+Fixed by restricting that sweep to hrefs that are actually in
+`book.spine`.
+
+Removal logic, by case:
+
+- **Front matter** -- always a subtree cut, since both eras put it at
+  the top of a file that also holds real content. Walks up from the
+  marker/wrapper element to whichever ancestor is a direct child of
+  `<body>`, removes that ancestor and everything before it under
+  `<body>`. One deliberate guard: if a heading (h1-h6) shows up in
+  that leading run, the sweep stops there and leaves it alone. Needed
+  because of what turned up testing against the Tom Sawyer example --
+  calibre stamps a real `<h1>` book title in from the OPF metadata
+  *before* the Gutenberg boilerplate paragraphs even start, and a
+  blind "everything before the marker" sweep would have deleted the
+  actual book title along with the license text. Verified: the title
+  survives, every boilerplate paragraph around it doesn't.
+- **Back matter** -- whole-file drop when the marker's file is
+  nothing but the license (checked directly: does `<body>` have any
+  non-whitespace content besides the marker/wrapper element), subtree
+  cut in the other direction otherwise (marker's ancestor and
+  everything AFTER it under `<body>`, no heading guard needed since
+  nothing legitimate follows an END marker by definition).
+  `trailing_back_matter_hrefs` are always whole-file drops.
+- Verified against a real edge case worth knowing about: Tom Sawyer's
+  back-matter file has the real "CONCLUSION" chapter sitting *before*
+  the END marker in the same file. Subtree cut correctly preserved it
+  and only removed the trailing "Small Print" text after the marker.
+
+What the writer/model layer needed (didn't exist before this):
+
+- `book.removed_files` (a new field on `Book`) plus matching support
+  in `EPUBWriter.save()` -- previously there was no way to drop a file
+  from the saved EPUB at all. Editing `book.manifest`/`book.spine` to
+  no longer reference a file did nothing to stop the writer from
+  copying that file's bytes through untouched, since it iterates the
+  *source* zip's own file list. Caught this by inspecting the output
+  zip directly rather than trusting a clean `repair` exit code.
+- Whole-file removal now also cleans up: the live OPF `<manifest>`/
+  `<spine>` elements, `book.manifest`/`book.spine`/`book.chapters`,
+  and any `<a href>` in the book's own EPUB3 nav document pointing at
+  the removed file (verified: Cthulhu's `toc.xhtml` no longer
+  references the dropped footer file after repair).
+
+Verified across both Gutenberg example books: `repair` completes
+clean, `validate_epub` passes on both outputs, a word-count diff on
+Tom Sawyer shows ~2,367 words removed (matches the size of the
+stripped boilerplate), and re-running `analyze` on each repaired book
+confirms `gutenberg.detected` is now `False`. Also reran the full
+`analyze`/`repair` pass across all six sample EPUBs -- no regressions,
+no crashes.
+
+Known, deliberate limitation, not a bug: a legacy NCX (`toc.ncx`)
+isn't cleaned up. Confirmed on both repaired books -- `analyze`
+correctly reports a "Broken TOC links" entry for each removed file,
+always the NCX entry (`THE FULL PROJECT GUTENBERG™ LICENSE` on
+Cthulhu, both trailing Tom Sawyer files), never the nav document,
+which is cleaned. Cause: `toc.ncx` isn't loaded as an editable
+document anywhere in the project yet (only `application/xhtml+xml`
+manifest items become `Chapter` objects with a `.document` to edit --
+see `parser.py`'s `_load_resources`), so there's nothing to edit
+against without adding raw-bytes NCX parsing/editing support, which
+is bigger than this module's job. Worth its own follow-up if legacy
+NCX books turn out to matter for the collection this gets run against.
 
 ## Next: TOC generation when missing
 

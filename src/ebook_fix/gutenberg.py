@@ -134,6 +134,22 @@ def _spine_ordered_chapters(book):
     return ordered
 
 
+def _real_spine_hrefs(book):
+    """hrefs that are actually read in the spine (real reading order),
+    as opposed to a manifest-only extra like a nav document that isn't
+    part of the reading order at all. Needed because a manifest-only
+    entry can still end up tacked onto the end of _spine_ordered_chapters
+    -- see the trailing-back-matter sweep below, which must not treat
+    the book's own nav/TOC file as leftover Gutenberg license text."""
+    by_id = {c.id: c for c in book.chapters}
+    hrefs = set()
+    for idref in book.spine:
+        chapter = by_id.get(idref)
+        if chapter is not None:
+            hrefs.add(chapter.href)
+    return hrefs
+
+
 def _element_class_list(el):
     return (el.get("class") or "").split()
 
@@ -239,6 +255,10 @@ def analyze_book_gutenberg(book) -> BookGutenbergSummary:
     if back is not None:
         back_idx = next((i for i, c in enumerate(ordered) if c.href == back.href), None)
         if back_idx is not None:
-            summary.trailing_back_matter_hrefs = [c.href for c in ordered[back_idx + 1:]]
+            real_spine_hrefs = _real_spine_hrefs(book)
+            summary.trailing_back_matter_hrefs = [
+                c.href for c in ordered[back_idx + 1:]
+                if c.href in real_spine_hrefs
+            ]
 
     return summary

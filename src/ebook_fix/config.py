@@ -61,12 +61,20 @@ class WhitespaceRepairConfig:
 
 
 @dataclass(slots=True)
+class GutenbergRepairConfig:
+    enabled: bool = True
+    fix_front_matter: bool = True
+    fix_back_matter: bool = True
+
+
+@dataclass(slots=True)
 class Config:
     epub3_upgrade: EPUB3UpgradeConfig = field(default_factory=EPUB3UpgradeConfig)
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
     chapter_markup: ChapterMarkupConfig = field(default_factory=ChapterMarkupConfig)
     image_repair: ImageRepairConfig = field(default_factory=ImageRepairConfig)
     whitespace_repair: WhitespaceRepairConfig = field(default_factory=WhitespaceRepairConfig)
+    gutenberg_repair: GutenbergRepairConfig = field(default_factory=GutenbergRepairConfig)
 
 
 # ---------------------------------------------------------------------
@@ -107,12 +115,14 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.chapter_markup, modules, "chapter_markup")
     _apply_module_toggle(config.image_repair, modules, "image_repair")
     _apply_module_toggle(config.whitespace_repair, modules, "whitespace_repair")
+    _apply_module_toggle(config.gutenberg_repair, modules, "gutenberg_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
     _apply_section(config.chapter_markup, "chapter_markup", data.get("chapter_markup", {}))
     _apply_section(config.image_repair, "image_repair", data.get("image_repair", {}))
     _apply_section(config.whitespace_repair, "whitespace_repair", data.get("whitespace_repair", {}))
+    _apply_section(config.gutenberg_repair, "gutenberg_repair", data.get("gutenberg_repair", {}))
 
     return config
 
@@ -152,6 +162,7 @@ paragraph_repair = true
 chapter_markup = true
 image_repair = true
 whitespace_repair = true
+gutenberg_repair = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -245,6 +256,26 @@ fix_missing_sentence_space = true
 # block-level tags -- see the module docstring, "Standalone
 # whitespace-only nodes", for why that's the safe default.
 collapse_whitespace_only_nodes = true
+
+# ---------------------------------------------------------------------
+# Gutenberg Boilerplate Removal
+# ---------------------------------------------------------------------
+[gutenberg_repair]
+
+# Remove the standard Project Gutenberg front disclaimer, wherever
+# ebook_fix.gutenberg found it. Always a subtree cut (the disclaimer
+# shares its file with real content in every conversion style seen so
+# far) -- see the module docstring in
+# ebook_fix/modules/gutenberg_repair.py for exactly what does and
+# doesn't get swept.
+fix_front_matter = true
+
+# Remove the standard Project Gutenberg back license, wherever
+# ebook_fix.gutenberg found it, plus any further spine files that are
+# nothing but leftover license text with no marker of their own. Drops
+# the whole file when the marker's file is nothing but boilerplate,
+# otherwise a subtree cut like the front matter above.
+fix_back_matter = true
 """
 
 

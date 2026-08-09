@@ -18,6 +18,7 @@ from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.class_standardize import ClassStandardizeRepair, load_mapping_file, MappingError
+from ebook_fix.modules.gutenberg_repair import GutenbergRepair
 
 console = Console()
 
@@ -35,6 +36,12 @@ class Engine:
         # (EPUB3, nav-document-having) structure, not the original.
         if getattr(self.config, "epub3_upgrade", None) and getattr(self.config.epub3_upgrade, "enabled", True):
             modules.append(EPUB3UpgradeRepair(self.config.epub3_upgrade))
+        # Runs early, right after the EPUB3 upgrade (so any nav
+        # document it cleans up already exists) and before every
+        # content-editing module below, so those don't waste effort
+        # processing text that's about to be deleted anyway.
+        if getattr(self.config, "gutenberg_repair", None) and getattr(self.config.gutenberg_repair, "enabled", True):
+            modules.append(GutenbergRepair(self.config.gutenberg_repair))
         if getattr(self.config, "paragraph_repair", None) and getattr(self.config.paragraph_repair, "enabled", True):
             modules.append(ParagraphRepair(self.config.paragraph_repair))
         if getattr(self.config, "chapter_markup", None) and getattr(self.config.chapter_markup, "enabled", True):
