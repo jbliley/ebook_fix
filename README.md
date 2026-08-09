@@ -23,6 +23,7 @@ Before the repair runs, it runs an analysis to map the structure and elements of
 <li>Chapter/Paragraph/Word Counts</li>
 <li>Common Text Issues</li>
 <li>Hyperlinks</li>
+<li>Table of Contents</li>
 <li>Typography</li>
 <li>Whitespace</li>
 </ul>

@@ -5,6 +5,7 @@ Reads an EPUB into memory. This module DOES NOT modify anything; It simply loads
 """
 
 from __future__ import annotations
+import posixpath
 import zipfile
 from pathlib import PurePosixPath
 from lxml import etree
@@ -14,9 +15,15 @@ from ebook_fix.models import (
     ManifestItem,
     Chapter,
     Resource,
+    TocEntry,
 )
 
 CONTAINER_PATH = "META-INF/container.xml"
+NCX_MEDIA_TYPE = "application/x-dtbncx+xml"
+XHTML_NS = "http://www.w3.org/1999/xhtml"
+EPUB_OPS_NS = "http://www.idpf.org/2007/ops"
+NCX_NS = {"ncx": "http://www.daisy.org/z3986/2005/ncx/"}
+NAV_NS = {"x": XHTML_NS, "epub": EPUB_OPS_NS}
 
 class EPUBParser:
 
@@ -43,6 +50,11 @@ class EPUBParser:
             )
             book.manifest = manifest
             book.spine = spine
+            self._read_toc(
+                archive,
+                manifest,
+                book
+            )
             self._load_resources(
                 archive,
                 rootfile,
@@ -178,27 +190,40 @@ class EPUBParser:
         book
     ):
         base = PurePosixPath(rootfile).parent
+        by_id = {item.id: item for item in manifest}
+
+        # Chapters load in spine (reading) order, not manifest order --
+        # the manifest's own listing order is arbitrary and carries no
+        # meaning. Anything that cares about the book's actual reading
+        # sequence (chapter-boundary detection, front/back-matter
+        # zoning, TOC matching) needs this to be right.
+        loaded_ids = set()
+        for idref in book.spine:
+            item = by_id.get(idref)
+            if item is None or item.media_type != "application/xhtml+xml":
+                continue
+            book.chapters.append(
+                self._load_chapter(archive, base, item)
+            )
+            loaded_ids.add(item.id)
 
         for item in manifest:
-            href = str(base / item.href)
+            if item.media_type != "application/xhtml+xml":
+                continue
+            if item.id in loaded_ids:
+                continue
+            # An xhtml file the manifest declares but the spine never
+            # reads (a nav document not in the reading order, an
+            # orphaned page, etc.) -- still load it as a Chapter so
+            # nothing downstream silently loses it, just after every
+            # real spine chapter so ordering stays meaningful.
+            book.chapters.append(
+                self._load_chapter(archive, base, item)
+            )
+
+        for item in manifest:
             if item.media_type == "application/xhtml+xml":
-                xml = archive.read(href)
-                xml_parser = etree.XMLParser(
-                    recover=True,
-                    encoding="utf-8"
-                )
-                chapter = Chapter(
-                    id=item.id,
-                    href=item.href,
-                    media_type=item.media_type,
-                    document=etree.fromstring(
-                        xml,
-                        xml_parser
-                    ),
-                )
-                book.chapters.append(
-                    chapter
-                )
+                continue
             elif item.media_type == "text/css":
                 book.css.append(
                     Resource(
@@ -233,6 +258,182 @@ class EPUBParser:
                         item.media_type
                     )
                 )
+
+# ---------------------------------------------------------
+
+    def _load_chapter(self, archive, base, item):
+        href = str(base / item.href)
+        xml = archive.read(href)
+        xml_parser = etree.XMLParser(
+            recover=True,
+            encoding="utf-8"
+        )
+        return Chapter(
+            id=item.id,
+            href=item.href,
+            media_type=item.media_type,
+            document=etree.fromstring(
+                xml,
+                xml_parser
+            ),
+        )
+
+# ---------------------------------------------------------
+# Table of contents (NCX and/or EPUB3 nav document)
+# ---------------------------------------------------------
+
+    def _read_toc(
+        self,
+        archive,
+        manifest,
+        book
+    ):
+        """Populates book.toc from whichever of the NCX / nav document
+        the book actually has. Prefers the NCX when both are present
+        and both parse to something -- see epub3_upgrade.py's own
+        label-priority fix for why (a converter-stamped per-page
+        <title> is common and unreliable, but an NCX navLabel is
+        usually hand-authored or carried over from a real source)."""
+
+        base = PurePosixPath(book.package_path).parent
+
+        ncx_item = next(
+            (i for i in manifest if i.media_type == NCX_MEDIA_TYPE),
+            None
+        )
+        nav_item = next(
+            (i for i in manifest if "nav" in i.properties.split()),
+            None
+        )
+
+        entries = []
+        source = ""
+
+        if ncx_item is not None:
+            entries = self._parse_ncx(archive, base, ncx_item)
+            if entries:
+                source = "ncx"
+
+        if not entries and nav_item is not None:
+            entries = self._parse_nav_toc(archive, base, nav_item)
+            if entries:
+                source = "nav"
+
+        book.toc = entries
+        book.toc_source = source
+
+    def _parse_ncx(self, archive, base, item):
+        # item.href is relative to the OPF's directory (same
+        # convention as every other href in this module); a navPoint's
+        # own content src is relative to the NCX file itself, so this
+        # is the directory those content srcs need resolving against.
+        ncx_dir = str(PurePosixPath(item.href).parent)
+        xml = self._read_optional(archive, str(base / item.href))
+        if xml is None:
+            return []
+        tree = self._parse_xml(xml)
+        if tree is None:
+            return []
+        nav_map = tree.find("ncx:navMap", NCX_NS)
+        if nav_map is None:
+            return []
+        return [
+            self._ncx_nav_point(point, ncx_dir)
+            for point in nav_map.findall("ncx:navPoint", NCX_NS)
+        ]
+
+    def _ncx_nav_point(self, point, ncx_dir):
+        label = self._text(
+            point.find("ncx:navLabel/ncx:text", NCX_NS)
+        )
+        content = point.find("ncx:content", NCX_NS)
+        src = content.get("src", "") if content is not None else ""
+        return TocEntry(
+            label=label,
+            href=self._resolve_toc_href(ncx_dir, src),
+            children=[
+                self._ncx_nav_point(child, ncx_dir)
+                for child in point.findall("ncx:navPoint", NCX_NS)
+            ],
+        )
+
+    def _parse_nav_toc(self, archive, base, item):
+        nav_dir = str(PurePosixPath(item.href).parent)
+        xml = self._read_optional(archive, str(base / item.href))
+        if xml is None:
+            return []
+        tree = self._parse_xml(xml)
+        if tree is None:
+            return []
+
+        toc_nav = None
+        for nav in tree.findall(".//x:nav", NAV_NS):
+            if nav.get(f"{{{EPUB_OPS_NS}}}type") == "toc":
+                toc_nav = nav
+                break
+        if toc_nav is None:
+            return []
+
+        ol = toc_nav.find("x:ol", NAV_NS)
+        if ol is None:
+            return []
+        return self._nav_ol(ol, nav_dir)
+
+    def _nav_ol(self, ol, nav_dir):
+        entries = []
+        for li in ol.findall("x:li", NAV_NS):
+            a = li.find("x:a", NAV_NS)
+            label = ""
+            href = ""
+            if a is not None:
+                label = "".join(a.itertext()).strip()
+                href = self._resolve_toc_href(nav_dir, a.get("href", ""))
+            else:
+                span = li.find("x:span", NAV_NS)
+                if span is not None:
+                    label = "".join(span.itertext()).strip()
+            child_ol = li.find("x:ol", NAV_NS)
+            children = self._nav_ol(child_ol, nav_dir) if child_ol is not None else []
+            entries.append(TocEntry(label=label, href=href, children=children))
+        return entries
+
+    @staticmethod
+    def _resolve_toc_href(source_dir, href):
+        """Resolves an href found inside the NCX/nav document (which is
+        relative to wherever that document lives) into the same
+        OPF-relative form every other href in this module uses, so it
+        can be compared directly against a Chapter's own href."""
+        if not href:
+            return ""
+        path, _, fragment = href.partition("#")
+        if not path:
+            # A bare "#fragment" with no file part -- unusual for an
+            # NCX/nav (each entry normally names its own document), and
+            # not resolvable without more context. Left as-is.
+            return href
+        resolved = posixpath.normpath(posixpath.join(source_dir, path))
+        return f"{resolved}#{fragment}" if fragment else resolved
+
+    @staticmethod
+    def _read_optional(archive, full_path):
+        """Reads a full in-zip path, tolerating a missing or malformed
+        reference (a manifest entry pointing at a file that doesn't
+        actually exist in the zip) rather than crashing the whole
+        parse over it."""
+        try:
+            return archive.read(full_path)
+        except KeyError:
+            return None
+
+    @staticmethod
+    def _parse_xml(xml_bytes):
+        try:
+            return etree.fromstring(
+                xml_bytes,
+                etree.XMLParser(recover=True, encoding="utf-8"),
+            )
+        except etree.XMLSyntaxError:
+            return None
 
 # ---------------------------------------------------------
 

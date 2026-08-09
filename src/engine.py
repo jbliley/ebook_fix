@@ -144,7 +144,8 @@ class Engine:
                 f"HTML/XHTML pages: {s.html_page_count}"
                 f"\nSpine entries: {s.spine_entry_count}"
                 f"\nTOC entries: {s.toc_entry_count}"
-                f"\nCSS files: {s.css_file_count}"
+                + (f" (from {s.toc_source})" if s.toc_source else " (no NCX or nav document found)")
+                + f"\nCSS files: {s.css_file_count}"
                 f"\nImage files: {s.image_file_count}"
                 f"\nFont files: {s.font_file_count}"
                 f"\nAudio files: {s.audio_file_count}"
@@ -287,6 +288,33 @@ class Engine:
                         for ch in analysis_report.chapters_with_heading_issues:
                             for issue in ch.heading_issues:
                                 self.log(f"      - {ch.href}: {issue}")
+
+            # Table of Contents Issues
+            toc = analysis_report.toc
+            toc_issues = []
+            if not toc.source:
+                toc_issues.append("No table of contents (NCX or nav document) found in this book")
+            if toc.broken_link_count:
+                toc_issues.append(f"Broken TOC links: {toc.broken_link_count}")
+            if toc.chapters_missing_from_toc:
+                toc_issues.append(
+                    f"Main-content chapters not referenced in TOC: {len(toc.chapters_missing_from_toc)}"
+                )
+
+            if toc_issues:
+                self.log("\n[Table of Contents]")
+                for issue in toc_issues:
+                    self.log(f"  • {issue}")
+
+                if details:
+                    if toc.broken_links:
+                        self.log("    Broken links detail:")
+                        for link in toc.broken_links:
+                            self.log(f"      - {link.label!r} -> {link.href} ({link.reason})")
+                    if toc.chapters_missing_from_toc:
+                        self.log("    Chapters missing from TOC:")
+                        for href in toc.chapters_missing_from_toc:
+                            self.log(f"      - {href}")
 
             # Typography Issues
             typo_issues = []

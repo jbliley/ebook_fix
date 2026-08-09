@@ -40,6 +40,22 @@ class Metadata:
     subject: list[str] = field(default_factory=list)
 
 # ---------------------------------------------------------------------
+# Table of contents
+# ---------------------------------------------------------------------
+
+@dataclass(slots=True)
+class TocEntry:
+    """One entry from a book's own NCX and/or EPUB3 nav document, as
+    found -- not generated. href is resolved to be relative to the OPF
+    (the same convention Chapter.href and ManifestItem.href use), with
+    any #fragment kept attached. children holds nested entries in
+    document order, for TOCs with sub-sections."""
+
+    label: str = ""
+    href: str = ""
+    children: list[TocEntry] = field(default_factory=list)
+
+# ---------------------------------------------------------------------
 # Chapter
 # ---------------------------------------------------------------------
 
@@ -83,7 +99,8 @@ class Book:
     metadata: Metadata = field(default_factory=Metadata)
     manifest: list[ManifestItem] = field(default_factory=list)
     spine: list[str] = field(default_factory=list)
-    toc: list[str] = field(default_factory=list)
+    toc: list[TocEntry] = field(default_factory=list)
+    toc_source: str = ""  # "ncx", "nav", or "" if the book has neither
     chapters: list[Chapter] = field(default_factory=list)
     css: list[Resource] = field(default_factory=list)
     images: list[Resource] = field(default_factory=list)

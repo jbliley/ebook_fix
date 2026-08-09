@@ -179,11 +179,16 @@ class EPUB3UpgradeRepair:
 
         by_id = {item.id: item for item in book.manifest}
         chapters_by_id = {c.id: c for c in book.chapters}
+        toc_labels = self._toc_label_by_href(book)
         for idref in book.spine:
             item = by_id.get(idref)
             if item is None or item.media_type != "application/xhtml+xml":
                 continue
-            label = self._chapter_label(chapters_by_id.get(idref)) or item.href
+            label = (
+                toc_labels.get(item.href)
+                or self._chapter_label(chapters_by_id.get(idref))
+                or item.href
+            )
             li = etree.SubElement(ol, E + "li")
             a = etree.SubElement(li, E + "a")
             a.set("href", item.href)
@@ -195,6 +200,36 @@ class EPUB3UpgradeRepair:
             encoding="utf-8",
             doctype="<!DOCTYPE html>",
         )
+
+    def _toc_label_by_href(self, book):
+        """Maps each chapter href to the label the book's own NCX/nav
+        TOC already uses for it (book.toc, populated by parser.py),
+        checked FIRST -- ahead of a chapter's own <head><title> -- in
+        _build_nav_bytes above. A per-page <title> is frequently just
+        the book title stamped onto every file by a conversion tool,
+        while an NCX/nav navLabel is a real, usually-correct, per-
+        chapter label. See docs/analysis_roadmap.md for the bug report
+        that found this (every chapter showing the same generic label
+        after an EPUB2->3 upgrade)."""
+
+        mapping = {}
+        for entry in self._flatten_toc(getattr(book, "toc", None) or []):
+            if not entry.href or not entry.label:
+                continue
+            path = entry.href.partition("#")[0]
+            # First entry seen per file wins -- a chapter-level
+            # navPoint/li normally lists its own file before any
+            # nested sub-section entries that share the same file with
+            # a different #fragment.
+            if path and path not in mapping:
+                mapping[path] = entry.label
+        return mapping
+
+    def _flatten_toc(self, entries):
+        for entry in entries:
+            yield entry
+            if entry.children:
+                yield from self._flatten_toc(entry.children)
 
     def _chapter_label(self, chapter):
         if chapter is None or chapter.document is None:

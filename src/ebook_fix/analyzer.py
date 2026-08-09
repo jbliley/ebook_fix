@@ -21,6 +21,7 @@ from ebook_fix.whitespace import BookWhitespaceSummary, analyze_book_whitespace
 from ebook_fix.frontmatter import (
     BookFrontMatterSummary, analyze_book_frontmatter, FRONT_ZONE, BACK_ZONE,
 )
+from ebook_fix.toc import BookTocSummary, analyze_book_toc
 from ebook_fix import epub_version
 
 # A chapter is flagged as "thin" if it has no paragraphs at all, or if its
@@ -75,6 +76,7 @@ class BookSummary:
     other_file_count:int=0
     spine_entry_count:int=0
     toc_entry_count:int=0
+    toc_source:str=""    # "ncx", "nav", or "" if the book has neither
     total_word_count:int=0
 
 @dataclass
@@ -100,6 +102,7 @@ class AnalysisReport:
     paragraphs:BookParagraphSummary=field(default_factory=BookParagraphSummary)
     whitespace:BookWhitespaceSummary=field(default_factory=BookWhitespaceSummary)
     frontmatter:BookFrontMatterSummary=field(default_factory=BookFrontMatterSummary)
+    toc:BookTocSummary=field(default_factory=BookTocSummary)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -201,11 +204,13 @@ class EPUBAnalyzer:
         r.summary.video_file_count=len(getattr(book,"video",[]) or [])
         r.summary.other_file_count=len(getattr(book,"other",[]) or [])
         r.summary.spine_entry_count=len(getattr(book,"spine",[]) or [])
-        r.summary.toc_entry_count=len(getattr(book,"toc",[]) or [])
 
         r.typography=summarize_book([(c.href,c.typography) for c in r.chapter_reports])
         r.css=analyze_book_css(book,r.chapter_reports)
         r.images=analyze_book_images(book)
         r.paragraphs=analyze_book_paragraphs(book)
         r.whitespace=analyze_book_whitespace(book)
+        r.toc=analyze_book_toc(book,chapter_reports=r.chapter_reports)
+        r.summary.toc_entry_count=r.toc.entry_count
+        r.summary.toc_source=r.toc.source
         return r
