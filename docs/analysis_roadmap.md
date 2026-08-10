@@ -32,8 +32,7 @@ this is a holding pen, not a commitment.
 - Front/back matter classification -- identify title page, copyright,
   dedication, TOC page, etc. by pattern, so "thin chapter" doesn't
   lump them in with actually broken content. **Done, see below.**
-- Cover image detection -- confirm a manifest item is properly marked
-  as the cover and that it exists.
+- **Cover image detection -- done, see below.**
 
 ### Conversion artifacts
 - Stray page-number remnants -- leftover PDF page numbers sitting
@@ -425,6 +424,77 @@ unchanged on every one of them (none of the sample books happen to use
 this split-title pattern, so there was nothing for the merge to catch
 -- worth keeping this book, or one like it, in mind as a future sample
 if the project ever adds more examples to `examples/`).
+
+## Done: Cover image detection
+
+New `ebook_fix/cover.py`, same "analysis, not repair" pattern as
+`toc.py`/`gutenberg.py`, reusing `images.py`'s archive-listing
+approach rather than opening the zip a second time. Picked up
+straight off this doc's own candidate list, no bug report behind it.
+
+An EPUB can declare its cover two different, independent ways, and
+real books commonly carry either one or both:
+
+- EPUB2-style: an OPF `<meta name="cover" content="ID"/>`, where ID
+  is a manifest item's id.
+- EPUB3-style: the manifest item itself carries
+  `properties="cover-image"`.
+
+What gets checked, per book:
+
+- Is a cover declared at all, by either method?
+- EPUB2-style: does the id the `<meta>` tag points at actually exist
+  in the manifest, or is it dangling (a common leftover from manual
+  editing or a lossy conversion)?
+- Whichever item ends up as the declared cover, is its media-type
+  actually an image?
+- Does that file actually exist inside the EPUB zip?
+- If both methods are present, do they agree on the same item? A
+  stale EPUB2 `<meta>` tag left pointing at an old cover after the
+  real one was swapped in via `properties="cover-image"` (or the
+  reverse) is exactly the kind of thing that looks fine in one
+  reading app and wrong in another.
+
+When both methods are present and agree, or only one is present, the
+`properties="cover-image"` item is the one treated as "the" cover for
+reporting purposes -- that's the priority reflowable EPUB3 readers
+themselves give it, `<meta name="cover">` being the older, EPUB2-only
+signal.
+
+Wired into the single analyzer pass (`AnalysisReport.cover`), a new
+"Cover image: ..." line in `analyze`'s `[File Contents]` overview
+(one line either way: the resolved file and which method declared
+it, or what's wrong), and a `[Cover Image]` findings section that
+only appears when something's actually off (no declaration at all, a
+dangling meta id, a missing file, a non-image media-type, or a
+meta/properties mismatch).
+
+Verified across all six sample EPUBs -- each has a valid, resolvable
+cover, five via `<meta name="cover">` (all calibre conversions),
+Cthulhu via `properties="cover-image"` (its own native EPUB3
+structure) -- no false positives, no `[Cover Image]` section printed
+on any of them since there was nothing to flag. Also verified against
+four synthetic broken cases built by editing a sample book's OPF
+directly: a declared cover file removed from the zip, a `<meta>` tag
+pointing at an id nothing in the manifest has, no cover declaration
+at all, and a `<meta>`/`properties` pair pointing at two different
+manifest items -- each produced the expected, specific message rather
+than a generic "cover problem" catch-all. Ran a full `repair` across
+all six sample books plus Jacob's own `Strike Force 11` afterward with
+this module wired into the analyzer pass; no crashes, no change to
+any repaired output (this module is read-only, same as the rest of
+the analysis layer).
+
+Not done yet, on purpose: no repair module built on top of this. This
+was scoped as analysis only, same as everything else on this list
+before a repair module gets written against it -- and unlike, say, a
+missing TOC, there's no single obviously-correct automatic fix for
+"no cover declared at all" (nothing to promote to cover status without
+guessing). Worth a decision the next time this gets picked back up:
+whether a repair module here should limited to the mechanical cases
+(add `properties="cover-image"` to whichever item a dangling/missing
+`<meta>` reference should have pointed at, if it's still findable) or
+skipped entirely in favor of just surfacing the report.
 
 ## Next: TOC generation when missing
 

@@ -52,6 +52,22 @@ class Engine:
             modules.append(WhitespaceRepair(self.config.whitespace_repair))
         return modules
 
+    def _cover_status_line(self, cover):
+        """One-line summary of ebook_fix.cover's findings for the
+        [File Contents] overview -- the [Cover Image] findings section
+        further down covers the detail when something's actually
+        wrong."""
+        if not cover.declared:
+            return "not declared"
+        if not cover.exists_in_archive:
+            return f"declared ({cover.resolved_href}) but MISSING from the EPUB"
+        if not cover.is_image_media_type:
+            return f"declared ({cover.resolved_href}) but media-type isn't an image"
+        if cover.mismatched_declarations:
+            return f"declared, but meta/properties tags disagree ({cover.resolved_href} used)"
+        method = "properties=\"cover-image\"" if cover.properties_item is not None else "<meta name=\"cover\">"
+        return f"{cover.resolved_href} (via {method})"
+
     def log(self, message):
         console.print(message)
 
@@ -159,6 +175,7 @@ class Engine:
                 f"\nVideo files: {s.video_file_count}"
                 f"\nOther files: {s.other_file_count}"
                 f"\nTotal word count: {s.total_word_count:,}"
+                f"\nCover image: {self._cover_status_line(analysis_report.cover)}"
             )
 
             self.log("")
@@ -349,6 +366,32 @@ class Engine:
                         self.log("    Trailing back-matter files:")
                         for href in gb.trailing_back_matter_hrefs:
                             self.log(f"      - {href}")
+
+            # Cover Image
+            cover = analysis_report.cover
+            cover_issues = []
+            if not cover.declared:
+                cover_issues.append("No cover image declared (no <meta name=\"cover\"> and no properties=\"cover-image\")")
+            if cover.meta_id_dangling:
+                cover_issues.append(
+                    f"<meta name=\"cover\"> points at id {cover.meta_content_id!r}, which isn't in the manifest"
+                )
+            if cover.declared and not cover.exists_in_archive:
+                cover_issues.append(f"Declared cover file is missing from the EPUB: {cover.resolved_href}")
+            if cover.declared and not cover.is_image_media_type:
+                cover_issues.append(
+                    f"Declared cover's media-type isn't an image: {cover.cover_item.media_type!r}"
+                )
+            if cover.mismatched_declarations:
+                cover_issues.append(
+                    f"<meta name=\"cover\"> and properties=\"cover-image\" disagree "
+                    f"({cover.meta_item.href!r} vs {cover.properties_item.href!r})"
+                )
+
+            if cover_issues:
+                self.log("\n[Cover Image]")
+                for issue in cover_issues:
+                    self.log(f"  • {issue}")
 
             # Typography Issues
             typo_issues = []
