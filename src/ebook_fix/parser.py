@@ -319,8 +319,39 @@ class EPUBParser:
             if entries:
                 source = "nav"
 
-        book.toc = entries
+        book.toc = self._merge_split_labels(entries)
         book.toc_source = source
+
+    def _merge_split_labels(self, entries):
+        """Calibre's PDF-to-EPUB conversion (and others like it) often
+        splits one chapter's TOC entry into two consecutive navPoints
+        that point at the exact same target -- a bare "1." followed by
+        the actual title "Tennessee" -- instead of one entry reading
+        "1. Tennessee". Left alone, that doubles the entry count and
+        breaks anything expecting one TOC entry per chapter (see
+        epub3_upgrade.py's _toc_label_by_href, which used to keep only
+        whichever half came first and silently drop the other -- almost
+        always the real title, since the bare number is listed first).
+        This collapses adjacent siblings that share an identical href
+        into one entry with the labels joined, recursively, before
+        anything else reads book.toc."""
+        merged = []
+        for entry in entries:
+            entry.children = self._merge_split_labels(entry.children)
+            if (
+                merged
+                and entry.href
+                and merged[-1].href == entry.href
+                and not merged[-1].children
+                and not entry.children
+            ):
+                prev = merged[-1]
+                prev.label = " ".join(
+                    part for part in (prev.label, entry.label) if part
+                ).strip()
+                continue
+            merged.append(entry)
+        return merged
 
     def _parse_ncx(self, archive, base, item):
         # item.href is relative to the OPF's directory (same

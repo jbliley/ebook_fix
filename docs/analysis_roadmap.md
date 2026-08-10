@@ -1,9 +1,10 @@
 # Analysis Roadmap -- Planning Doc
 
 **Status:** Active. Front/back matter classification, NCX/nav label
-parsing + reuse + link validation, and Project Gutenberg boilerplate
-detection + removal are done (see below). TOC generation when a book
-has none is the next item picked up from here.
+parsing + reuse + link validation, split-title TOC entry merging, and
+Project Gutenberg boilerplate detection + removal are done (see
+below). TOC generation when a book has none is the next item picked
+up from here.
 **Started:** session that closed out the analysis-first migration
 (see "Carried over" below).
 
@@ -377,6 +378,53 @@ see `parser.py`'s `_load_resources`), so there's nothing to edit
 against without adding raw-bytes NCX parsing/editing support, which
 is bigger than this module's job. Worth its own follow-up if legacy
 NCX books turn out to matter for the collection this gets run against.
+
+## Done: split-title TOC entries merged during parsing
+
+Found from a real bug report (Jacob's own book, `Strike Force 11` by
+Forest Getter, a calibre conversion). He ran `repair` on a book whose
+`toc.ncx` had a real chapter number and a real chapter title, and the
+repaired book's table of contents only kept the number ("1.") and
+dropped the title ("Tennessee") entirely.
+
+**Root cause:** this book's `toc.ncx` doesn't write one navPoint per
+chapter the way `Deathwatch` (the earlier NCX bug report) did -- it
+writes TWO consecutive navPoints per chapter, both pointing at the
+exact same target: one with just the number ("1."), the next with
+just the title ("Tennessee"). Calibre does this whenever a chapter
+heading was originally two visual lines in the source (the number on
+its own line, the title on the next). `parser.py`'s NCX reader loaded
+both as separate, unrelated `TocEntry` objects, so
+`epub3_upgrade.py`'s `_toc_label_by_href()` -- which keeps the first
+entry it sees per target file -- kept whichever one came first (always
+the bare number, since calibre writes it before the title) and
+silently threw the other away.
+
+**Fix:** `parser.py._read_toc()` now runs every parsed TOC (NCX or
+nav, whichever was used) through a new `_merge_split_labels()` pass
+before storing it on `book.toc`. It walks the entries (recursively,
+so nested sub-sections aren't skipped) and collapses adjacent
+siblings that share the identical href -- same file, same fragment --
+into one entry, joining their label text with a space. Only applies
+to siblings with no children of their own, so a real structural
+parent entry (a Part/Book heading with actual sub-chapters under it)
+can never get folded into a neighbor by mistake. This runs once, at
+parse time, so every consumer of `book.toc` (the NCX-reuse fix in
+`epub3_upgrade.py`, `toc.py`'s link validation, anything built on top
+of this later) sees the correct merged label without needing its own
+special case for this pattern.
+
+Verified against the actual book: `1.` + `Tennessee` -> `1. Tennessee`,
+`II.` + `Notes from the Author` -> `II. Notes from the Author`, and so
+on, all the way through the book's 55 numbered chapters. Confirmed via
+word-count diff that repaired body text is byte-for-byte identical to
+before this fix -- this only changes which label text ends up in
+`nav.xhtml`, nothing in the chapters themselves. Regression-verified
+across all six sample EPUBs: no crashes, and `nav.xhtml` output is
+unchanged on every one of them (none of the sample books happen to use
+this split-title pattern, so there was nothing for the merge to catch
+-- worth keeping this book, or one like it, in mind as a future sample
+if the project ever adds more examples to `examples/`).
 
 ## Next: TOC generation when missing
 
