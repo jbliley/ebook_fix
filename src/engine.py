@@ -393,6 +393,40 @@ class Engine:
                 for issue in cover_issues:
                     self.log(f"  • {issue}")
 
+            # Span Soup
+            span_soup = analysis_report.span_soup
+            if span_soup.chain_count or span_soup.empty_span_count:
+                self.log("\n[Span Soup]")
+                if span_soup.chain_count:
+                    self.log(
+                        f"  • Nested span wrapper chains: {span_soup.chain_count} "
+                        f"({span_soup.fully_purposeless_chain_count} fully purposeless, "
+                        f"deepest {span_soup.max_depth} levels)"
+                    )
+                if span_soup.empty_span_count:
+                    self.log(f"  • Empty spans with no content at all: {span_soup.empty_span_count}")
+                if span_soup.no_op_classes:
+                    sample = ", ".join(sorted(span_soup.no_op_classes)[:8])
+                    more = len(span_soup.no_op_classes) - 8
+                    suffix = f" (+{more} more)" if more > 0 else ""
+                    self.log(f"  • CSS classes confirmed to have no visual effect: {sample}{suffix}")
+                self.log(f"  • Chapters affected: {len(span_soup.chapters_affected)}")
+
+                if details:
+                    if span_soup.chains:
+                        self.log("    Nested chain detail:")
+                        for c in span_soup.chains:
+                            class_path = " > ".join(
+                                ".".join(lv.classes) if lv.classes else "(bare)" for lv in c.levels
+                            )
+                            flag = "purposeless" if c.fully_purposeless else f"{c.purposeless_level_count}/{c.depth} purposeless"
+                            self.log(f"      - {c.href}: {class_path} ({flag}) -> {c.text[:50]!r}")
+                    if span_soup.empty_spans:
+                        self.log("    Empty span detail:")
+                        for e in span_soup.empty_spans:
+                            cls = e.element.get("class") if e.element is not None else None
+                            self.log(f"      - {e.href}: <span class={cls!r}></span>")
+
             # Typography Issues
             typo_issues = []
             if t.quote_style_inconsistent:

@@ -24,6 +24,7 @@ from ebook_fix.frontmatter import (
 from ebook_fix.toc import BookTocSummary, analyze_book_toc
 from ebook_fix.gutenberg import BookGutenbergSummary, analyze_book_gutenberg
 from ebook_fix.cover import BookCoverSummary, analyze_book_cover
+from ebook_fix.span_soup import BookSpanSoupSummary, analyze_book_span_soup
 from ebook_fix import epub_version
 
 # A chapter is flagged as "thin" if it has no paragraphs at all, or if its
@@ -107,6 +108,7 @@ class AnalysisReport:
     toc:BookTocSummary=field(default_factory=BookTocSummary)
     gutenberg:BookGutenbergSummary=field(default_factory=BookGutenbergSummary)
     cover:BookCoverSummary=field(default_factory=BookCoverSummary)
+    span_soup:BookSpanSoupSummary=field(default_factory=BookSpanSoupSummary)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -219,4 +221,5 @@ class EPUBAnalyzer:
         r.summary.toc_source=r.toc.source
         r.gutenberg=analyze_book_gutenberg(book)
         r.cover=analyze_book_cover(book)
+        r.span_soup=analyze_book_span_soup(book)
         return r

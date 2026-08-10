@@ -1,10 +1,10 @@
 # Analysis Roadmap -- Planning Doc
 
 **Status:** Active. Front/back matter classification, NCX/nav label
-parsing + reuse + link validation, split-title TOC entry merging, and
-Project Gutenberg boilerplate detection + removal are done (see
-below). TOC generation when a book has none is the next item picked
-up from here.
+parsing + reuse + link validation, split-title TOC entry merging,
+cover image detection, span soup detection, and Project Gutenberg
+boilerplate detection + removal are done (see below). TOC generation
+when a book has none is the next item picked up from here.
 **Started:** session that closed out the analysis-first migration
 (see "Carried over" below).
 
@@ -41,8 +41,7 @@ this is a holding pen, not a commitment.
   that were never rejoined ("con-\ntinue").
 - Footnote/endnote link integrity -- reference markers that don't
   resolve to a matching note, or notes nothing points to.
-- Span soup -- excessive, purposeless nested `<span>` wrapping left
-  behind by conversion tools.
+- **Span soup -- done, see below.**
 - Fake page-bookmark headings -- found while looking into
   `ChaptersMisaligned.epub` (a `pdftohtml` conversion, one file per
   original PDF page). Chapter detection itself is fine on this book;
@@ -495,6 +494,89 @@ whether a repair module here should limited to the mechanical cases
 (add `properties="cover-image"` to whichever item a dangling/missing
 `<meta>` reference should have pointed at, if it's still findable) or
 skipped entirely in favor of just surfacing the report.
+
+## Done: Span soup detection
+
+New `ebook_fix/span_soup.py`, same "analysis, not repair" pattern as
+the rest of this doc's "Done" entries. Picked up straight off this
+doc's own candidate list.
+
+An EPUB can end up with a run of ordinary text buried under two,
+three, sometimes five layers of `<span>` that do nothing -- calibre
+and similar tools tend to wrap every semantic change (bold, italic,
+a TOC entry) in its own span without ever removing the layers
+underneath that were already there. Two independent things get
+flagged, per book:
+
+1. **Nested wrapper chains** -- a `<span>` whose only child is another
+   `<span>`, with no text of its own alongside it. Followed as deep as
+   it goes in one pass (each span visited once, so a 5-deep chain is
+   one instance, not five overlapping ones). Every level in a chain
+   gets checked against two "does this span do anything" signals:
+   - **bare**: no attributes at all.
+   - **no-op class**: every class on it resolves to a CSS rule that's
+     a confirmed no-op (`color: inherit`, `font-size: 1em`, and a
+     short hand-picked list of similar identity declarations -- see
+     `NO_OP_DECLARATIONS` in the module). Deliberately conservative: a
+     class with even one real declaration is left alone.
+   A chain where every level is bare/no-op is one that could safely
+   collapse to nothing; a chain where only some levels are (a real
+   `bold` class wrapping a no-op `calibre3` wrapping the actual text --
+   this exact case turned up in `RunTogetherText.epub` during testing)
+   still gets reported, just flagged as partially rather than fully
+   purposeless, so a future repair module (or a person reading the
+   report) can decide how aggressive to be.
+2. **Standalone empty spans** -- a `<span>` with no text and no
+   element children at all, sitting inert next to real content. Found
+   verbatim in Jacob's own `Strike Force 11`: an empty `<span></span>`
+   immediately followed by a separate nested chain.
+
+Wired into the single analyzer pass (`AnalysisReport.span_soup`), and
+a new `[Span Soup]` findings section in `analyze`'s output (chain
+count, how many are fully purposeless, deepest chain found, empty
+span count, which CSS classes were confirmed no-op, chapters
+affected), with full per-instance detail under `--details`.
+
+One real bug worth flagging for future reference: the first working
+version of the DOM walk used `id(element)` to track which spans had
+already been consumed by an earlier chain, and undercounted badly as
+a result (0 chains found on `RunTogetherText.epub` where 14 were
+expected from manual inspection). lxml element objects are proxies
+over the underlying C node -- `.iter()` can hand back a fresh proxy
+each time, and Python is free to garbage-collect and reuse a proxy's
+`id()` for a completely different node once nothing else references
+it. Two unrelated spans ended up reporting the same `id()`, which
+made the "already seen" check misfire. Fixed by tracking the elements
+themselves in a plain `set()` instead -- lxml elements hash and
+compare by the identity of their underlying C node, so this is both
+simpler and actually correct. Worth remembering for any other module
+that walks the tree and needs to remember "have I seen this element
+before": elements themselves, never `id()`.
+
+Verified against all six sample EPUBs: `RunTogetherText.epub` (the
+only sample with any span nesting at all) correctly finds all 14
+chains, one confirmed no-op class (`calibre3`, declared as nothing
+but `color: inherit`), and the one standalone empty span; the other
+five report nothing, no false positives. Verified against Jacob's own
+`Strike Force 11`: 150 nested chains (19 fully purposeless, one chain
+5 levels deep), 87 empty spans, and `calibre7` (`font-size: 1em`)
+confirmed as a no-op class used throughout the book's table of
+contents. Spot-checked a sample of both the fully- and
+partially-purposeless chains by hand against the book's own markup;
+all correct. Ran a full `repair` across all six sample books plus
+Strike Force 11 with this module wired into the analyzer pass; no
+crashes, and word-count diffed identical to before this module
+existed, since it's read-only, same as the rest of the analysis
+layer.
+
+Not done yet, on purpose: no repair module. This was scoped as
+analysis only, matching the project's staged approach. A repair
+module here would need to decide things this one deliberately leaves
+open, most importantly what to do with a chain that's only partially
+purposeless -- collapse just the purposeless levels and keep the real
+one, or leave the whole chain alone until every level qualifies. That
+call is better made once there's a wider variety of real books to
+test against, rather than guessing now.
 
 ## Next: TOC generation when missing
 
