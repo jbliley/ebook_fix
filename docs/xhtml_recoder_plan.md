@@ -45,10 +45,11 @@ Broken into sub-steps below because Phase 0 alone was too big for one
 session. Each sub-step should be completable in a single session on
 its own. Status of each tracked here as they're done.
 
-- **0a -- Document current detection signals.** [ ] Not started.
-  Read chapters.py in full; write up in plain language exactly what
-  signals it uses today (marker text, sequence validation, etc.) and
-  how confidence is scored.
+- **0a -- Document current detection signals.** [x] Done. See
+  `chapter_detection_signals.md`: what counts as a candidate, how
+  scoring works, how the winning sequence gets picked, and a callout
+  of what's notably absent from today's confidence bar (no TOC/anchor
+  corroboration, no near-miss visibility, no minimum-content gate).
 - **0b -- Define the higher safety bar.** [ ] Not started.
   Define what "safe to physically split on" should require, versus
   today's "safe to add a CSS class" bar used by chapters.py/
