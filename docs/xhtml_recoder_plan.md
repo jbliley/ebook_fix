@@ -41,16 +41,38 @@ text-pattern matching alone.
 ## Phased plan
 
 ### Phase 0 -- Structure analyzer audit / hardening
-- Read chapters.py in full; document exactly what signals it uses
-  today and how confidence is scored.
-- Define what "safe to physically split on" should require, versus
-  today's "safe to add a CSS class" bar.
-- Likely outcome: a fuller "book structure" pass (maybe a new
-  structure.py, maybe an extension of chapters.py) that assembles a
-  structure tree -- front matter / chapters / back matter, possibly
-  nested (Parts containing chapters) -- with a confidence + supporting
-  evidence per boundary, as the one thing the splitter trusts.
-- A dry-run command to review detected structure before any file gets
+Broken into sub-steps below because Phase 0 alone was too big for one
+session. Each sub-step should be completable in a single session on
+its own. Status of each tracked here as they're done.
+
+- **0a -- Document current detection signals.** [ ] Not started.
+  Read chapters.py in full; write up in plain language exactly what
+  signals it uses today (marker text, sequence validation, etc.) and
+  how confidence is scored.
+- **0b -- Define the higher safety bar.** [ ] Not started.
+  Define what "safe to physically split on" should require, versus
+  today's "safe to add a CSS class" bar used by chapters.py/
+  chapter_markup.py.
+- **0c -- Design the structure tree shape.** [ ] Not started.
+  Blueprint only (dataclasses/fields), no detection logic: how a
+  book's front matter / chapters / back matter -- possibly nested,
+  Parts containing chapters -- gets represented in memory, with a
+  confidence + supporting evidence slot per boundary.
+- **0d -- Skeleton using existing signal only.** [ ] Not started.
+  Assemble a first version of the structure tree (maybe a new
+  structure.py, maybe an extension of chapters.py) using just today's
+  marker-text detection, wired into 0c's shape. No corroboration yet.
+- **0e -- TOC cross-check.** [ ] Not started.
+  Corroborate boundaries against existing NCX/nav TOC entries when
+  present.
+- **0f -- Anchor cross-check.** [ ] Not started.
+  Corroborate boundaries against existing internal anchors some
+  books already have (e.g. `calibre_pb_N`-style bookmarks).
+- **0g -- Confidence scoring.** [ ] Not started.
+  Combine all available signals into one per-boundary confidence
+  score.
+- **0h -- Review command.** [ ] Not started.
+  A dry-run command to review detected structure before any file gets
   touched, same manual-review shape as `map-css`
   (`map-structure`? naming TBD).
 
