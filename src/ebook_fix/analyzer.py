@@ -18,6 +18,7 @@ from ebook_fix.chapters import BookChapterSummary, analyze_book_chapters
 from ebook_fix.images import BookImageSummary, analyze_book_images
 from ebook_fix.paragraphs import BookParagraphSummary, analyze_book_paragraphs
 from ebook_fix.whitespace import BookWhitespaceSummary, analyze_book_whitespace
+from ebook_fix.ellipsis import BookEllipsisSummary, analyze_book_ellipsis
 from ebook_fix.frontmatter import (
     BookFrontMatterSummary, analyze_book_frontmatter, FRONT_ZONE, BACK_ZONE,
 )
@@ -104,6 +105,7 @@ class AnalysisReport:
     images:BookImageSummary=field(default_factory=BookImageSummary)
     paragraphs:BookParagraphSummary=field(default_factory=BookParagraphSummary)
     whitespace:BookWhitespaceSummary=field(default_factory=BookWhitespaceSummary)
+    ellipsis:BookEllipsisSummary=field(default_factory=BookEllipsisSummary)
     frontmatter:BookFrontMatterSummary=field(default_factory=BookFrontMatterSummary)
     toc:BookTocSummary=field(default_factory=BookTocSummary)
     gutenberg:BookGutenbergSummary=field(default_factory=BookGutenbergSummary)
@@ -216,6 +218,7 @@ class EPUBAnalyzer:
         r.images=analyze_book_images(book)
         r.paragraphs=analyze_book_paragraphs(book)
         r.whitespace=analyze_book_whitespace(book)
+        r.ellipsis=analyze_book_ellipsis(book)
         r.toc=analyze_book_toc(book,chapter_reports=r.chapter_reports)
         r.summary.toc_entry_count=r.toc.entry_count
         r.summary.toc_source=r.toc.source

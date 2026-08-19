@@ -19,6 +19,8 @@ from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.class_standardize import ClassStandardizeRepair, load_mapping_file, MappingError
 from ebook_fix.modules.gutenberg_repair import GutenbergRepair
+from ebook_fix.modules.ellipsis_repair import EllipsisRepair
+from ebook_fix.ellipsis import normalize_ellipsis_text
 
 console = Console()
 
@@ -48,6 +50,21 @@ class Engine:
             modules.append(ChapterMarkupRepair(self.config.chapter_markup))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
+        # Runs before Whitespace Normalizer, not after: both modules
+        # can end up wanting to touch the very same text/tail node
+        # (an ellipsis sitting in a paragraph that also has, say,
+        # doubled internal whitespace). Each repair module only
+        # trusts its own analysis-time snapshot of a node's text and
+        # skips it if that node was already changed since -- see the
+        # "current_val != issue.before" guard in both modules' repair()
+        # -- so whichever of the two runs second loses that node for
+        # this pass. Ellipsis wins the tie deliberately: an unwanted
+        # "..." is a content issue, not just formatting, and running
+        # this repair pipeline again afterward (once the book has been
+        # re-analyzed) still catches any whitespace on that same node
+        # that got skipped this time.
+        if getattr(self.config, "ellipsis_repair", None) and getattr(self.config.ellipsis_repair, "enabled", True):
+            modules.append(EllipsisRepair(self.config.ellipsis_repair))
         if getattr(self.config, "whitespace_repair", None) and getattr(self.config.whitespace_repair, "enabled", True):
             modules.append(WhitespaceRepair(self.config.whitespace_repair))
         return modules
@@ -592,6 +609,34 @@ class Engine:
                         self.log(f"    {chapter_summary.href}:")
                         for issue in chapter_summary.issues:
                             self.log(f"      - {issue.category}: {issue.before!r} -> {issue.after!r}")
+
+            # Ellipsis Issues
+            ell = analysis_report.ellipsis
+            ellipsis_issues = []
+            if ell.total_ascii_count:
+                ellipsis_issues.append(f"ASCII ellipsis (...) found: {ell.total_ascii_count}")
+            if ell.total_spaced_count:
+                ellipsis_issues.append(f"Spaced-dot ellipsis found: {ell.total_spaced_count}")
+
+            if ellipsis_issues:
+                self.log("\n[Ellipsis]")
+                for issue in ellipsis_issues:
+                    self.log(f"  • {issue}")
+
+                if details:
+                    # Shown using the config's actual target style
+                    # rather than the analysis-default "unicode" --
+                    # see ebook_fix.modules.ellipsis_repair.
+                    target_style = getattr(
+                        getattr(self.config, "ellipsis_repair", None), "target_style", "unicode"
+                    )
+                    for chapter_summary in ell.chapters:
+                        if not chapter_summary.issues:
+                            continue
+                        self.log(f"    {chapter_summary.href}:")
+                        for issue in chapter_summary.issues:
+                            result = normalize_ellipsis_text(issue.before, target_style=target_style)
+                            self.log(f"      - {issue.category}: {issue.before!r} -> {result.text!r}")
 
             # Module Diagnostics Execution
             self.log("\n[Module Checks]")

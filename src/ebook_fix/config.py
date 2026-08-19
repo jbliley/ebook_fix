@@ -68,6 +68,19 @@ class GutenbergRepairConfig:
 
 
 @dataclass(slots=True)
+class EllipsisRepairConfig:
+    enabled: bool = True
+    # "unicode" replaces every ASCII ("...") and spaced (". . .")
+    # ellipsis with the single Unicode ellipsis character (…) -- the
+    # recommended default, since it's plain UTF-8 text (what an
+    # EPUB's HTML content already is) and displays correctly on every
+    # reading system. "ascii" instead cleans both shapes down to a
+    # tidy three-dot "..." with no internal spaces, for anyone who
+    # specifically wants to avoid the single character.
+    target_style: str = "unicode"
+
+
+@dataclass(slots=True)
 class Config:
     epub3_upgrade: EPUB3UpgradeConfig = field(default_factory=EPUB3UpgradeConfig)
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
@@ -75,6 +88,7 @@ class Config:
     image_repair: ImageRepairConfig = field(default_factory=ImageRepairConfig)
     whitespace_repair: WhitespaceRepairConfig = field(default_factory=WhitespaceRepairConfig)
     gutenberg_repair: GutenbergRepairConfig = field(default_factory=GutenbergRepairConfig)
+    ellipsis_repair: EllipsisRepairConfig = field(default_factory=EllipsisRepairConfig)
 
 
 # ---------------------------------------------------------------------
@@ -116,6 +130,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.image_repair, modules, "image_repair")
     _apply_module_toggle(config.whitespace_repair, modules, "whitespace_repair")
     _apply_module_toggle(config.gutenberg_repair, modules, "gutenberg_repair")
+    _apply_module_toggle(config.ellipsis_repair, modules, "ellipsis_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
@@ -123,6 +138,13 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.image_repair, "image_repair", data.get("image_repair", {}))
     _apply_section(config.whitespace_repair, "whitespace_repair", data.get("whitespace_repair", {}))
     _apply_section(config.gutenberg_repair, "gutenberg_repair", data.get("gutenberg_repair", {}))
+    _apply_section(config.ellipsis_repair, "ellipsis_repair", data.get("ellipsis_repair", {}))
+
+    if config.ellipsis_repair.target_style not in ("unicode", "ascii"):
+        raise ValueError(
+            f"Invalid ellipsis_repair.target_style: {config.ellipsis_repair.target_style!r} "
+            '(must be "unicode" or "ascii")'
+        )
 
     return config
 
@@ -139,7 +161,16 @@ def _apply_section(section_config, section_name, section_table) -> None:
             raise ValueError(
                 f"Unknown config option '{key}' under [{section_name}]."
             )
-        setattr(section_config, key, bool(value))
+        # Every option so far has been on/off, so this coerced
+        # everything to bool. ellipsis_repair.target_style is the
+        # first string-valued option -- coerce based on the field's
+        # own default type instead of assuming bool, so existing
+        # true/false options keep behaving exactly as before.
+        current = getattr(section_config, key)
+        if isinstance(current, bool):
+            setattr(section_config, key, bool(value))
+        else:
+            setattr(section_config, key, value)
 
 
 # ---------------------------------------------------------------------
@@ -163,6 +194,7 @@ chapter_markup = true
 image_repair = true
 whitespace_repair = true
 gutenberg_repair = true
+ellipsis_repair = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -276,6 +308,23 @@ fix_front_matter = true
 # the whole file when the marker's file is nothing but boilerplate,
 # otherwise a subtree cut like the front matter above.
 fix_back_matter = true
+
+# ---------------------------------------------------------------------
+# Ellipsis Normalizer
+# ---------------------------------------------------------------------
+[ellipsis_repair]
+
+# Normalize both a plain three-dot ASCII ellipsis ("...") and a
+# spaced-dot ellipsis (". . .") to the same target style below.
+enabled = true
+
+# "unicode" (recommended) replaces both shapes with the single
+# Unicode ellipsis character (…). It's plain UTF-8 text, which is
+# what an EPUB's HTML content already is, so it displays correctly on
+# every reading system. "ascii" instead cleans both shapes down to a
+# tidy three-dot "..." with no internal spaces, for anyone who
+# specifically wants to avoid the single character.
+target_style = "unicode"
 """
 
 

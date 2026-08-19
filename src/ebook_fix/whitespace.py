@@ -35,7 +35,8 @@ What gets analyzed, per text/tail node
 - Trailing indentation (spaces/tabs at the end of the node)
 - Repeated internal whitespace (collapses to one space)
 - Tabs (converted to spaces as part of the above)
-- Space before punctuation (" ,text" -> ",text")
+- Space before punctuation (" ,text" -> ",text"; also applies to a
+  stray space directly before an ellipsis character, "…")
 - Missing space after sentence-ending punctuation (narrow rule, see above)
 - Whitespace-only nodes (pure formatting whitespace standing alone
   between elements -- always collapses to a single space, never
@@ -117,7 +118,7 @@ def _local_tag(element) -> str:
 # Text normalization rules
 # ---------------------------------------------------------------------
 
-_SPACE_BEFORE_PUNCT_RE = re.compile(r"[ \t]+([,.;:!?])")
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"[ \t]+([,.;:!?\u2026])")
 
 # Common abbreviations/titles/initials that legitimately end in a
 # period with no following space intended, or that would otherwise
