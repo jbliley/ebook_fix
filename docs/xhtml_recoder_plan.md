@@ -79,7 +79,11 @@ its own. Status of each tracked here as they're done.
 - **0h -- Review command.** [ ] Not started.
   A dry-run command to review detected structure before any file gets
   touched, same manual-review shape as `map-css`
-  (`map-structure`? naming TBD).
+  (`map-structure`? naming TBD). CLI is the near-term step; the
+  longer-term goal is a GUI where boundaries -- especially
+  uncorroborated ones, see `split_safety_bar.md` -- get decided
+  per-boundary by a person. The CLI command's output shape should
+  keep that later GUI in mind (structured, not just printed text).
 
 ### Phase 1 -- Single-file splitting mechanics (proof of concept)
 - Given one XHTML file + a set of confirmed boundaries, produce N

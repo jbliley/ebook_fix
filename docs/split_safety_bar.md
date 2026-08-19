@@ -1,8 +1,9 @@
 # Defining "Safe to Split" (Phase 0b)
 
-**Status:** Proposal, written for review. This sets the bar Phase 0d
-onward will be built against, so it's worth pushing back on before it
-gets locked in.
+**Status:** Proposal, written for review. Core requirements below are
+still open for feedback; the no-corroboration question has been
+decided (see that section). This sets the bar Phase 0d onward will be
+built against.
 
 `chapter_detection_signals.md` (Phase 0a) documented today's bar:
 a chapter marker is trusted only by being part of the single
@@ -88,25 +89,23 @@ Two different situations, and they should be handled differently:
   clearly in the review output so it's a visible decision, not a
   silent gap.
 
-## Open question: books with no corroborating signal at all
+## Decided: books with no corroborating signal at all
 
-Requirement 2 above needs *some* books to still be splittable even
-when they have no existing TOC and no existing bookmarks -- plenty of
-plain-text-style conversions have neither. Options to weigh once 0e/
-0f exist to test against real books:
+Requirement 2 above needs *some* books to still be handled even when
+they have no existing TOC and no existing bookmarks -- plenty of
+plain-text-style conversions have neither.
 
-- Allow splitting anyway if the margin from requirement 3 is
-  unusually wide (the sequence is so clean on its own that outside
-  corroboration wouldn't add much).
-- Require a stricter score-per-candidate floor as a substitute for
-  corroboration when none is available.
-- Never auto-split without corroboration; a book with neither would
-  always stop at "reviewed, not split" and need a person's sign-off
-  per boundary.
-
-Leaning toward the third option for the first working version --
-safest default, can be loosened later once there's real test data on
-how often it's overly conservative. Not locking this in yet.
+**Decision: never auto-split these.** A book with no corroborating
+signal always stops at "reviewed, not split" and needs a person's
+sign-off per boundary -- no scoring workaround that lets it through
+automatically. This fits where the project is headed: the eventual
+goal is a GUI where a person looks at exactly these ambiguous cases
+and decides per-boundary, so building an automatic fallback here would
+be solving a problem the GUI is meant to solve anyway. Automatic
+handling of the no-corroboration case is explicitly deferred, not
+planned for now -- worth revisiting only once there's a mature enough
+review interface that "ask the person" is already cheap and natural,
+at which point there may be nothing left to build here at all.
 
 ## What this doc deliberately does not cover yet
 
