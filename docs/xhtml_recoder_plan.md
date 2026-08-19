@@ -50,10 +50,14 @@ its own. Status of each tracked here as they're done.
   scoring works, how the winning sequence gets picked, and a callout
   of what's notably absent from today's confidence bar (no TOC/anchor
   corroboration, no near-miss visibility, no minimum-content gate).
-- **0b -- Define the higher safety bar.** [ ] Not started.
-  Define what "safe to physically split on" should require, versus
-  today's "safe to add a CSS class" bar used by chapters.py/
-  chapter_markup.py.
+- **0b -- Define the higher safety bar.** [x] Done, pending your
+  sign-off. See `split_safety_bar.md`: proposes per-boundary
+  corroboration, a margin-over-runner-up check, a minimum-content
+  gate, and a structural-cleanliness check, plus how a book with only
+  some weak boundaries should be handled (split what's solid, leave
+  the rest bundled and flagged) versus a book with no reliable
+  sequence at all (don't split anything). Leaves one open question
+  about books with no TOC/anchors to corroborate against.
 - **0c -- Design the structure tree shape.** [ ] Not started.
   Blueprint only (dataclasses/fields), no detection logic: how a
   book's front matter / chapters / back matter -- possibly nested,
