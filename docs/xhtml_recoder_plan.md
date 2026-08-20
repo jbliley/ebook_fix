@@ -93,9 +93,24 @@ its own. Status of each tracked here as they're done.
   works with a synthetic test covering all three cases: fragment
   match, whole-file match, and a deliberate id mismatch that correctly
   stayed unmatched.
-- **0f -- Anchor cross-check.** [ ] Not started.
-  Corroborate boundaries against existing internal anchors some
-  books already have (e.g. `calibre_pb_N`-style bookmarks).
+- **0f -- Anchor cross-check.** [x] Done. Also in `structure.py`:
+  `apply_anchor_corroboration()` scans actual chapter content (not the
+  NCX/nav TOC, which 0e already covers) for internal cross-reference
+  links -- footnotes, an index, "see Chapter 5" links, anything with
+  an in-book `#fragment` -- and matches their targets against a
+  candidate's own id the same way 0e matches TOC fragments. Run
+  against all seven sample books (Sidewinders included): zero matches
+  everywhere, which is the honest, correct result -- none of these
+  particular books happen to have any in-body cross-reference links
+  at all. Proved the matching logic itself works with a synthetic test
+  using real lxml elements: a genuine cross-reference matched
+  correctly, an external `http://` link was correctly ignored, and a
+  candidate with no id at all correctly stayed unmatched. Deliberately
+  does NOT treat the `calibre_pb_N` per-*page* bookmark ids mentioned
+  in `analysis_roadmap.md` as corroboration on their own -- those
+  exist on every page regardless of chapter boundaries, so matching
+  one would be false corroboration; only a link whose target actually
+  matches a *candidate's own* id counts.
 - **0g -- Confidence scoring.** [ ] Not started.
   Combine all available signals into one per-boundary confidence
   score.

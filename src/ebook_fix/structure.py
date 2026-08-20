@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from lxml import etree
+
 from .models import TocEntry
 
 # ---------------------------------------------------------------------
@@ -439,5 +441,82 @@ def apply_toc_corroboration(book: Any, tree: BookStructure) -> BookStructure:
         if target is not None and target.evidence is not None:
             target.evidence.matched_toc_entry = entry
             matched_node_ids.add(id(target))
+
+    return tree
+
+
+# ---------------------------------------------------------------------
+# Phase 0f -- corroborating against existing internal cross-reference
+# anchors (distinct from the TOC, which is Phase 0e above)
+# ---------------------------------------------------------------------
+#
+# A book's own TOC isn't the only place something in the book might
+# already point at a chapter start -- footnotes, an index, "see
+# Chapter 5" cross-references, or other in-body hyperlinks can too.
+# This scans the actual chapter content (not the NCX/nav document,
+# which 0e already covers) for internal fragment links and matches
+# their targets against a candidate's own id, the same way 0e matches
+# TOC fragments. A chapter matched by *either* signal reaches
+# BoundaryEvidence.has_corroboration -- they're independent checks, so
+# both get applied even if one already matched, rather than skipping
+# a chapter early once the first signal is found.
+#
+# One thing this deliberately does NOT treat as corroboration:
+# per-page bookmark ids some converters stamp onto *every* page (the
+# calibre_pb_N pattern documented in analysis_roadmap.md). Those exist
+# on virtually every page regardless of chapter boundaries, so a link
+# happening to target one says nothing chapter-specific -- it would be
+# false corroboration. This only counts a link as corroborating when
+# its target id actually matches a *candidate's own* id (or a close
+# ancestor's), the same standard 0e's TOC matching uses.
+
+
+def _internal_link_targets(book: Any) -> dict:
+    """href path -> set of fragment ids that some in-book hyperlink
+    (scanned from actual chapter content, not the NCX/nav TOC) points
+    at within that file. Same-file links (href="#some-id" with no
+    path) are resolved against the chapter they were found in."""
+    targets: dict = {}
+    for chapter in getattr(book, "chapters", []) or []:
+        doc = getattr(chapter, "document", None)
+        chapter_href = getattr(chapter, "href", "")
+        if doc is None:
+            continue
+        for el in doc.iter():
+            if not isinstance(el.tag, str) or etree.QName(el).localname.lower() != "a":
+                continue
+            href = el.get("href") or ""
+            if not href or href.startswith(("http://", "https://", "mailto:")):
+                continue
+            path, _, fragment = href.partition("#")
+            if not fragment:
+                continue
+            resolved_path = path or chapter_href
+            targets.setdefault(resolved_path, set()).add(fragment)
+    return targets
+
+
+def apply_anchor_corroboration(book: Any, tree: BookStructure) -> BookStructure:
+    """Matches confirmed chapters in an already-built BookStructure
+    against existing internal cross-reference anchors found in the
+    book's own content (footnotes, an index, "see Chapter N" links,
+    etc.) -- independent of the TOC-based check in
+    apply_toc_corroboration. Mutates the tree's nodes in place and
+    also returns it, for chaining. A book with no internal
+    cross-reference links at all leaves matched_anchor_id unchanged on
+    every node."""
+    targets = _internal_link_targets(book)
+    if not targets:
+        return tree
+
+    for node in _walk_chapters(tree.nodes):
+        if node.evidence is None or node.evidence.candidate is None:
+            continue
+        possible = targets.get(node.start_href)
+        if not possible:
+            continue
+        matched = _candidate_ids(node.evidence.candidate) & possible
+        if matched:
+            node.evidence.matched_anchor_id = sorted(matched)[0]
 
     return tree
