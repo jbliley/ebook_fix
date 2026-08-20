@@ -58,15 +58,27 @@ its own. Status of each tracked here as they're done.
   the rest bundled and flagged) versus a book with no reliable
   sequence at all (don't split anything). Leaves one open question
   about books with no TOC/anchors to corroborate against.
-- **0c -- Design the structure tree shape.** [ ] Not started.
-  Blueprint only (dataclasses/fields), no detection logic: how a
-  book's front matter / chapters / back matter -- possibly nested,
-  Parts containing chapters -- gets represented in memory, with a
-  confidence + supporting evidence slot per boundary.
-- **0d -- Skeleton using existing signal only.** [ ] Not started.
-  Assemble a first version of the structure tree (maybe a new
-  structure.py, maybe an extension of chapters.py) using just today's
-  marker-text detection, wired into 0c's shape. No corroboration yet.
+- **0c -- Design the structure tree shape.** [x] Done. See the new
+  `src/ebook_fix/structure.py`: `NodeKind`, `SplitConfidence`,
+  `BoundaryEvidence` (one slot per requirement from
+  `split_safety_bar.md`, with `.confidence` computed live rather than
+  stored, so it can never drift out of sync with the fields behind
+  it), `StructureNode` (nestable, for Parts containing chapters), and
+  `BookStructure` (the whole-book result, holds the sequence-margin
+  stat too).
+- **0d -- Skeleton using existing signal only.** [x] Done. Also in
+  `structure.py`: `build_structure()` reads chapters.py's
+  `BookChapterSummary` and assembles a first-draft tree using only
+  sequence membership -- no TOC/anchor corroboration yet, so every
+  node comes out as SEQUENCE_ONLY or NONE confidence, never
+  CORROBORATED, until 0e/0f exist. Smoke-tested clean against all six
+  sample EPUBs. Surfaced a real gap while wiring this up: Part/Book/
+  Volume markers never go through chapters.py's sequence search at
+  all (only chapter candidates do), so a detected Part boundary today
+  has *less* validation behind it than a chapter boundary, not more --
+  documented in `chapter_detection_signals.md` and reflected in
+  `build_structure()` by never treating a part boundary as
+  sequence-confirmed.
 - **0e -- TOC cross-check.** [ ] Not started.
   Corroborate boundaries against existing NCX/nav TOC entries when
   present.

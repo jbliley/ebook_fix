@@ -128,6 +128,15 @@ the decision before it's acted on.
   internally but nothing surfaces it -- there's no way today to see
   "the runner-up sequence scored almost as high" as a signal that the
   book is ambiguous.
+- **Part/Book/Volume markers have no sequence validation at all.**
+  Found while wiring Phase 0d: `_find_best_sequence` only ever runs on
+  chapter candidates, never on the Book/Part/Volume candidates that
+  chapter numbering restarts under. So while a chapter marker at least
+  has to be part of a believable counting-up run to be trusted, a
+  detected Part marker is trusted the moment it's found, with no check
+  that the Parts themselves count up sensibly. This means a Part
+  boundary today is actually less well-grounded than a chapter
+  boundary, not more, despite structurally sitting a level above it.
 - **No minimum-content gate.** A very short "chapter" (a one-line
   interlude, a misidentified scene divider) can be part of a confirmed
   run today with nothing checking that it actually contains a
