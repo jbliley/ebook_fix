@@ -79,9 +79,20 @@ its own. Status of each tracked here as they're done.
   documented in `chapter_detection_signals.md` and reflected in
   `build_structure()` by never treating a part boundary as
   sequence-confirmed.
-- **0e -- TOC cross-check.** [ ] Not started.
-  Corroborate boundaries against existing NCX/nav TOC entries when
-  present.
+- **0e -- TOC cross-check.** [x] Done. Also in `structure.py`:
+  `apply_toc_corroboration()` matches confirmed chapters against the
+  book's existing NCX/nav TOC and fills in `matched_toc_entry`.
+  Matches on a fragment id (checking the candidate's element and its
+  nearest ancestors) when the TOC entry has one, or on "first chapter
+  in that file" for whole-file links with no fragment. Run against
+  all six sample EPUBs first: zero matches everywhere, which turned
+  out to be the correct result, not a bug -- every sample book's NCX
+  is a stub with a single "Start" entry pointing at the title page,
+  the same kind of broken TOC toc.py already flags, so there was
+  nothing real to match against. Confirmed the matching logic itself
+  works with a synthetic test covering all three cases: fragment
+  match, whole-file match, and a deliberate id mismatch that correctly
+  stayed unmatched.
 - **0f -- Anchor cross-check.** [ ] Not started.
   Corroborate boundaries against existing internal anchors some
   books already have (e.g. `calibre_pb_N`-style bookmarks).

@@ -324,3 +324,120 @@ def build_structure(summary: BookChapterSummary) -> BookStructure:
                 nodes.append(node)
 
     return BookStructure(nodes=nodes, sequence_margin=margin, source_summary=summary)
+
+
+# ---------------------------------------------------------------------
+# Phase 0e -- corroborating against the book's own existing TOC
+# ---------------------------------------------------------------------
+#
+# Fills in BoundaryEvidence.matched_toc_entry for chapters already in
+# a BookStructure (see build_structure above). This is the first of
+# the two corroborating signals required by docs/split_safety_bar.md,
+# requirement 2 -- a chapter with a matched TOC entry (or, later, a
+# matched anchor from 0f) can reach CORROBORATED confidence; one with
+# neither stays at SEQUENCE_ONLY no matter how well it scored.
+#
+# PART nodes are deliberately left untouched here. Parts already carry
+# a documented gap (no sequence validation at all, see build_structure
+# and chapter_detection_signals.md) -- TOC-matching a Part on top of
+# that gap is deferred rather than papered over with one signal while
+# the other is still missing.
+
+
+def _walk_chapters(nodes: list[StructureNode]):
+    """Yields every CHAPTER node in a structure tree, including those
+    nested under PART nodes, in book order."""
+    for node in nodes:
+        if node.kind == NodeKind.CHAPTER:
+            yield node
+        yield from _walk_chapters(node.children)
+
+
+def _candidate_ids(candidate: Any, max_ancestor_levels: int = 2) -> set:
+    """id attributes on a candidate's own element and its nearest few
+    ancestors. Checking ancestors too because a book's own id (the one
+    a TOC fragment link points at) is sometimes placed on a wrapping
+    container rather than directly on the heading/paragraph the marker
+    text was found in."""
+    ids = set()
+    el = getattr(candidate, "element", None)
+    levels = 0
+    while el is not None and levels <= max_ancestor_levels:
+        el_id = el.get("id") if hasattr(el, "get") else None
+        if el_id:
+            ids.add(el_id)
+        el = el.getparent() if hasattr(el, "getparent") else None
+        levels += 1
+    return ids
+
+
+def _flatten_toc(entries: list) -> list:
+    flat = []
+    for entry in entries:
+        flat.append(entry)
+        if entry.children:
+            flat.extend(_flatten_toc(entry.children))
+    return flat
+
+
+def apply_toc_corroboration(book: Any, tree: BookStructure) -> BookStructure:
+    """Matches confirmed chapters in an already-built BookStructure
+    against the book's own existing NCX/nav TOC (book.toc, as loaded
+    by parser.py -- see toc.py for the equivalent broken-link check
+    this reuses the same href/fragment reading of). Mutates the tree's
+    nodes in place and also returns it, for chaining after
+    build_structure(). A book with no TOC at all (book.toc empty)
+    leaves every chapter's matched_toc_entry as None, unchanged.
+
+    Matching heuristic, since a TOC entry doesn't always point at the
+    exact element a chapter marker was found on:
+    - An entry with a #fragment counts as a match only when that
+      fragment equals an id on the candidate's own element or one of
+      its nearest ancestors (see _candidate_ids).
+    - An entry with no fragment (a whole-file link) counts as a match
+      against the *first* confirmed chapter found in that file, since
+      that's the most reasonable reading of a file-level TOC link.
+    Each chapter can only be matched once; if more than one TOC entry
+    could plausibly match the same chapter, the first one found in TOC
+    document order wins and the rest are left unmatched rather than
+    reassigned.
+    """
+    entries = list(getattr(book, "toc", None) or [])
+    if not entries:
+        return tree
+
+    flat_entries = _flatten_toc(entries)
+    chapter_nodes = list(_walk_chapters(tree.nodes))
+    if not chapter_nodes:
+        return tree
+
+    first_by_href: dict = {}
+    for node in sorted(chapter_nodes, key=lambda n: n.start_book_order):
+        first_by_href.setdefault(node.start_href, node)
+
+    matched_node_ids: set = set()
+
+    for entry in flat_entries:
+        if not entry.href:
+            continue
+        path, _, fragment = entry.href.partition("#")
+        target: StructureNode | None = None
+
+        if fragment:
+            for node in chapter_nodes:
+                if id(node) in matched_node_ids or node.start_href != path:
+                    continue
+                candidate = node.evidence.candidate if node.evidence else None
+                if candidate is not None and fragment in _candidate_ids(candidate):
+                    target = node
+                    break
+        else:
+            node = first_by_href.get(path)
+            if node is not None and id(node) not in matched_node_ids:
+                target = node
+
+        if target is not None and target.evidence is not None:
+            target.evidence.matched_toc_entry = entry
+            matched_node_ids.add(id(target))
+
+    return tree
