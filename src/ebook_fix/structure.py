@@ -33,6 +33,27 @@ from lxml import etree
 from .models import TocEntry
 
 # ---------------------------------------------------------------------
+# Thresholds used by the confidence scoring in Phase 0g (see the
+# bottom of this file). Both are explicitly placeholders -- as
+# docs/split_safety_bar.md says for requirement 3, "exact number TBD
+# once we have more sample books to test against". Pick these back up
+# once the splitter (Phase 1+) has run against more real books.
+# ---------------------------------------------------------------------
+
+# Requirement 3: how much the winning sequence's score_sum has to beat
+# the runner-up's before the book is trusted as unambiguous. Below
+# this, BoundaryEvidence.confidence routes every boundary in that
+# sequence to NEEDS_REVIEW regardless of corroboration -- see that
+# property below.
+MIN_SEQUENCE_MARGIN = 3.0
+
+# Requirement 4: the minimum word count a chapter's resulting slice
+# needs to clear before it's treated as a real chapter rather than a
+# stray heading or scene-divider that happened to score well. See
+# apply_content_length_check below.
+MIN_CHAPTER_WORDS = 50
+
+# ---------------------------------------------------------------------
 # What kind of thing a structure node represents
 # ---------------------------------------------------------------------
 
@@ -124,6 +145,13 @@ class BoundaryEvidence:
         with them."""
         if not self.in_winning_sequence:
             return SplitConfidence.NONE
+        # Requirement 3 -- checked before corroboration, and it can
+        # push a boundary to NEEDS_REVIEW even without corroboration.
+        # A weak margin means the *book itself* is ambiguous about
+        # where its chapters are, which corroboration on one boundary
+        # doesn't fix.
+        if self.sequence_margin is not None and self.sequence_margin < MIN_SEQUENCE_MARGIN:
+            return SplitConfidence.NEEDS_REVIEW
         if not self.has_corroboration:
             return SplitConfidence.SEQUENCE_ONLY
         if self.content_length_ok is False or self.structurally_clean is False:
@@ -520,3 +548,339 @@ def apply_anchor_corroboration(book: Any, tree: BookStructure) -> BookStructure:
             node.evidence.matched_anchor_id = sorted(matched)[0]
 
     return tree
+
+
+# ---------------------------------------------------------------------
+# Phase 0g -- combining every signal into one confidence score
+# ---------------------------------------------------------------------
+#
+# 0d through 0f built the pieces: sequence membership, TOC
+# corroboration, anchor corroboration. Requirement 3 (a healthy margin
+# over the runner-up sequence) is now folded into the `confidence`
+# property above. What's still missing before `confidence` can ever
+# actually reach CORROBORATED is requirements 4 and 5 -- minimum
+# content per piece, and a structurally-clean cut point -- which is
+# what the two functions below fill in. Once both have run,
+# `confidence` on every node is a complete, live combination of every
+# signal split_safety_bar.md asked for; nothing downstream (Phase 0h's
+# review command, the eventual splitter) should need to re-derive
+# anything from chapters.py's raw candidates itself.
+
+
+def _words(text: str) -> int:
+    return len(text.split())
+
+
+def _text_from(element) -> list:
+    """Every text chunk from `element` (inclusive of its own content)
+    through the end of its document, as lxml "smart string" objects,
+    in true document reading order.
+
+    This is `.//text()` (descendant text) unioned with `following::
+    text()` (everything after this element closes) -- lxml/libxml2
+    keep `|` unions in document order, so this correctly includes
+    things a naive iter()-based walk misses: an *ancestor's* tail text
+    that falls after `element` in reading order but is only ever
+    visited, in a plain pre-order walk, when that ancestor itself is
+    reached (which happens before `element`, not after).
+    """
+    return element.xpath(".//text() | following::text()")
+
+
+def _text_range(start_element, end_element) -> str:
+    """Text strictly from `start_element` (inclusive) up to
+    `end_element` (exclusive), for two elements in the same document.
+
+    Since `_text_from(end_element)` is always a document-order suffix
+    of `_text_from(start_element)` (end comes later), the range is
+    just the length difference between the two -- no need to compare
+    individual nodes for identity/equality, which smart strings don't
+    make reliable anyway.
+    """
+    at_or_after_start = _text_from(start_element)
+    at_or_after_end = _text_from(end_element) if end_element is not None else []
+    n = len(at_or_after_start) - len(at_or_after_end)
+    return "".join(str(t) for t in at_or_after_start[:n])
+
+
+def _text_to_end_of_doc(element) -> str:
+    return "".join(str(t) for t in _text_from(element))
+
+
+def _text_before(doc_root, end_element) -> str:
+    """Everything in `doc_root`'s document before `end_element`
+    (exclusive) -- the same suffix-length trick as `_text_range`, just
+    anchored at the start of the document instead of at another
+    element."""
+    full = doc_root.xpath(".//text()")
+    at_or_after_end = _text_from(end_element)
+    n = len(full) - len(at_or_after_end)
+    return "".join(str(t) for t in full[:n])
+
+
+def _content_word_count(book: Any, start_href: str, start_element,
+                         end_href: str | None, end_element) -> int:
+    """Word count of the content that would end up in one chapter's
+    slice: from `start_element` (inclusive) up to `end_element`
+    (exclusive). `end_href`/`end_element` are None for the last
+    confirmed chapter -- see the scoping note on
+    `apply_content_length_check` for what that means here.
+
+    Walks `book.chapters` in its existing iteration order to cover any
+    files that lie fully between `start_href` and `end_href`. That's
+    the same ordering chapters.py's book_order numbering already
+    relies on (see the documented manifest-vs-spine-order gap in
+    docs/analysis_roadmap.md) -- this doesn't fix that gap, just stays
+    consistent with it rather than inventing a second ordering.
+    """
+    chapters = list(getattr(book, "chapters", []) or [])
+    href_index = {c.href: i for i, c in enumerate(chapters)}
+    by_href = {c.href: c for c in chapters}
+
+    start_chapter = by_href.get(start_href)
+    if start_chapter is None or start_chapter.document is None:
+        return 0
+
+    if end_href is None:
+        return _words(_text_to_end_of_doc(start_element))
+
+    if end_href == start_href:
+        return _words(_text_range(start_element, end_element))
+
+    end_chapter = by_href.get(end_href)
+    start_idx = href_index.get(start_href)
+    end_idx = href_index.get(end_href)
+    if end_chapter is None or end_chapter.document is None or start_idx is None or end_idx is None:
+        return _words(_text_to_end_of_doc(start_element))
+
+    text_parts = [_text_to_end_of_doc(start_element)]
+    for c in chapters[start_idx + 1:end_idx]:
+        if c.document is not None:
+            text_parts.append("".join(c.document.itertext()))
+    text_parts.append(_text_before(end_chapter.document, end_element))
+    return _words("".join(text_parts))
+
+
+def apply_content_length_check(book: Any, tree: BookStructure,
+                                min_words: int = MIN_CHAPTER_WORDS) -> BookStructure:
+    """Fills in BoundaryEvidence.content_length_ok for every confirmed
+    chapter (split_safety_bar.md requirement 4): a boundary whose
+    resulting slice comes in under `min_words` reads as a stray
+    heading or scene-divider rather than a chapter's worth of content,
+    and shouldn't be split-eligible on its own -- it should fold into
+    the section it sits within instead. Mutates the tree's nodes in
+    place and also returns it, for chaining.
+
+    Scoping note for the very last confirmed chapter in the book
+    (nothing after it to bound the slice against): this only counts to
+    the end of that chapter's own file, not onward through whatever
+    follows later in the spine. Whether trailing files are more of
+    that same chapter or back matter is exactly the front/back-matter
+    boundary question already flagged as open in
+    xhtml_recoder_plan.md -- this doesn't try to resolve it. An
+    under-count here can only make a fine last chapter look short,
+    never the reverse, which is the safe direction for this check to
+    err in.
+
+    PART nodes are skipped, same as 0e/0f -- they're never sequence-
+    confirmed today (see build_structure), so this wouldn't change
+    their confidence either way.
+    """
+    chapter_nodes = list(_walk_chapters(tree.nodes))
+    for i, node in enumerate(chapter_nodes):
+        if node.evidence is None or node.evidence.candidate is None:
+            continue
+        start_element = node.evidence.candidate.element
+        if start_element is None:
+            continue
+
+        next_node = chapter_nodes[i + 1] if i + 1 < len(chapter_nodes) else None
+        end_href = None
+        end_element = None
+        if next_node is not None and next_node.evidence is not None and next_node.evidence.candidate is not None:
+            end_href = next_node.start_href
+            end_element = next_node.evidence.candidate.element
+
+        count = _content_word_count(book, node.start_href, start_element, end_href, end_element)
+        node.evidence.content_length_ok = count >= min_words
+        if count < min_words:
+            node.evidence.notes.append(
+                f"Only ~{count} word{'s' if count != 1 else ''} before the next boundary "
+                f"(minimum {min_words}) -- reads as a stray heading rather than a full chapter."
+            )
+    return tree
+
+
+# ---------------------------------------------------------------------
+# Requirement 5 -- structurally clean cut points
+# ---------------------------------------------------------------------
+#
+# A marker being textually confirmed doesn't guarantee it's sitting
+# somewhere a file could actually be cut. Two kinds of "unsafe to cut
+# here" this checks for: sitting inside a table or list (splitting
+# there would break the row/cell/item across two files), and sitting
+# inside something that reads as a footnote/endnote block (splitting
+# there would separate a note from the content that references it, or
+# vice versa).
+
+_EPUB_OPS_NS = "http://www.idpf.org/2007/ops"
+_EPUB_TYPE_ATTR = f"{{{_EPUB_OPS_NS}}}type"
+
+_UNSAFE_ANCESTOR_TAGS = {
+    "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+    "ul", "ol", "li", "dl", "dt", "dd",
+}
+_NOTE_KEYWORDS = ("footnote", "endnote", "note", "noteref")
+
+
+def _element_tag(el) -> str:
+    if not hasattr(el, "tag") or not isinstance(el.tag, str):
+        return ""
+    return etree.QName(el).localname.lower()
+
+
+def _note_container_keyword(el) -> str | None:
+    epub_type = (el.get(_EPUB_TYPE_ATTR) or "").lower()
+    css_class = (el.get("class") or "").lower()
+    for kw in _NOTE_KEYWORDS:
+        if kw in epub_type or kw in css_class:
+            return kw
+    return None
+
+
+def apply_structural_cleanliness_check(tree: BookStructure) -> BookStructure:
+    """Fills in BoundaryEvidence.structurally_clean for every
+    confirmed chapter (split_safety_bar.md requirement 5), by walking
+    up from the marker element through its ancestors and checking for
+    a table/list container or a footnote-shaped block along the way.
+    Mutates the tree's nodes in place and also returns it, for
+    chaining.
+
+    This is a structural check only -- it says nothing about whether
+    the *content* is long enough (that's
+    apply_content_length_check above) or corroborated (0e/0f). PART
+    nodes are skipped, same as elsewhere in this file.
+    """
+    for node in _walk_chapters(tree.nodes):
+        if node.evidence is None or node.evidence.candidate is None:
+            continue
+        element = node.evidence.candidate.element
+        if element is None:
+            continue
+
+        clean = True
+        reason = None
+        el = element
+        while el is not None:
+            tag = _element_tag(el)
+            if tag in _UNSAFE_ANCESTOR_TAGS:
+                clean = False
+                reason = f"sits inside a <{tag}>, which would be broken across two files if cut here"
+                break
+            keyword = _note_container_keyword(el)
+            if keyword:
+                clean = False
+                reason = f"sits inside what looks like a {keyword} block ({keyword!r} in its epub:type or class)"
+                break
+            el = el.getparent() if hasattr(el, "getparent") else None
+
+        node.evidence.structurally_clean = clean
+        if not clean:
+            node.evidence.notes.append(f"Not structurally clean: this boundary {reason}.")
+    return tree
+
+
+def score_confidence(book: Any, tree: BookStructure,
+                      min_words: int = MIN_CHAPTER_WORDS) -> BookStructure:
+    """0g's entry point: runs the two remaining per-boundary checks
+    (minimum content, structural cleanliness). Requirement 3 (sequence
+    margin) doesn't need a separate pass -- it's already read live off
+    `sequence_margin` by the `confidence` property above. After this
+    runs, `confidence` on every node is the fully combined signal;
+    nothing downstream should need to re-derive it.
+    """
+    apply_content_length_check(book, tree, min_words=min_words)
+    apply_structural_cleanliness_check(tree)
+    return tree
+
+
+def analyze_structure(book: Any) -> BookStructure:
+    """Runs the whole Phase 0 pipeline end to end: chapters.py's
+    detection, a first-draft tree (0d), TOC corroboration (0e), anchor
+    corroboration (0f), and the content-length/structural-cleanliness
+    checks (0g) -- leaving `confidence` fully informed on every node.
+    This is what Phase 0h's review command calls, and what any future
+    splitter should call too, rather than re-assembling the pipeline
+    by hand.
+    """
+    from .chapters import analyze_book_chapters
+
+    summary = analyze_book_chapters(book)
+    tree = build_structure(summary)
+    apply_toc_corroboration(book, tree)
+    apply_anchor_corroboration(book, tree)
+    score_confidence(book, tree)
+    return tree
+
+
+# ---------------------------------------------------------------------
+# Phase 0h -- plain-text review output
+# ---------------------------------------------------------------------
+#
+# A dry-run view of the structure tree, same manual-review posture as
+# class_map.format_class_map: nothing here touches the book, it just
+# renders what analyze_structure already found so a person can sign
+# off on it before Phase 1 ever exists to act on it. The underlying
+# BookStructure this reads stays the structured object -- this
+# function is just one way of presenting it, so a later GUI (see
+# xhtml_recoder_plan.md) can render the same tree differently without
+# this module needing to change.
+
+
+def format_structure_report(tree: BookStructure) -> str:
+    lines: list[str] = []
+
+    if not tree.nodes:
+        return "No chapter structure detected -- nothing to review."
+
+    if tree.sequence_margin is None:
+        lines.append("Sequence margin: n/a (no runner-up sequence found).")
+    else:
+        flag = "" if tree.sequence_margin >= MIN_SEQUENCE_MARGIN else "  <-- below the review threshold"
+        lines.append(f"Sequence margin over runner-up: {tree.sequence_margin:.1f}{flag}")
+    lines.append("")
+
+    def _describe(node: StructureNode, indent: int) -> None:
+        # Parentheses rather than square brackets for the kind label --
+        # this text goes through rich's console.print (see
+        # engine.map_structure), which treats [foo] as a markup tag
+        # and silently swallows it.
+        pad = "  " * indent
+        label = node.title or "(untitled)"
+        if node.evidence is None:
+            lines.append(f"{pad}- ({node.kind.value}) {label}")
+        else:
+            conf = node.evidence.confidence.value
+            lines.append(f"{pad}- ({node.kind.value}) {label}  -- {conf}")
+            corroboration = []
+            if node.evidence.matched_toc_entry is not None:
+                corroboration.append("TOC entry")
+            if node.evidence.matched_anchor_id:
+                corroboration.append(f"anchor '{node.evidence.matched_anchor_id}'")
+            if corroboration:
+                lines.append(f"{pad}    corroborated by: {', '.join(corroboration)}")
+            for note in node.evidence.notes:
+                lines.append(f"{pad}    note: {note}")
+        for child in node.children:
+            _describe(child, indent + 1)
+
+    for node in tree.nodes:
+        _describe(node, 0)
+
+    eligible = tree.has_any_split_eligible_boundary
+    lines.append("")
+    lines.append(
+        "At least one boundary is split-eligible." if eligible
+        else "No boundary currently clears the split-eligible bar -- review only, nothing to split yet."
+    )
+    return "\n".join(lines)

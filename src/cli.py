@@ -125,6 +125,21 @@ def build_parser():
         help="Also write an editable TOML mapping of high/medium-confidence chapter-heading and body-text classes to FILE, for review ahead of a future standardize/rename repair pass."
     )
 
+    # Map chapter structure
+    map_structure = sub.add_parser(
+        "map-structure",
+        help="Show the detected chapter structure and each boundary's split-confidence, for review before any physical splitting (see docs/xhtml_recoder_plan.md)."
+    )
+    map_structure.add_argument(
+        "input",
+        help="Input EPUB"
+    )
+    map_structure.add_argument(
+        "--no-container-repair",
+        action="store_true",
+        help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
+    )
+
     # Init-config
     init_config = sub.add_parser(
         "init-config",
@@ -189,6 +204,8 @@ def main():
         engine.analyze(epub, details=args.details)
     elif args.command == "map-css":
         engine.map_css(epub, write_mapping=getattr(args, "write_mapping", None))
+    elif args.command == "map-structure":
+        engine.map_structure(epub)
     elif args.command == "repair":
         output = args.output
         if output is None:

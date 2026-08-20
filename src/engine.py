@@ -12,6 +12,7 @@ from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.serialize import save_report
 from ebook_fix.class_map import build_class_profiles, format_class_map, write_mapping_file
+from ebook_fix.structure import analyze_structure, format_structure_report
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -682,6 +683,35 @@ class Engine:
             if write_mapping:
                 write_mapping_file(profiles, write_mapping)
                 self.log(f"Wrote editable mapping to: {write_mapping}")
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+    def map_structure(self, epub):
+        """Phase 0h of the XHTML Recoder plan (see
+        docs/xhtml_recoder_plan.md): a dry-run view of the detected
+        chapter structure and each boundary's split-confidence, for
+        review ahead of any future splitting -- nothing here writes or
+        modifies the book. Same manual-review posture as map_css
+        above.
+        """
+        source, temp_path = self._resolve_source(epub)
+        if source is None:
+            return
+        try:
+            self.log("Opening EPUB...")
+            parser = EPUBParser()
+            book = parser.load(source)
+            self.log("")
+
+            self.header("[Chapter Structure]")
+            self.log(
+                "Detected chapter boundaries and how confident the analysis is in each --\n"
+                "for review, not something the eventual splitter should trust unattended\n"
+                "below \"corroborated\".\n"
+            )
+            tree = analyze_structure(book)
+            self.log(format_structure_report(tree))
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)

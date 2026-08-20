@@ -111,17 +111,47 @@ its own. Status of each tracked here as they're done.
   exist on every page regardless of chapter boundaries, so matching
   one would be false corroboration; only a link whose target actually
   matches a *candidate's own* id counts.
-- **0g -- Confidence scoring.** [ ] Not started.
-  Combine all available signals into one per-boundary confidence
-  score.
-- **0h -- Review command.** [ ] Not started.
-  A dry-run command to review detected structure before any file gets
-  touched, same manual-review shape as `map-css`
-  (`map-structure`? naming TBD). CLI is the near-term step; the
-  longer-term goal is a GUI where boundaries -- especially
-  uncorroborated ones, see `split_safety_bar.md` -- get decided
-  per-boundary by a person. The CLI command's output shape should
-  keep that later GUI in mind (structured, not just printed text).
+- **0g -- Confidence scoring.** [x] Done. Also in `structure.py`:
+  requirement 3 (a healthy margin over the runner-up sequence) is now
+  read live in `BoundaryEvidence.confidence` itself -- a weak margin
+  routes straight to NEEDS_REVIEW even with corroboration, since a
+  weak margin means the book's overall sequence is ambiguous, which
+  one corroborated boundary doesn't fix. `apply_content_length_check`
+  fills in requirement 4 (minimum content per resulting slice) and
+  `apply_structural_cleanliness_check` fills in requirement 5 (not
+  cutting inside a table/list/footnote block). Both walk from a
+  chapter's own marker up to the *next* boundary, including cases
+  where that next boundary lives in a different file -- lxml's
+  `.//text() | following::text()` union (kept in document order by
+  libxml2) does the actual range extraction, since a plain
+  `.iter()`-based walk silently drops an ancestor's tail text that
+  falls after the marker. `score_confidence()` runs both, and a new
+  `analyze_structure(book)` chains the whole Phase 0 pipeline
+  (0d through 0g) into one call. Verified with synthetic tests: a weak
+  margin correctly downgrades an otherwise-corroborated boundary,
+  table/footnote ancestors are correctly caught, and a synthetic
+  three-file range (with content both before and after the marker,
+  including an ancestor-tail case) counts exactly the words it should.
+  Also caught a real case on the sample books: `Watermarks-
+  SmallChapterNumbers.epub`'s "chapters" are actually running
+  page-number watermarks with nothing but more watermarks between
+  them -- the minimum-content check correctly flags every one of them
+  as too short, exactly the false-positive pattern requirement 4 was
+  written to catch.
+- **0h -- Review command.** [x] Done. `engine.map_structure()` /
+  `ebook-fixer map-structure <epub>` -- a dry-run pass, same posture
+  as `map-css`: nothing is written or modified. Calls
+  `analyze_structure()` and prints `format_structure_report()`'s plain
+  -text tree (indented for nested Parts, one line per node with its
+  confidence label, corroboration source, and any notes). The
+  underlying `BookStructure` object stays the structured result;
+  `format_structure_report` is just one way of presenting it, so a
+  later GUI can render the same tree differently without touching
+  `structure.py`. One formatting gotcha worth remembering for future
+  CLI output: engine output goes through `rich`'s `console.print`,
+  which treats `[text]` as a markup tag and silently swallows it --
+  the report uses `(chapter)`-style parentheses instead of
+  `[chapter]` for exactly that reason.
 
 ### Phase 1 -- Single-file splitting mechanics (proof of concept)
 - Given one XHTML file + a set of confirmed boundaries, produce N
