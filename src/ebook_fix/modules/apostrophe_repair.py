@@ -116,14 +116,28 @@ class ApostropheRepair:
                 if host is None or not hasattr(issue, "attr"):
                     continue
 
-                # If an earlier repair module in this same run already
-                # changed this exact text/tail since analysis ran,
-                # don't overwrite something we no longer recognize.
                 current_val = getattr(host, issue.attr, None)
-                if current_val != issue.before:
+                if current_val is None:
                     continue
 
-                result = normalize_apostrophes_text(issue.before, apostrophe_char=target_char)
+                # If an earlier repair module in this same run already
+                # changed this exact text/tail since analysis ran, the
+                # snapshot in issue.before is stale -- but rather than
+                # skip the node outright (which would silently drop a
+                # real, still-valid apostrophe fix just because some
+                # unrelated part of the same text changed -- e.g. the
+                # Ellipsis Normalizer fixing "..." earlier in the same
+                # sentence), recompute fresh against whatever the text
+                # actually is right now. normalize_apostrophes_text
+                # only ever touches its own specific whitelisted
+                # patterns, so re-running it against text another
+                # module has already edited is safe: it can't collide
+                # with or undo that module's change, since an ellipsis
+                # fix and a missing-apostrophe fix never occupy the
+                # same characters.
+                source_text = issue.before if current_val == issue.before else current_val
+
+                result = normalize_apostrophes_text(source_text, apostrophe_char=target_char)
                 if not result.changed:
                     continue
 

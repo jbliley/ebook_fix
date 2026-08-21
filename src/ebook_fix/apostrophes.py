@@ -72,6 +72,36 @@ _ALLOWED_PAIRS = frozenset(
     for word in words
 ) | frozenset(_IDIOM_PAIRS)
 
+# Standalone words that are archaic contractions missing their
+# LEADING apostrophe -- a different bug shape from everything above:
+# a dropped-apostrophe artifact at the very front of the word instead
+# of a space in the middle ("Tis the season" instead of "'Tis the
+# season"), so it needs its own detection, not the word-gap pattern.
+#
+# Kept deliberately narrower than it could be. Two real words were
+# considered and excluded specifically because they're too ambiguous
+# to auto-repair safely:
+# - "twill" -- the archaic contraction for "it will", but ALSO a real,
+#   ordinary word (the fabric weave denim is made from). Auto-adding
+#   an apostrophe to every "twill" in a book about clothing or
+#   textiles would be a real, not theoretical, false positive.
+# - "tween" -- the archaic contraction for "between", but ALSO
+#   common modern slang for the pre-teen demographic. Same problem.
+# Everything kept below has no common competing meaning as an
+# ordinary standalone word.
+_LEADING_APOSTROPHE_WORDS = ["tis", "twas", "twere", "twould", "tisn't", "twasn't", "gainst"]
+
+# Word boundary before AND a negative lookbehind against an apostrophe
+# or opening quote mark already sitting there (straight, or either
+# direction of curly single quote -- some typesetting uses an opening
+# curly quote as the leading apostrophe instead of a closing one).
+# Alternatives sorted longest-first so e.g. "twasn't" matches whole
+# rather than stopping at "twas".
+_LEADING_APOSTROPHE_RE = re.compile(
+    r"(?<![\u2018\u2019'])\b(" + "|".join(sorted(_LEADING_APOSTROPHE_WORDS, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+
 # Matches "word " (a word plus the single space after it), with the
 # following word checked via a zero-width lookahead rather than
 # consumed as part of the match. That's deliberate: a plain
@@ -105,16 +135,30 @@ class ApostropheNormalizeResult:
 def normalize_apostrophes_text(text: str, apostrophe_char: str = STRAIGHT_APOSTROPHE) -> ApostropheNormalizeResult:
     """
     Pure, unit-testable normalization of one piece of text (an
-    element's .text or .tail). Replaces every whitelisted "word word"
-    gap with "word<apostrophe_char>word", preserving the original
-    casing of both words. Anything not on the whitelist is left
-    completely alone.
+    element's .text or .tail). Two independent passes, since they're
+    different bug shapes (see module docstring and the comments on
+    each regex above):
+
+    1. Whitelisted "word word" gaps -> "word<apostrophe_char>word",
+       preserving the original casing of both words.
+    2. Standalone archaic-contraction words missing their leading
+       apostrophe -> "<apostrophe_char>word", preserving casing.
+
+    Anything not on either whitelist is left completely alone.
     """
     result = ApostropheNormalizeResult(text=text)
-    if not text or " " not in text:
+    if not text:
+        return result
+    # Fast reject: skip the (more expensive) regex work entirely for
+    # text with no space AND no possible leading-apostrophe word in
+    # it -- the space-gap pattern always needs a space, but the
+    # leading-apostrophe pattern doesn't (a lone "Tis" with nothing
+    # else in its own text node is rare but real, e.g. wrapped in its
+    # own <em>).
+    if " " not in text and not _LEADING_APOSTROPHE_RE.search(text):
         return result
 
-    def _repl(m: re.Match) -> str:
+    def _repl_pair(m: re.Match) -> str:
         first, second = m.group(1), m.group(2)
         if (first.lower(), second.lower()) not in _ALLOWED_PAIRS:
             return m.group(0)
@@ -124,7 +168,12 @@ def normalize_apostrophes_text(text: str, apostrophe_char: str = STRAIGHT_APOSTR
         # leaving the second word in place right after it.
         return f"{first}{apostrophe_char}"
 
-    new_text = _PAIR_RE.sub(_repl, text)
+    def _repl_leading(m: re.Match) -> str:
+        result.match_count += 1
+        return f"{apostrophe_char}{m.group(0)}"
+
+    new_text = _PAIR_RE.sub(_repl_pair, text)
+    new_text = _LEADING_APOSTROPHE_RE.sub(_repl_leading, new_text)
     result.text = new_text
     result.changed = new_text != text
     return result
@@ -174,7 +223,7 @@ def analyze_chapter_apostrophes(href: str, tree) -> ChapterApostropheSummary:
         return summary
 
     for host, attr, text, protected in iter_text_slots(tree):
-        if protected or " " not in text:
+        if protected:
             continue
 
         # Analysis always normalizes toward the straight apostrophe to

@@ -1,6 +1,8 @@
 # Missing-Apostrophe Repair -- Planning Doc
 
-**Status:** Phases 1 and 2 done. Phase 3 not started.
+**Status:** Phases 1, 2, and 3 done. This feature is considered
+complete for now; see Open Questions below for anything left to
+revisit later.
 **Started:** session following the XHTML Recoder Phase 0 work.
 
 ## The problem
@@ -227,14 +229,77 @@ count is the invariant that stays flat, not the non-whitespace count.
   phase touches book content, by construction.
 
 ### Phase 3 -- Edge cases and hardening
-- Contractions at a sentence start after a dropped leading quote
-  mark (e.g. `'Tis` vs `Tis`).
-- Multiple consecutive instances in the same text node/sentence.
-- Interaction with the Whitespace Normalizer and Ellipsis Normalizer
-  pipeline ordering, since all three now touch text nodes -- likely
-  needs to run before the Whitespace Normalizer for the same
-  stale-check reason Ellipsis does (documented in
-  `analysis_roadmap.md`'s pipeline-ordering notes).
+**[x] Done.**
+- **Leading-apostrophe contractions.** A genuinely different bug
+  shape from everything in Phase 1: a dropped apostrophe at the very
+  FRONT of a standalone word ("Tis the season" instead of "'Tis the
+  season"), not a space in the middle of two words. Added a second,
+  independent detection pass in `normalize_apostrophes_text()` for a
+  small closed whitelist: tis, twas, twere, twould, tisn't, twasn't,
+  gainst. Two candidates were deliberately EXCLUDED after real
+  ambiguity was found, not just considered and dismissed
+  theoretically:
+  - "twill" -- the archaic contraction for "it will", but also the
+    name of an ordinary fabric weave (denim). Auto-adding an
+    apostrophe to every "twill" in a book that happens to mention
+    clothing or textiles would be a real false positive, not a
+    hypothetical one.
+  - "tween" -- the archaic contraction for "between", but also common
+    modern slang for the pre-teen demographic. Same problem.
+  - Known remaining gap: this only fixes the LEADING apostrophe. A
+    word missing both apostrophes at once (e.g. plain "tisnt" with no
+    apostrophe anywhere, instead of "tisn't") isn't recognized -- that
+    would need this pass AND a Phase-1-style internal-contraction fix
+    to both fire on the same word, and hasn't come up in the sample
+    library. Logged here rather than solved speculatively.
+- **Multiple instances in one text node.** Stress-tested directly
+  (not just spot-checked) with sentences containing three and four
+  separate matches back-to-back, including a mix of the space-gap
+  pattern and the new leading-apostrophe pattern in the same
+  sentence. All resolved correctly -- see the test cases logged
+  against this phase's work for the exact strings used.
+- **Real bug found and fixed: pipeline-ordering interaction with the
+  Ellipsis Normalizer.** This was flagged as a risk in this plan
+  before Phase 3 started, and turned out to be a real, reproducible
+  bug once actually tested rather than just a theoretical concern.
+  Reproduction: a text node containing BOTH an ellipsis artifact and
+  a missing apostrophe in the same sentence ("Wait... don t stop").
+  Ellipsis Normalizer runs first in the pipeline and correctly fixes
+  the ellipsis, but that changes the text node's content -- so when
+  Apostrophe Repair ran next, its old guard (`if current_val !=
+  issue.before: skip`, the same pattern `EllipsisRepair` itself uses
+  against `WhitespaceRepair`) saw the text no longer matched its
+  analysis-time snapshot and silently skipped the node entirely,
+  meaning "don t" was left completely unrepaired with no error or
+  warning.
+  - **Fix (in `apostrophe_repair.py` only -- `ellipsis_repair.py` was
+    NOT touched, since it's an existing stable module and this
+    session didn't need to change it):** instead of skipping the node
+    outright when the text has changed since analysis, recompute
+    `normalize_apostrophes_text()` fresh against whatever the CURRENT
+    text is, rather than trusting the stale snapshot. This is safe
+    specifically because `normalize_apostrophes_text()` only ever
+    touches its own narrow whitelisted patterns -- it can't collide
+    with or undo a change another module already made, since an
+    ellipsis fix and a missing-apostrophe fix never occupy the same
+    characters. Verified directly: the reproduction case above now
+    correctly produces "Wait… don't stop" (both fixes applied)
+    instead of "Wait… don t stop" (apostrophe fix silently dropped).
+  - This same class of interaction still exists in the OTHER
+    direction between Apostrophe Repair and the Whitespace Normalizer
+    (Apostrophe Repair runs before Whitespace, so if it changes a
+    node, Whitespace's own unmodified stale-check guard would skip
+    it) -- that's `whitespace_repair.py`'s existing, already-accepted
+    behavior from before this project started using the "skip if
+    changed" pattern at all, and wasn't touched here for the same
+    reason `ellipsis_repair.py` wasn't: it's a separate, stable,
+    already-working module. Worth a future look if it ever turns out
+    to matter in practice.
+- Verified: full `repair` pipeline still runs clean on all seven
+  sample books, re-analyzing every repaired book still comes back
+  completely clean of apostrophe issues, and the interaction-bug fix
+  was confirmed directly against a constructed reproduction case
+  rather than just inferred from code review.
 
 ## Open questions to resolve when we pick this back up
 - Does Jacob's book have cases this whitelist won't catch (rarer
