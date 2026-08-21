@@ -61,6 +61,22 @@ this is a holding pen, not a commitment.
   converters too -- this is expected to recur, not a one-off (worth
   keeping in mind for scoping: it should be pattern-based rather than
   id-based, so it isn't Calibre/pdftohtml-specific).
+- Doubled-letter-collapsed-to-space -- found while building the
+  Possessive Candidates flagging pass (docs/apostrophe_repair_plan.md
+  Phase 2). `BrokenSentences.epub` has a corruption pattern where a
+  doubled letter loses one copy and gets a space in its place instead
+  -- "walls" -> "wal s", "ball bearings" -> "bal  bearings" (the
+  double space there is the tell: TWO l's collapsed to nothing plus a
+  space). This shares the exact same "word + space + s" shape the
+  possessive detector looks for, so it currently shows up as noise in
+  that review list rather than getting its own detection. A real fix
+  would need a dictionary or wordlist to recognize "wal" + "s" isn't
+  a real word pair but "wall" + "s" is -- out of scope for a
+  regex-only pass, and this project has no dictionary dependency yet
+  (see Tools & resources: lxml, rich, tomllib only). Worth its own
+  investigation later rather than folding into apostrophe/possessive
+  work, since it's a different corruption mechanism entirely (a
+  dropped duplicate letter, not a dropped apostrophe).
 
 ### Files & packaging
 - Orphaned zip files -- files sitting in the archive that aren't

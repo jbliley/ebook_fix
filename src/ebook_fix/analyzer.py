@@ -19,7 +19,10 @@ from ebook_fix.images import BookImageSummary, analyze_book_images
 from ebook_fix.paragraphs import BookParagraphSummary, analyze_book_paragraphs
 from ebook_fix.whitespace import BookWhitespaceSummary, analyze_book_whitespace
 from ebook_fix.ellipsis import BookEllipsisSummary, analyze_book_ellipsis
-from ebook_fix.apostrophes import BookApostropheSummary, analyze_book_apostrophes
+from ebook_fix.apostrophes import (
+    BookApostropheSummary, analyze_book_apostrophes,
+    BookPossessiveSummary, analyze_book_possessives,
+)
 from ebook_fix.frontmatter import (
     BookFrontMatterSummary, analyze_book_frontmatter, FRONT_ZONE, BACK_ZONE,
 )
@@ -108,6 +111,11 @@ class AnalysisReport:
     whitespace:BookWhitespaceSummary=field(default_factory=BookWhitespaceSummary)
     ellipsis:BookEllipsisSummary=field(default_factory=BookEllipsisSummary)
     apostrophes:BookApostropheSummary=field(default_factory=BookApostropheSummary)
+    # Flag-only, manual-review possessive candidates -- see
+    # ebook_fix.apostrophes module docstring for why these are kept
+    # completely separate from `apostrophes` above and never touched
+    # by any repair module.
+    possessives:BookPossessiveSummary=field(default_factory=BookPossessiveSummary)
     frontmatter:BookFrontMatterSummary=field(default_factory=BookFrontMatterSummary)
     toc:BookTocSummary=field(default_factory=BookTocSummary)
     gutenberg:BookGutenbergSummary=field(default_factory=BookGutenbergSummary)
@@ -222,6 +230,7 @@ class EPUBAnalyzer:
         r.whitespace=analyze_book_whitespace(book)
         r.ellipsis=analyze_book_ellipsis(book)
         r.apostrophes=analyze_book_apostrophes(book)
+        r.possessives=analyze_book_possessives(book)
         r.toc=analyze_book_toc(book,chapter_reports=r.chapter_reports)
         r.summary.toc_entry_count=r.toc.entry_count
         r.summary.toc_source=r.toc.source

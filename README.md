@@ -27,6 +27,7 @@ Before the repair runs, it runs an analysis to map the structure and elements of
 <li>Typography</li>
 <li>Whitespace</li>
 <li>Ellipsis</li>
+<li>Apostrophes</li>
 </ul>
 <br>This analysis runs automatically before running a repair. To run only the analysis without the repair (from the src folder):
 <p>&emsp;<b>Run analysis: </b><code>python cli.py analyze "C:/path/to/file/ebook title.epub"</code></p>

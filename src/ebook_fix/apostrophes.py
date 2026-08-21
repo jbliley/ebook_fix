@@ -2,17 +2,22 @@
 ebook_fix.apostrophes
 
 DOM-aware detection of a specific conversion artifact: a dropped
-apostrophe glyph left behind as a plain space, splitting a
-contraction into two separate "words" -- "don t" instead of "don't",
-"it s" instead of "it's".
+apostrophe glyph left behind as a plain space, splitting a word into
+two separate "words" -- "don t" instead of "don't", "it s" instead
+of "it's", "dog s" instead of "dog's".
 
-Scope (Phase 1 of docs/apostrophe_repair_plan.md): CONTRACTIONS only,
-matched against a closed whitelist of known word pairs. Possessives
-("the dog s bone" -> "the dog's bone") are a much higher false-
-positive-risk problem -- there's no fixed word list to check a
-possessive against, since any noun can take one -- and are
-deliberately out of scope here. See the plan doc for why that's a
-separate, later phase.
+Two phases, two very different risk levels (see
+docs/apostrophe_repair_plan.md):
+
+- Phase 1, CONTRACTIONS (below): matched against a closed whitelist
+  of known word pairs, so this is safe to auto-repair. See
+  ebook_fix.modules.apostrophe_repair.
+- Phase 2, POSSESSIVES (further down): there's no closed whitelist to
+  check a possessive against, since any noun can take one, and the
+  shape is genuinely ambiguous on its own (it could be a possessive
+  OR a plain plural that lost its space -- only a person reading the
+  sentence can tell). This phase only ever flags candidates for
+  manual review; nothing here is ever auto-repaired.
 
 Uses the same text/tail tree walker as ebook_fix.whitespace and
 ebook_fix.ellipsis (iter_text_slots), so protected content
@@ -197,5 +202,141 @@ def analyze_book_apostrophes(book) -> BookApostropheSummary:
     for chapter in book.chapters:
         summary.chapters.append(
             analyze_chapter_apostrophes(getattr(chapter, "href", ""), getattr(chapter, "document", None))
+        )
+    return summary
+
+
+# ---------------------------------------------------------------------
+# Phase 2: possessive candidates (flag-only, NEVER auto-repaired)
+# ---------------------------------------------------------------------
+#
+# Same underlying artifact as the contractions above -- a dropped
+# apostrophe left behind as a plain space -- but for the possessive
+# marker ("the dog s bone" -> "the dog's bone") instead of a
+# contraction. This is a fundamentally different risk level: a
+# contraction can be checked against a closed, known list of words
+# that actually contract, but ANY noun can take a possessive, so
+# there's no equivalent list to check against here.
+#
+# Worse, the shape is genuinely ambiguous on its own: a bare "s"
+# split off from the word before it could mean the word should gain
+# an apostrophe (a possessive, "dog s" -> "dog's"), OR it could mean
+# the two should simply be joined with no apostrophe at all (a
+# straight plural that got a stray space, "CD s" -> "CDs", "1990 s"
+# -> "1990s"). Only a person reading the sentence can tell which one
+# is right.
+#
+# So this section only ever produces PossessiveCandidate entries for
+# a person to review -- see docs/apostrophe_repair_plan.md, Phase 2.
+# Nothing here is wired into ApostropheRepair or any other repair
+# module, and that's deliberate: PossessiveCandidate lives on its own
+# BookPossessiveSummary, entirely separate from ApostropheIssue and
+# BookApostropheSummary above, specifically so there's no code path
+# by which a repair module could reach these and "fix" one on its
+# own.
+
+SAMPLE_PAD = 25
+
+# Words already covered by the "s" contraction fragment above
+# (it's/that's/there's/here's/what's/who's/let's/he's/she's) --
+# skipped here so the exact same split isn't reported twice, once as
+# a safe auto-fixable contraction and again as a manual-review
+# possessive candidate.
+_CONTRACTION_S_WORDS = frozenset(_CONTRACTION_PAIRS["s"])
+
+# A word (letters and/or digits, so "1990 s" -> "1990s"/"1990's" is
+# caught alongside "dog s" -> "dogs"/"dog's") followed by a single
+# space and a lone "s". Two guards, both found necessary against the
+# real sample books during testing, not just theoretical:
+#
+# - Requires 2+ characters in the first word. A single letter in
+#   front is almost always a letter-spaced heading artifact ("T O M
+#   S A W Y E R"), not a real word taking a possessive -- without
+#   this, every letter-spaced title in a book floods the review list
+#   with junk like "M's"/"Ms".
+# - The trailing negative lookahead blocks a bare "s" immediately
+#   followed by ./,;:-/em-dash/en-dash with no space. That shape is
+#   almost always a middle initial or abbreviation ("Michael S.
+#   Hart", "in S. Latitude 34°", "s/he"), not a possessive marker.
+#   This is a real trade-off: a sentence that genuinely ends on a
+#   possessive right before a period ("...it was the dog s.") would
+#   also get skipped by this guard. That's judged the better default
+#   for a review list specifically -- a list buried in abbreviation
+#   noise is one nobody will actually read through to find the real
+#   candidates in.
+_BARE_S_RE = re.compile(r"\b([A-Za-z0-9]{2,}) ([sS])\b(?![./,;:\-\u2013\u2014])")
+
+
+def _snippet(text: str, start: int, end: int) -> str:
+    lo = max(0, start - SAMPLE_PAD)
+    hi = min(len(text), end + SAMPLE_PAD)
+    return " ".join(text[lo:hi].split())
+
+
+@dataclass
+class PossessiveCandidate:
+    href: str = ""
+    element: object = None    # live host element; not saved to the JSON cache
+    attr: str = ""             # "text" or "tail"
+    word: str = ""             # the word immediately before the bare "s", original casing
+    context: str = ""          # short surrounding snippet, for a person to read and judge
+    possessive_reading: str = ""  # e.g. "dog's" -- if this is a possessive
+    plural_reading: str = ""      # e.g. "dogs"  -- if this is just a plural that lost its space
+
+
+@dataclass
+class ChapterPossessiveSummary:
+    href: str = ""
+    candidates: list = field(default_factory=list)   # [PossessiveCandidate]
+
+
+@dataclass
+class BookPossessiveSummary:
+    chapters: list = field(default_factory=list)   # [ChapterPossessiveSummary]
+
+    @property
+    def total_candidate_count(self) -> int:
+        return sum(len(c.candidates) for c in self.chapters)
+
+    @property
+    def chapters_with_candidates(self) -> list:
+        return [c.href for c in self.chapters if c.candidates]
+
+
+def analyze_chapter_possessives(href: str, tree) -> ChapterPossessiveSummary:
+    summary = ChapterPossessiveSummary(href=href)
+    if tree is None:
+        return summary
+
+    for host, attr, text, protected in iter_text_slots(tree):
+        if protected or " s" not in text.lower():
+            continue
+
+        for m in _BARE_S_RE.finditer(text):
+            word = m.group(1)
+            if word.lower() in _CONTRACTION_S_WORDS:
+                # Already reported (and safely auto-fixable) as a
+                # contraction above -- don't report it a second time
+                # here as a manual-review item too.
+                continue
+
+            summary.candidates.append(
+                PossessiveCandidate(
+                    href=href, element=host, attr=attr,
+                    word=word,
+                    context=_snippet(text, m.start(), m.end()),
+                    possessive_reading=f"{word}'s",
+                    plural_reading=f"{word}s",
+                )
+            )
+
+    return summary
+
+
+def analyze_book_possessives(book) -> BookPossessiveSummary:
+    summary = BookPossessiveSummary()
+    for chapter in book.chapters:
+        summary.chapters.append(
+            analyze_chapter_possessives(getattr(chapter, "href", ""), getattr(chapter, "document", None))
         )
     return summary

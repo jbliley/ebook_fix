@@ -1,6 +1,6 @@
 # Missing-Apostrophe Repair -- Planning Doc
 
-**Status:** Phase 1 done. Phases 2/3 not started.
+**Status:** Phases 1 and 2 done. Phase 3 not started.
 **Started:** session following the XHTML Recoder Phase 0 work.
 
 ## The problem
@@ -176,16 +176,55 @@ count is the invariant that stays flat, not the non-whitespace count.
   (`GutenbergText-ChapterSplit.epub`).
 
 ### Phase 2 -- Possessive detection (flag-only, manual review)
-- Detect the "word + space + s" shape without a closed whitelist to
-  check it against.
-- Given the false-positive risk, this phase should **only report**
-  candidates for review, not auto-repair them -- same posture as
-  `class_standardize`'s dry-run review step. Whether this eventually
-  gets a confidence-scoring pass similar to the XHTML Recoder's
-  boundary evidence (e.g. corroborating against a dictionary of common
-  nouns, or checking surrounding punctuation) is an open question to
-  revisit once Phase 1 is done and we can see how much of what you're
-  hitting is actually possessives vs. contractions.
+**[x] Done.**
+- Added `analyze_book_possessives()` / `BookPossessiveSummary` /
+  `ChapterPossessiveSummary` / `PossessiveCandidate` to
+  `apostrophes.py`, deliberately kept as a completely separate data
+  structure from `BookApostropheSummary` (Phase 1) -- not a shared
+  base class, not a shared list with a "confidence" flag on each
+  entry. That separation is what actually guarantees no repair module
+  can ever reach these and auto-fix one: `ApostropheRepair` only ever
+  reads `analysis.apostrophes`, and there is no code path from there
+  to `analysis.possessives` at all.
+- Wired into `analyzer.py` as `AnalysisReport.possessives`, and into
+  `engine.py`'s report output as a `[Possessive Candidates -- Manual
+  Review]` section, clearly labeled as not auto-repaired. Each
+  candidate is shown with both possible readings (e.g. "dog's" vs.
+  "dogs") so a person doesn't have to work that part out themselves.
+- Detection: a word of 2+ characters followed by a single space and a
+  bare "s", excluding anything already safely handled as a Phase 1
+  contraction (so the same split isn't reported twice).
+- **Two noise-reduction guards added after testing against the real
+  sample books, not just theoretical cases:**
+  - Minimum 2-character first word, to filter out letter-spaced
+    heading text ("T O M S A W Y E R" was otherwise flooding the list
+    with junk like "M's").
+  - A bare "s" immediately followed by `./,;:-` or an em/en dash (no
+    space) is excluded, since that shape is almost always a middle
+    initial or abbreviation ("Michael S. Hart", "in S. Latitude 34°",
+    "Gabriela S—Princeton") rather than a possessive marker. **Known
+    trade-off:** a sentence that genuinely ends on a possessive right
+    before a period ("...it was the dog s.") would also get skipped
+    by this guard. Judged the right default for a review list
+    specifically -- a list buried in abbreviation noise doesn't get
+    read carefully enough to find the real candidates in it.
+- **Real finding during testing, logged separately rather than
+  chased here:** `BrokenSentences.epub` has an unrelated corruption
+  pattern -- a doubled letter loses one copy and gets a space instead
+  ("walls" -> "wal s") -- that happens to share the exact same
+  "word + space + s" shape this detector looks for, so it shows up as
+  noise specifically in that book. Fixing it would need a dictionary
+  to tell "wal"+"s" isn't a real word pair, which is out of scope for
+  a regex pass and a bigger, separate feature. Logged as its own
+  candidate in `docs/analysis_roadmap.md`'s Conversion Artifacts
+  section rather than folded into this plan, since it's a genuinely
+  different corruption mechanism (a dropped duplicate letter, not a
+  dropped apostrophe).
+- Verified: full `repair` pipeline still runs clean on all seven
+  sample books, and confirmed by direct content check that a flagged
+  possessive candidate (`"wal s"` in `BrokenSentences.epub`) is
+  byte-for-byte unchanged after a full repair run -- nothing in this
+  phase touches book content, by construction.
 
 ### Phase 3 -- Edge cases and hardening
 - Contractions at a sentence start after a dropped leading quote
@@ -198,12 +237,15 @@ count is the invariant that stays flat, not the non-whitespace count.
   `analysis_roadmap.md`'s pipeline-ordering notes).
 
 ## Open questions to resolve when we pick this back up
-- Should the "'s" contraction fragment list (it/that/there/here/
-  what/who/let/he/she) be trimmed further, or is there a safe way to
-  widen it without bleeding into Phase 2's possessive territory?
 - Does Jacob's book have cases this whitelist won't catch (rarer
   contractions, dialect spellings)? Worth checking against the actual
   book once Phase 1 exists, if he's willing to share the file.
+- Should Phase 2's possessive candidates eventually get a
+  confidence-scoring pass (e.g. corroborating against a common-noun
+  wordlist) to cut noise further, similar to the XHTML Recoder's
+  boundary evidence? Two guards already handle the noise sources
+  found in testing (letter-spaced headings, middle initials); revisit
+  if real books surface a noise pattern those two don't cover.
 
 ## Continuity note
 This file is the source of truth for where this feature stands --

@@ -674,6 +674,33 @@ class Engine:
                             result = normalize_apostrophes_text(issue.before, apostrophe_char=target_char)
                             self.log(f"      - {issue.category}: {issue.before!r} -> {result.text!r}")
 
+            # Possessive Candidates -- FLAG ONLY, never auto-repaired.
+            # See ebook_fix.apostrophes module docstring for why: a
+            # bare "word s" split could mean a possessive (add an
+            # apostrophe) or a plain plural that lost its space (just
+            # join them), and only a person reading the sentence can
+            # tell which. This section exists purely so a person can
+            # review and fix these by hand -- no config option turns
+            # this into an auto-repair, on purpose.
+            poss = analysis_report.possessives
+            if poss.total_candidate_count:
+                self.log("\n[Possessive Candidates -- Manual Review]")
+                self.log(
+                    f"  • Possible missing apostrophe (possessive or plural, ambiguous): "
+                    f"{poss.total_candidate_count} -- not auto-repaired, review and fix by hand"
+                )
+
+                if details:
+                    for chapter_summary in poss.chapters:
+                        if not chapter_summary.candidates:
+                            continue
+                        self.log(f"    {chapter_summary.href}:")
+                        for c in chapter_summary.candidates:
+                            self.log(
+                                f"      - {c.context!r} "
+                                f"(possessive: {c.possessive_reading!r} / plural: {c.plural_reading!r})"
+                            )
+
             # Module Diagnostics Execution
             self.log("\n[Module Checks]")
             if not self.modules:
