@@ -22,6 +22,8 @@ from ebook_fix.modules.class_standardize import ClassStandardizeRepair, load_map
 from ebook_fix.modules.gutenberg_repair import GutenbergRepair
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.ellipsis import normalize_ellipsis_text
+from ebook_fix.modules.apostrophe_repair import ApostropheRepair, resolve_target_apostrophe_char
+from ebook_fix.apostrophes import normalize_apostrophes_text
 
 console = Console()
 
@@ -66,6 +68,16 @@ class Engine:
         # that got skipped this time.
         if getattr(self.config, "ellipsis_repair", None) and getattr(self.config.ellipsis_repair, "enabled", True):
             modules.append(EllipsisRepair(self.config.ellipsis_repair))
+        # Same reasoning as Ellipsis just above: this can touch a
+        # text/tail node the Whitespace Normalizer would also want,
+        # so it needs to run before that module for the "current_val
+        # != issue.before" stale-check guard to actually protect it.
+        # Runs after Ellipsis since the two rarely overlap in
+        # practice (a missing apostrophe needs a bare single-space
+        # gap between two whitelisted words, an ellipsis artifact
+        # needs periods) -- order between them isn't load-bearing.
+        if getattr(self.config, "apostrophe_repair", None) and getattr(self.config.apostrophe_repair, "enabled", True):
+            modules.append(ApostropheRepair(self.config.apostrophe_repair))
         if getattr(self.config, "whitespace_repair", None) and getattr(self.config.whitespace_repair, "enabled", True):
             modules.append(WhitespaceRepair(self.config.whitespace_repair))
         return modules
@@ -241,6 +253,7 @@ class Engine:
                 f"\nDashes: {t.total_hyphen} hyphen, {t.total_en_dash} en dash, {t.total_em_dash} em dash, {t.total_double_hyphen} double-hyphen (--)"
                 f"\nEllipsis: {t.total_unicode_ellipsis} unicode (…), {t.total_ascii_ellipsis} ascii (...)"
                 f"\nSentence spacing: {t.total_single_space_after_sentence} single-space, {t.total_double_space_after_sentence} double-space"
+                f"\nMissing apostrophes (contraction split by a space): {analysis_report.apostrophes.total_match_count}"
             )
 
             self.log("")
@@ -637,6 +650,28 @@ class Engine:
                         self.log(f"    {chapter_summary.href}:")
                         for issue in chapter_summary.issues:
                             result = normalize_ellipsis_text(issue.before, target_style=target_style)
+                            self.log(f"      - {issue.category}: {issue.before!r} -> {result.text!r}")
+
+            # Apostrophe Issues
+            apo = analysis_report.apostrophes
+            if apo.total_match_count:
+                self.log("\n[Apostrophes]")
+                self.log(f"  • Missing apostrophe (contraction) found: {apo.total_match_count}")
+
+                if details:
+                    # Shown using the config's actual resolved target
+                    # character rather than the analysis-default
+                    # straight apostrophe -- see
+                    # ebook_fix.modules.apostrophe_repair.
+                    target_char = resolve_target_apostrophe_char(
+                        getattr(self.config, "apostrophe_repair", None), analysis_report
+                    )
+                    for chapter_summary in apo.chapters:
+                        if not chapter_summary.issues:
+                            continue
+                        self.log(f"    {chapter_summary.href}:")
+                        for issue in chapter_summary.issues:
+                            result = normalize_apostrophes_text(issue.before, apostrophe_char=target_char)
                             self.log(f"      - {issue.category}: {issue.before!r} -> {result.text!r}")
 
             # Module Diagnostics Execution

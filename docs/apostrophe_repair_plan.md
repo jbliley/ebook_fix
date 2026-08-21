@@ -1,6 +1,6 @@
 # Missing-Apostrophe Repair -- Planning Doc
 
-**Status:** Not started. This is a planning doc only -- no code yet.
+**Status:** Phase 1 done. Phases 2/3 not started.
 **Started:** session following the XHTML Recoder Phase 0 work.
 
 ## The problem
@@ -117,25 +117,63 @@ to change the word count on purpose -- "don t" (2 words) correctly
 becomes "don't" (1 word). A plain word-count diff would flag every
 correct fix as a regression.
 
-Plan: verify this module with a **character/content diff instead**
-(total non-whitespace character count should stay the same, since a
-space is being replaced by an apostrophe, not deleted) rather than a
-word-count diff, and note this as a documented exception in the
-regression-testing notes so it doesn't get "fixed" back to word-count
-checking later by mistake.
+Plan: verify this module with a **raw character-count diff instead**
+(total character count INCLUDING whitespace should stay exactly the
+same, since a space is being replaced one-for-one by an apostrophe,
+not deleted) rather than a word-count diff, and note this as a
+documented exception in the regression-testing notes so it doesn't
+get "fixed" back to word-count checking later by mistake.
+
+**[Confirmed during Phase 1 build]** -- verified against
+`GutenbergText-ChapterSplit.epub`'s one real match: raw character
+count (tags stripped, whitespace included) was identical before and
+after, 400,953 either way. The non-whitespace-only count goes UP by
+exactly 1 per match instead (328,037 -> 328,038) -- makes sense, a
+space was never counted there to begin with, so swapping it for an
+apostrophe adds one countable character. Worth remembering: raw
+count is the invariant that stays flat, not the non-whitespace count.
 
 ## Phased plan
 
 ### Phase 1 -- Contraction detection + repair
-- Build the whitelist and `normalize_apostrophes_text()`, unit-tested
-  against a table of cases (including the real `IT S A STRAY DOG!`
-  case already found).
-- Wire up analysis (`apostrophes.py`, analyzer.py touch point).
-- Wire up repair (`modules/apostrophe_repair.py`, config.py,
-  engine.py touch points).
-- Verify against all sample EPUBs with the character-count diff
-  approach above, confirm `GutenbergText-ChapterSplit.epub`'s known
-  case gets fixed correctly and nothing else regresses.
+**[x] Done.**
+- Built the whitelist and `normalize_apostrophes_text()` in the new
+  `src/ebook_fix/apostrophes.py`, unit-tested against a table of
+  cases including the real `IT S A STRAY DOG!` case found while
+  scanning the sample library.
+- Wired up analysis: `analyze_book_apostrophes()`,
+  `BookApostropheSummary`/`ChapterApostropheSummary`/
+  `ApostropheIssue`, plus the `analyzer.py` touch point
+  (`AnalysisReport.apostrophes`).
+- Wired up repair: new `src/ebook_fix/modules/apostrophe_repair.py`
+  (`ApostropheRepair`, mirrors `EllipsisRepair`'s before/after-guard
+  pattern), new `ApostropheRepairConfig` in `config.py` (`enabled`,
+  `target_style` = "auto"/"straight"/"curly"), registered in
+  `engine.py`'s pipeline (runs after Ellipsis, before Whitespace, for
+  the same stale-check reason Ellipsis runs before Whitespace), plus
+  a `[Apostrophes]` section in the analysis report output and a line
+  in the Typography Overview.
+- `target_style = "auto"` (the default) resolves against
+  `typography.py`'s existing per-book straight/curly apostrophe
+  counts via `resolve_target_apostrophe_char()`, so a repaired
+  contraction matches whatever style the book's other apostrophes
+  already use, falling back to straight if the book has no
+  apostrophes yet to go on.
+- **Real false positive caught and fixed during testing:** `"that
+  s/he does not agree"` (real boilerplate text in one of the sample
+  books) was initially getting misread as "that" + "s" and turned
+  into `"that's/he"`. Fixed with a negative lookahead
+  (`(?!/)`) so a slash immediately after the second word blocks the
+  match -- that shape means the word is paired with a THIRD word via
+  the slash (s/he, and/or, his/her), not a genuine contraction gap.
+  Documented in `apostrophes.py`'s regex comment so the reasoning
+  doesn't get lost later.
+- Verified against all seven sample EPUBs: full `repair` pipeline ran
+  clean on every one (no crashes), re-running `analyze` on every
+  repaired output came back with zero remaining apostrophe issues,
+  and the character-count diff (see above) confirmed the fix behaves
+  exactly as expected on the one real match found
+  (`GutenbergText-ChapterSplit.epub`).
 
 ### Phase 2 -- Possessive detection (flag-only, manual review)
 - Detect the "word + space + s" shape without a closed whitelist to

@@ -81,6 +81,17 @@ class EllipsisRepairConfig:
 
 
 @dataclass(slots=True)
+class ApostropheRepairConfig:
+    enabled: bool = True
+    # "auto" (recommended) follows whichever apostrophe style the
+    # book's own prose already favors, per typography.py's per-book
+    # straight-vs-curly apostrophe counts, so a repaired contraction
+    # matches the book instead of standing out. "straight" or "curly"
+    # force that character regardless of what the book already has.
+    target_style: str = "auto"
+
+
+@dataclass(slots=True)
 class Config:
     epub3_upgrade: EPUB3UpgradeConfig = field(default_factory=EPUB3UpgradeConfig)
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
@@ -89,6 +100,7 @@ class Config:
     whitespace_repair: WhitespaceRepairConfig = field(default_factory=WhitespaceRepairConfig)
     gutenberg_repair: GutenbergRepairConfig = field(default_factory=GutenbergRepairConfig)
     ellipsis_repair: EllipsisRepairConfig = field(default_factory=EllipsisRepairConfig)
+    apostrophe_repair: ApostropheRepairConfig = field(default_factory=ApostropheRepairConfig)
 
 
 # ---------------------------------------------------------------------
@@ -131,6 +143,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.whitespace_repair, modules, "whitespace_repair")
     _apply_module_toggle(config.gutenberg_repair, modules, "gutenberg_repair")
     _apply_module_toggle(config.ellipsis_repair, modules, "ellipsis_repair")
+    _apply_module_toggle(config.apostrophe_repair, modules, "apostrophe_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
@@ -139,11 +152,18 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.whitespace_repair, "whitespace_repair", data.get("whitespace_repair", {}))
     _apply_section(config.gutenberg_repair, "gutenberg_repair", data.get("gutenberg_repair", {}))
     _apply_section(config.ellipsis_repair, "ellipsis_repair", data.get("ellipsis_repair", {}))
+    _apply_section(config.apostrophe_repair, "apostrophe_repair", data.get("apostrophe_repair", {}))
 
     if config.ellipsis_repair.target_style not in ("unicode", "ascii"):
         raise ValueError(
             f"Invalid ellipsis_repair.target_style: {config.ellipsis_repair.target_style!r} "
             '(must be "unicode" or "ascii")'
+        )
+
+    if config.apostrophe_repair.target_style not in ("auto", "straight", "curly"):
+        raise ValueError(
+            f"Invalid apostrophe_repair.target_style: {config.apostrophe_repair.target_style!r} "
+            '(must be "auto", "straight", or "curly")'
         )
 
     return config
@@ -195,6 +215,7 @@ image_repair = true
 whitespace_repair = true
 gutenberg_repair = true
 ellipsis_repair = true
+apostrophe_repair = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -325,6 +346,28 @@ enabled = true
 # tidy three-dot "..." with no internal spaces, for anyone who
 # specifically wants to avoid the single character.
 target_style = "unicode"
+
+# ---------------------------------------------------------------------
+# Apostrophe Repair
+# ---------------------------------------------------------------------
+[apostrophe_repair]
+
+# Fixes a dropped-apostrophe conversion artifact: a contraction that
+# lost its apostrophe and got left with a plain space instead, e.g.
+# "don t" -> "don't", "it s" -> "it's". Matched against a closed
+# whitelist of known contractions only, so this stays safe -- it will
+# never touch a genuine two-word phrase that happens to share the
+# same shape. Possessives ("the dog s bone") are a separate, much
+# higher-false-positive-risk problem and are NOT handled by this
+# module -- see docs/apostrophe_repair_plan.md.
+enabled = true
+
+# "auto" (recommended) follows whichever apostrophe style the book's
+# own prose already uses -- straight (') or curly ('), per the
+# Typography Overview in the analysis output -- so a repaired
+# contraction matches the rest of the book. "straight" or "curly"
+# force that character regardless of what the book already has.
+target_style = "auto"
 """
 
 
