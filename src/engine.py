@@ -105,6 +105,21 @@ class Engine:
     def header(self, text):
         print_header(text)
 
+    def _check_output_path(self, output: Path, overwrite: bool) -> bool:
+        """Refuses to write over an existing file unless `overwrite`
+        is set -- same posture cli.py's init-config already uses for
+        its own -o/--output. Reports and returns False rather than
+        raising, matching how the rest of this class communicates
+        problems to the person running it."""
+        output = Path(output)
+        if output.exists() and not overwrite:
+            self.log(
+                f"ERROR: '{output}' already exists. Pass --overwrite to "
+                f"replace it, or choose a different --output path."
+            )
+            return False
+        return True
+
     def _resolve_source(self, epub):
         """
         Run the integrity check first. If it passes, use the file as-is.
@@ -799,7 +814,7 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
-    def split_chapters(self, epub, output):
+    def split_chapters(self, epub, output, overwrite=False):
         """Phase 1 of the XHTML Recoder plan (see
         docs/xhtml_recoder_plan.md): a hands-on way to try the
         splitter mechanics (ebook_fix.splitter) against a real book.
@@ -818,6 +833,8 @@ class Engine:
         """
         source, temp_path = self._resolve_source(epub)
         if source is None:
+            return
+        if not self._check_output_path(output, overwrite):
             return
         try:
             self.log("Opening EPUB...")
@@ -886,7 +903,7 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
-    def repair(self, epub, output, dry_run=False, class_mapping=None):
+    def repair(self, epub, output, dry_run=False, class_mapping=None, overwrite=False):
         source, temp_path = self._resolve_source(epub)
         if source is None:
             return
@@ -927,6 +944,9 @@ class Engine:
                     self.log(f"Note: '{class_mapping}' has no class entries -- nothing to standardize.")
                 else:
                     modules.append(ClassStandardizeRepair(entries))
+
+            if not dry_run and not self._check_output_path(output, overwrite):
+                return
 
             if not modules:
                 self.log("No repair modules are enabled in the config. Nothing to do.")

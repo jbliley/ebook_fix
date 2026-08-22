@@ -89,6 +89,11 @@ def build_parser():
         action="store_true",
         help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
     )
+    repair.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the output file if it already exists. Without this, repair refuses to run rather than overwrite something silently."
+    )
 
     # Validate
     validate = sub.add_parser(
@@ -158,6 +163,11 @@ def build_parser():
         "--no-container-repair",
         action="store_true",
         help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
+    )
+    split_structure.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the output file if it already exists. Without this, split-structure refuses to run rather than overwrite something silently."
     )
 
     # Init-config
@@ -230,7 +240,7 @@ def main():
         output = args.output
         if output is None:
             output = epub.with_stem(epub.stem + "_split")
-        engine.split_chapters(epub, Path(output))
+        engine.split_chapters(epub, Path(output), overwrite=args.overwrite)
     elif args.command == "repair":
         output = args.output
         if output is None:
@@ -240,6 +250,7 @@ def main():
             Path(output),
             dry_run=args.dry_run,
             class_mapping=getattr(args, "class_mapping", None),
+            overwrite=args.overwrite,
         )
 
 if __name__ == "__main__":
