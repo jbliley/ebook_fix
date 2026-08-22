@@ -383,6 +383,14 @@ def _walk_chapters(nodes: list[StructureNode]):
         yield from _walk_chapters(node.children)
 
 
+def iter_chapter_nodes(tree: BookStructure):
+    """Public wrapper around _walk_chapters, for callers outside this
+    module (e.g. engine.py's split-structure command, or splitter.py's
+    future real wiring) that need every CHAPTER node in book order
+    without reaching into this module's private helper directly."""
+    yield from _walk_chapters(tree.nodes)
+
+
 def _candidate_ids(candidate: Any, max_ancestor_levels: int = 2) -> set:
     """id attributes on a candidate's own element and its nearest few
     ancestors. Checking ancestors too because a book's own id (the one

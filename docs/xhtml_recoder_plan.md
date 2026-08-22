@@ -153,18 +153,64 @@ its own. Status of each tracked here as they're done.
   the report uses `(chapter)`-style parentheses instead of
   `[chapter]` for exactly that reason.
 
-### Phase 1 -- Single-file splitting mechanics (proof of concept)
-- Given one XHTML file + a set of confirmed boundaries, produce N
-  standalone XHTML documents (proper doctype/head/body, same
-  stylesheet links, images/resources still resolve).
-- Register them in the manifest + spine in place of the original
-  single entry, correct reading order.
-- Automatic integrity check: total text content before and after the
-  split should match exactly (word count or similar) -- a concrete,
-  cheap safety net worth having from day one.
-- No cross-reference rewriting yet. Internal anchors may break
-  temporarily -- this phase is purely "does the mechanical split work
-  and keep every word."
+### Phase 1 -- Single-file splitting mechanics (proof of concept) -- DONE
+- Built `src/ebook_fix/splitter.py`: given one XHTML file + a set of
+  confirmed boundaries, it produces N standalone XHTML documents
+  (same doctype/head/body, same stylesheet links, images/resources
+  still resolve). Segment 0 keeps the original file's href; every
+  other segment is a new file.
+- Naming: `chapter_NNN.xhtml`, numbered by detected chapter number
+  when there is one, or by position among the newly-created files
+  when there isn't -- same directory as the original file. Collisions
+  fall back to a `_2`, `_3`, ... suffix, same idiom as
+  `modules/epub3_upgrade.py`'s `_unique`.
+- Registered in the manifest + spine in place of the original single
+  entry, correct reading order -- both the live OPF XML and
+  `book.manifest`/`book.spine`/`book.chapters` are kept in sync, same
+  four touch points `modules/gutenberg_repair.py` and
+  `modules/epub3_upgrade.py` already update for a removed/added file.
+- Automatic integrity check: total word count before and after the
+  split is compared before any manifest/spine change is made. A
+  mismatch raises `SplitError` and puts every moved element back
+  where it came from first, so a failed split can't half-apply.
+- No cross-reference rewriting yet, as planned -- that's Phase 2.
+- A real structural case turned up during testing and is now handled:
+  some conversions (calibre in particular) wrap a book's *entire*
+  content in one `<div>` directly under `<body>`, sometimes several
+  layers deep, before any chapter content starts. The splitter sees
+  through any such single-child wrapper chain automatically
+  (`_effective_container` / `_wrapper_chain`) and rebuilds the same
+  wrapper levels in each new file, rather than refusing the whole book.
+  Caught two bugs building this: the first version refused to split
+  any wrapped book at all; the fix for that then nested an extra
+  `<body>` tag inside itself instead of the real wrapper `<div>` --
+  found with a synthetic doubly-nested test case before it ever
+  touched a real book.
+- Regression tested against all 6 sample books that have a
+  multi-chapter file (17-24 chapters each) -- every one splits
+  cleanly, every word-count check passes exactly, every output is a
+  valid, structurally correct EPUB.
+- Added a `split-structure` CLI command (Engine.split_chapters) so
+  this can be tried by hand, same posture as `map-structure`'s dry
+  run except this one actually writes a file. Deliberately **not**
+  gated by the split-safety-bar's corroboration requirement yet --
+  it only requires SEQUENCE_ONLY confidence or better, since none of
+  the sample books currently have a CORROBORATED boundary (see Phase
+  0e/0f) and a command gated that strictly would have nothing to
+  test against today. Proper gating to CORROBORATED-only is Phase 5's
+  job, once cross-reference rewriting and NCX handling exist too --
+  until then, treat this command's output as a mechanics test, not a
+  finished conversion.
+- Side finding, not a splitter bug: `analyzer.py`'s book-wide
+  `total_word_count` counts each chapter file's entire document
+  (`tree.itertext()`), including `<head>` content like `<title>` text
+  and inline `<style>` blocks -- not just `<body>`. Splitting a file
+  that has an inline stylesheet copies that `<head>` into every new
+  file (correctly -- the new files need it to render right), which
+  makes the book-wide word count look inflated afterward even though
+  the actual chapter content is provably unchanged (verified directly
+  against raw body text). Worth a separate look at some point; out of
+  scope for this phase.
 
 ### Phase 2 -- Cross-reference rewriting
 - Every internal `href="...#fragment"` anywhere in the book that
@@ -193,9 +239,6 @@ its own. Status of each tracked here as they're done.
   step before anything is applied, not an automatic split on `repair`.
 
 ## Open questions to resolve when we pick this back up
-- Exact naming scheme for split files (avoid manifest collisions).
-- Where new files live (same directory as the original, to keep
-  relative CSS/image paths trivial -- current lean, but not decided).
 - Whether Phase 0's structure tree subsumes chapters.py entirely or
   sits alongside it.
 

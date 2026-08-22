@@ -140,6 +140,26 @@ def build_parser():
         help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
     )
 
+    # Split chapters (Phase 1 proof of concept)
+    split_structure = sub.add_parser(
+        "split-structure",
+        help="Proof of concept: physically splits any file with 2+ detected chapter boundaries into standalone chapter files (see docs/xhtml_recoder_plan.md Phase 1). A mechanics test, not a finished conversion -- cross-references and the TOC aren't updated yet."
+    )
+    split_structure.add_argument(
+        "input",
+        help="Input EPUB"
+    )
+    split_structure.add_argument(
+        "-o",
+        "--output",
+        help="Output EPUB (default: <input>_split.epub)"
+    )
+    split_structure.add_argument(
+        "--no-container-repair",
+        action="store_true",
+        help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
+    )
+
     # Init-config
     init_config = sub.add_parser(
         "init-config",
@@ -206,6 +226,11 @@ def main():
         engine.map_css(epub, write_mapping=getattr(args, "write_mapping", None))
     elif args.command == "map-structure":
         engine.map_structure(epub)
+    elif args.command == "split-structure":
+        output = args.output
+        if output is None:
+            output = epub.with_stem(epub.stem + "_split")
+        engine.split_chapters(epub, Path(output))
     elif args.command == "repair":
         output = args.output
         if output is None:

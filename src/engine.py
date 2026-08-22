@@ -12,7 +12,8 @@ from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.serialize import save_report
 from ebook_fix.class_map import build_class_profiles, format_class_map, write_mapping_file
-from ebook_fix.structure import analyze_structure, format_structure_report
+from ebook_fix.structure import analyze_structure, format_structure_report, iter_chapter_nodes, SplitConfidence
+from ebook_fix.splitter import apply_split, SplitMarker, SplitError
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -774,6 +775,93 @@ class Engine:
             )
             tree = analyze_structure(book)
             self.log(format_structure_report(tree))
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+    def split_chapters(self, epub, output):
+        """Phase 1 of the XHTML Recoder plan (see
+        docs/xhtml_recoder_plan.md): a hands-on way to try the
+        splitter mechanics (ebook_fix.splitter) against a real book.
+
+        NOT gated by the full split-safety-bar corroboration
+        requirement yet (see docs/split_safety_bar.md) -- proper
+        gating is Phase 5's job, once cross-reference rewriting and
+        NCX handling exist too. This only requires a boundary to be at
+        least SEQUENCE_ONLY confidence, so it can actually be tried
+        against today's sample library even though none of them
+        currently have a CORROBORATED boundary (see Phase 0e/0f).
+
+        Treat any output from this command as a mechanics test, not a
+        finished conversion -- a footnote or TOC entry pointing into a
+        file that gets split here won't have been updated to match.
+        """
+        source, temp_path = self._resolve_source(epub)
+        if source is None:
+            return
+        try:
+            self.log("Opening EPUB...")
+            parser = EPUBParser()
+            book = parser.load(source)
+            self.log("")
+
+            self.header("[Chapter Splitting -- proof of concept]")
+            self.log(
+                "Physically splits any file that has 2+ chapter boundaries at\n"
+                "sequence-only confidence or better. This tests the splitting\n"
+                "mechanics themselves, not a finished conversion -- see\n"
+                "docs/xhtml_recoder_plan.md for what Phases 2-5 still need to\n"
+                "add (cross-reference rewriting, TOC regeneration, and the\n"
+                "review gate that will eventually require a corroborated\n"
+                "boundary before splitting anything).\n"
+            )
+
+            tree = analyze_structure(book)
+            eligible = [
+                node
+                for node in iter_chapter_nodes(tree)
+                if node.evidence is not None and node.evidence.confidence != SplitConfidence.NONE
+            ]
+            by_href = {}
+            for node in eligible:
+                by_href.setdefault(node.start_href, []).append(node)
+
+            split_count = 0
+            for href, nodes in by_href.items():
+                if len(nodes) < 2:
+                    continue
+                chapter = next((c for c in book.chapters if c.href == href), None)
+                if chapter is None:
+                    continue
+                markers = [
+                    SplitMarker(
+                        element=node.evidence.candidate.element,
+                        title=node.title,
+                        number=node.evidence.candidate.number,
+                    )
+                    for node in nodes
+                ]
+                try:
+                    result = apply_split(book, chapter, markers)
+                except SplitError as exc:
+                    self.log(f"Skipped {href}: {exc}")
+                    continue
+                split_count += 1
+                all_hrefs = [href] + result.new_hrefs
+                self.log(
+                    f"Split {href}: {len(markers)} chapters -> "
+                    f"{len(all_hrefs)} files "
+                    f"({result.original_word_count} words, integrity check "
+                    f"{'passed' if result.word_counts_match else 'FAILED'})"
+                )
+
+            if split_count == 0:
+                self.log("No file in this book has 2+ chapter boundaries to split.")
+                return
+
+            writer = EPUBWriter()
+            writer.save(book, output)
+            self.log(f"\nSaved: {output}")
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
