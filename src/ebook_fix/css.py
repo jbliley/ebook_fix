@@ -172,6 +172,7 @@ class BookCSSSummary:
     font_families_declared: list = field(default_factory=list)
     font_face_srcs_referenced: list = field(default_factory=list)
     missing_embedded_fonts: list = field(default_factory=list)  # @font-face url()s with no matching font resource
+    unused_embedded_fonts: list = field(default_factory=list)   # font resources nothing's @font-face rule ever references
 
     inline_style_element_count: int = 0
 
@@ -314,6 +315,25 @@ def analyze_book_css(book, chapter_reports: list) -> BookCSSSummary:
             # Skip obvious remote/system font references; only flag local-looking paths.
             if not src_clean.lower().startswith(("http://", "https://", "data:")):
                 s.missing_embedded_fonts.append(src)
+
+    # --- Reverse direction: a font embedded in the book that no
+    # @font-face rule in any linked stylesheet ever references -- dead
+    # weight bloating the file for no reason. Same scope limitation as
+    # the check above: an @font-face rule written directly into a
+    # chapter's inline <style> block isn't seen by either check yet
+    # (analyze_inline_chapter_css doesn't collect font_face_srcs).
+    referenced_srcs = set()
+    referenced_basenames = set()
+    for src in s.font_face_srcs_referenced:
+        src_clean = src.split("#")[0].split("?")[0]
+        referenced_srcs.add(src_clean)
+        referenced_basenames.add(PurePosixPath(src_clean).name)
+
+    for font in (getattr(book, "fonts", []) or []):
+        href = getattr(font, "href", "")
+        basename = PurePosixPath(href).name
+        if href not in referenced_srcs and basename not in referenced_basenames:
+            s.unused_embedded_fonts.append(href)
 
     calibre_found = [c for c in all_declared_classes if c.startswith("calibre")]
     s.calibre_class_count = len(calibre_found)

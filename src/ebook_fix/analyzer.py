@@ -16,6 +16,7 @@ from ebook_fix.typography import TypographyReport, BookTypographySummary, analyz
 from ebook_fix.css import BookCSSSummary, analyze_book_css
 from ebook_fix.chapters import BookChapterSummary, analyze_book_chapters
 from ebook_fix.images import BookImageSummary, analyze_book_images
+from ebook_fix.packaging import BookPackagingSummary, analyze_book_packaging
 from ebook_fix.paragraphs import BookParagraphSummary, analyze_book_paragraphs
 from ebook_fix.whitespace import BookWhitespaceSummary, analyze_book_whitespace
 from ebook_fix.ellipsis import BookEllipsisSummary, analyze_book_ellipsis
@@ -107,6 +108,7 @@ class AnalysisReport:
     css:BookCSSSummary=field(default_factory=BookCSSSummary)
     chapters:BookChapterSummary=field(default_factory=BookChapterSummary)
     images:BookImageSummary=field(default_factory=BookImageSummary)
+    packaging:BookPackagingSummary=field(default_factory=BookPackagingSummary)
     paragraphs:BookParagraphSummary=field(default_factory=BookParagraphSummary)
     whitespace:BookWhitespaceSummary=field(default_factory=BookWhitespaceSummary)
     ellipsis:BookEllipsisSummary=field(default_factory=BookEllipsisSummary)
@@ -226,6 +228,7 @@ class EPUBAnalyzer:
         r.typography=summarize_book([(c.href,c.typography) for c in r.chapter_reports])
         r.css=analyze_book_css(book,r.chapter_reports)
         r.images=analyze_book_images(book)
+        r.packaging=analyze_book_packaging(book)
         r.paragraphs=analyze_book_paragraphs(book)
         r.whitespace=analyze_book_whitespace(book)
         r.ellipsis=analyze_book_ellipsis(book)

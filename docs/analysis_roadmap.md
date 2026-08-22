@@ -2,9 +2,10 @@
 
 **Status:** Active. Front/back matter classification, NCX/nav label
 parsing + reuse + link validation, split-title TOC entry merging,
-cover image detection, span soup detection, and Project Gutenberg
-boilerplate detection + removal are done (see below). TOC generation
-when a book has none is the next item picked up from here.
+cover image detection, span soup detection, Project Gutenberg
+boilerplate detection + removal, orphaned zip files, and font
+embedding gaps are done (see below). TOC generation when a book has
+none is the next item picked up from here.
 **Started:** session that closed out the analysis-first migration
 (see "Carried over" below).
 
@@ -79,13 +80,12 @@ this is a holding pen, not a commitment.
   dropped duplicate letter, not a dropped apostrophe).
 
 ### Files & packaging
-- Orphaned zip files -- files sitting in the archive that aren't
-  referenced in the manifest at all (the reverse of the existing
-  missing-image check).
+- **Orphaned zip files -- done, see below.**
 - Manifest media-type mismatches -- declared media-type doesn't match
   what the file actually is.
-- Font embedding gaps -- `@font-face` references a font that isn't
-  embedded, or an embedded font nothing uses.
+- **Font embedding gaps -- done, see below** (both directions: a
+  `@font-face` rule pointing at a font that isn't embedded, and a font
+  that's embedded but no `@font-face` rule ever uses it).
 - Encoding declaration mismatches -- declared XML/HTML encoding
   doesn't match the file's actual bytes.
 
@@ -593,6 +593,82 @@ purposeless -- collapse just the purposeless levels and keep the real
 one, or leave the whole chain alone until every level qualifies. That
 call is better made once there's a wider variety of real books to
 test against, rather than guessing now.
+
+## Done: Orphaned zip files
+
+Reverse of `images.py`'s missing-manifest-image check: that one flags
+a manifest entry pointing at a file that doesn't exist, this flags a
+file that exists in the archive but no manifest entry (or standard
+EPUB container role) points at it.
+
+- New `ebook_fix/packaging.py`, same "analysis, not repair" pattern as
+  `toc.py`/`css.py`. Walks the real zip archive's file list and
+  compares it against every manifest href (resolved the same way
+  `images.py` does) plus `mimetype` and `META-INF/container.xml`,
+  which are always expected but never themselves manifest entries.
+  Directory entries in the zip are skipped, not flagged.
+- Wired into the single analyzer pass (`AnalysisReport.packaging`) and
+  into `analyze`'s CLI output as a new `[Files & Packaging]` section
+  -- file count, total size, and (with `--details`) the exact path and
+  size of each one.
+- Analysis only, on purpose, matching the project's staged approach --
+  no repair module yet. Deleting an orphaned file outright is a
+  reasonable-sounding default but not always correct (see the
+  module's own docstring on why this stays report-only for now).
+- Verified against all seven sample books: every single one turned up
+  the same real, previously-invisible finding -- a leftover
+  `META-INF/calibre_bookmarks.txt` that Calibre writes during
+  conversion and never lists in the manifest. Nothing legitimately
+  manifest-covered (nav document, cover image, NCX, etc.) was ever
+  flagged as a false positive, confirmed against the one sample book
+  that's already a fully-formed EPUB3 file with all of those present.
+- Ran a full `repair` across all seven sample books afterward with no
+  failures -- this module is read-only, so no change was expected or
+  found in any repaired output.
+
+## Done: Font embedding gaps
+
+Half of this already existed without being surfaced as its own
+feature: `css.py` already collected every `@font-face` `src: url(...)`
+across a book's stylesheets (`font_face_srcs_referenced`) and could
+already tell when one of those pointed at a font that isn't embedded
+(`missing_embedded_fonts`) -- it just wasn't in the CLI's issue list
+yet. The missing half was the reverse direction: a font that *is*
+embedded but that no `@font-face` rule anywhere ever references.
+
+- Added `unused_embedded_fonts` to `BookCSSSummary`, cross-referencing
+  every font in `book.fonts` (by full href and by bare filename,
+  matching how the existing check already handles path differences)
+  against the same `font_face_srcs_referenced` list the missing-font
+  check already builds.
+- Wired both directions into `analyze`'s `[CSS]` issue list --
+  "Missing font file references" was silently computed but unused
+  before this, now both it and the new "Embedded fonts never
+  referenced by any stylesheet" line show up, with the exact filenames
+  under `--details`.
+- Known shared scope limitation, noted directly in the code rather
+  than solved speculatively: an `@font-face` rule written directly
+  into a chapter's inline `<style>` block (rather than a linked
+  stylesheet) isn't seen by either direction of this check yet --
+  `analyze_inline_chapter_css` doesn't currently collect
+  `font_face_srcs` from those blocks. Worth picking up if a real book
+  with that pattern turns up.
+- Verified with a synthetic book (three embedded fonts: one correctly
+  referenced, one with no `@font-face` rule at all, one whose only
+  `@font-face` rule pointed at a different, missing file) since none
+  of the seven sample books currently embed any fonts to test against
+  for real. Both directions came back exactly as expected. Ran a full
+  `repair` across all seven sample books afterward with no failures.
+
+## Noted for the master plan, not scoped yet: other major ebook formats
+
+Jacob asked to keep this in mind for whenever it's picked up: analysis
+support for the other major ebook formats besides EPUB, starting with
+MOBI and AZW3. Not scoped, sized, or started -- every module in this
+project currently assumes an EPUB's zip-of-XHTML-plus-OPF shape, so
+this would be a new parser/format layer, not an extension of the
+existing one. Parking it here rather than in "Carried over" since it's
+a new idea, not something dropped from an earlier plan.
 
 ## Next: TOC generation when missing
 

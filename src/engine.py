@@ -504,6 +504,8 @@ class Engine:
                 css_issues.append(f"Unreadable stylesheets: {len(css.unreadable_files)}")
             if css.missing_embedded_fonts:
                 css_issues.append(f"Missing font file references (@font-face): {len(css.missing_embedded_fonts)}")
+            if css.unused_embedded_fonts:
+                css_issues.append(f"Embedded fonts never referenced by any stylesheet: {len(css.unused_embedded_fonts)}")
             if css.page_break_rule_count:
                 css_issues.append(f"Page-break rules declared: {css.page_break_rule_count}")
             if css.forced_height_count:
@@ -538,6 +540,10 @@ class Engine:
                         self.log(f"    Undeclared classes: {shown}")
                     if css.calibre_classes:
                         self.log(f"    Calibre classes: {', '.join(css.calibre_classes)}")
+                    if css.missing_embedded_fonts:
+                        self.log(f"    Missing font files: {', '.join(css.missing_embedded_fonts)}")
+                    if css.unused_embedded_fonts:
+                        self.log(f"    Unused embedded fonts: {', '.join(css.unused_embedded_fonts)}")
                     if css.chapters_with_page_break_styling:
                         self.log(f"    Chapters with page-break styling: {', '.join(css.chapters_with_page_break_styling)}")
 
@@ -591,6 +597,20 @@ class Engine:
                         self.log("    Missing manifest images:")
                         for entry in img.missing_manifest_images:
                             self.log(f"      - {entry.href}")
+
+            # Packaging Issues
+            pkg = analysis_report.packaging
+            if pkg.orphaned_file_count:
+                self.log("\n[Files & Packaging]")
+                kb_total = pkg.orphaned_bytes_total / 1024
+                self.log(
+                    f"  • Files in the archive with no manifest entry: "
+                    f"{pkg.orphaned_file_count} ({kb_total:.1f} KB)"
+                )
+                if details:
+                    self.log("    Orphaned files:")
+                    for entry in pkg.orphaned_files:
+                        self.log(f"      - {entry.path} ({entry.size:,} bytes)")
 
             # Whitespace Issues
             ws = analysis_report.whitespace
