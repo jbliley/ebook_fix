@@ -187,7 +187,7 @@ class Engine:
             # 1. ANALYSIS & OVERVIEW (Top Section)
             # ==========================================
 
-            self.header("/n[Book Metadata]")
+            self.header("[Book Metadata]")
             self.log(
                 f"Title: {s.title or '(none found)'}"
                 f"\nAuthor: {s.author or '(none found)'}"
