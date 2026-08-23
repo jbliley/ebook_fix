@@ -153,7 +153,7 @@ def build_parser():
     # Split chapters (Phase 1 proof of concept)
     split_structure = sub.add_parser(
         "split-structure",
-        help="Proof of concept: physically splits any file with 2+ detected chapter boundaries into standalone chapter files (see docs/xhtml_recoder_plan.md Phase 1). A mechanics test, not a finished conversion -- cross-references and the TOC aren't updated yet."
+        help="Proof of concept: physically splits any file with 2+ detected chapter boundaries into standalone chapter files and rewrites any affected in-body cross-reference links (see docs/xhtml_recoder_plan.md Phases 1-2). A mechanics test, not a finished conversion -- the TOC/nav documents aren't updated yet."
     )
     split_structure.add_argument(
         "input",
@@ -163,6 +163,11 @@ def build_parser():
         "-o",
         "--output",
         help="Output EPUB (default: <input>_split.epub)"
+    )
+    split_structure.add_argument(
+        "--details",
+        action="store_true",
+        help="Show the full before/after list of every cross-reference link rewritten, instead of the category summary."
     )
     split_structure.add_argument(
         "--no-container-repair",
@@ -265,7 +270,7 @@ def main():
                 output = epub
             else:
                 output = epub.with_stem(epub.stem + "_split")
-        engine.split_chapters(epub, Path(output), overwrite=args.overwrite)
+        engine.split_chapters(epub, Path(output), overwrite=args.overwrite, details=args.details)
     elif args.command == "repair":
         output = args.output
         if output is None:

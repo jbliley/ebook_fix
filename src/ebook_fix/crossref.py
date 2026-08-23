@@ -5,8 +5,8 @@ Phase 2 of the XHTML Recoder plan (see docs/xhtml_recoder_plan.md):
 cross-reference rewriting after a split. Phase 1 (splitter.py) cuts a
 file into several standalone files but leaves every link that used to
 point at the original file exactly as it was -- this module finds
-those links (Phase 2b, below) so a later step can rewrite them
-(Phase 2c).
+those links (Phase 2b, below) and rewrites the ones it safely can
+(Phase 2c, further down).
 
 Deliberately in-body links only: a footnote, an endnote backlink, a
 "see Chapter 5" cross-reference, anything living inside a chapter's
@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from lxml import etree
+
+from .report import Report
 
 EXTERNAL_PREFIXES = ("http://", "https://", "mailto:")
 
@@ -102,3 +104,73 @@ def find_links_into(book: Any, split_hrefs: set, current_href_origin: dict) -> l
             )
 
     return results
+
+
+# ---------------------------------------------------------------------
+# Phase 2c -- rewriting the links Phase 2b found
+# ---------------------------------------------------------------------
+
+
+def rewrite_links(refs: list, href_by_id_by_origin: dict) -> Report:
+    """
+    Rewrites each LinkReference's href to point at wherever its target
+    id now lives, using href_by_id_by_origin[origin_href] -- the
+    per-split id map Phase 2a (splitter.build_href_by_id) produced for
+    that particular original file. Keyed per-origin rather than
+    merged into one flat dict on purpose: two different original files
+    could each happen to use the same id string, and a flat map would
+    silently cross-wire them.
+
+    Two cases are deliberately left untouched rather than guessed at,
+    each reported under its own category so a person reviewing the
+    output can see them and decide by hand if either matters for their
+    book:
+    - Whole-file links (no fragment). The original file still exists
+      (holding segment 0), so the link isn't broken -- it just no
+      longer points at everything it used to. Picking a single "right"
+      new target isn't this module's call to make.
+    - A fragment whose id isn't in the relevant split's map at all.
+      Shouldn't happen -- Phase 2a tracks every id that existed in the
+      original file -- but checked defensively rather than trusted
+      blindly, since a silent wrong guess would be worse than leaving
+      it alone and saying so.
+
+    A link whose target id maps back to the exact href it's already
+    pointing at (link and target both stayed in the same file) is left
+    alone too, without being reported -- there's nothing to fix.
+    """
+    report = Report("Cross-Reference Rewriter")
+
+    for ref in refs:
+        if not ref.fragment:
+            report.add(
+                ref.home_href,
+                "Whole-file link left as-is",
+                f"link into {ref.origin_href} has no fragment -- still resolves "
+                f"to the original file, not rewritten",
+            )
+            continue
+
+        id_map = href_by_id_by_origin.get(ref.origin_href)
+        target_href = id_map.get(ref.fragment) if id_map else None
+        if target_href is None:
+            report.add(
+                ref.home_href,
+                "Unresolved target",
+                f"#{ref.fragment}: id not found among {ref.origin_href}'s tracked ids",
+            )
+            continue
+
+        old_href = ref.element.get("href")
+        new_href = f"#{ref.fragment}" if target_href == ref.home_href else f"{target_href}#{ref.fragment}"
+        if new_href == old_href:
+            continue
+
+        ref.element.set("href", new_href)
+        report.add(
+            ref.home_href,
+            "Link rewritten",
+            f"{old_href!r} -> {new_href!r}",
+        )
+
+    return report

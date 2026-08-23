@@ -14,6 +14,7 @@ from ebook_fix.serialize import save_report
 from ebook_fix.class_map import build_class_profiles, format_class_map, write_mapping_file
 from ebook_fix.structure import analyze_structure, format_structure_report, iter_chapter_nodes, SplitConfidence
 from ebook_fix.splitter import apply_split, SplitMarker, SplitError
+from ebook_fix.crossref import find_links_into, rewrite_links
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -825,22 +826,27 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
-    def split_chapters(self, epub, output, overwrite=False):
+    def split_chapters(self, epub, output, overwrite=False, details=False):
         """Phase 1 of the XHTML Recoder plan (see
         docs/xhtml_recoder_plan.md): a hands-on way to try the
         splitter mechanics (ebook_fix.splitter) against a real book.
+        Also runs Phase 2's in-body cross-reference rewriting
+        (ebook_fix.crossref) immediately afterward, once per run
+        across every file split.
 
         NOT gated by the full split-safety-bar corroboration
         requirement yet (see docs/split_safety_bar.md) -- proper
-        gating is Phase 5's job, once cross-reference rewriting and
-        NCX handling exist too. This only requires a boundary to be at
-        least SEQUENCE_ONLY confidence, so it can actually be tried
-        against today's sample library even though none of them
-        currently have a CORROBORATED boundary (see Phase 0e/0f).
+        gating is Phase 5's job, once NCX handling exists too. This
+        only requires a boundary to be at least SEQUENCE_ONLY
+        confidence, so it can actually be tried against today's sample
+        library even though none of them currently have a
+        CORROBORATED boundary (see Phase 0e/0f).
 
         Treat any output from this command as a mechanics test, not a
-        finished conversion -- a footnote or TOC entry pointing into a
-        file that gets split here won't have been updated to match.
+        finished conversion -- an existing TOC/nav entry pointing into
+        a file that gets split here still won't have been updated to
+        match; only in-body links (footnotes, cross-references) are
+        rewritten. See Phase 3 in the plan doc for the TOC/nav side.
         """
         source, temp_path = self._resolve_source(epub)
         if source is None:
@@ -856,12 +862,13 @@ class Engine:
             self.header("[Chapter Splitting -- proof of concept]")
             self.log(
                 "Physically splits any file that has 2+ chapter boundaries at\n"
-                "sequence-only confidence or better. This tests the splitting\n"
-                "mechanics themselves, not a finished conversion -- see\n"
-                "docs/xhtml_recoder_plan.md for what Phases 2-5 still need to\n"
-                "add (cross-reference rewriting, TOC regeneration, and the\n"
-                "review gate that will eventually require a corroborated\n"
-                "boundary before splitting anything).\n"
+                "sequence-only confidence or better, then rewrites any in-body\n"
+                "footnote/cross-reference links affected by the split. This\n"
+                "tests the splitting mechanics themselves, not a finished\n"
+                "conversion -- see docs/xhtml_recoder_plan.md for what Phases\n"
+                "3-5 still need to add (TOC/nav regeneration and the review\n"
+                "gate that will eventually require a corroborated boundary\n"
+                "before splitting anything).\n"
             )
 
             tree = analyze_structure(book)
@@ -875,6 +882,9 @@ class Engine:
                 by_href.setdefault(node.start_href, []).append(node)
 
             split_count = 0
+            split_hrefs = set()
+            current_href_origin = {}
+            href_by_id_by_origin = {}
             for href, nodes in by_href.items():
                 if len(nodes) < 2:
                     continue
@@ -895,6 +905,11 @@ class Engine:
                     self.log(f"Skipped {href}: {exc}")
                     continue
                 split_count += 1
+                split_hrefs.add(href)
+                current_href_origin[href] = href
+                for new_href in result.new_hrefs:
+                    current_href_origin[new_href] = href
+                href_by_id_by_origin[href] = result.href_by_id
                 all_hrefs = [href] + result.new_hrefs
                 self.log(
                     f"Split {href}: {len(markers)} chapters -> "
@@ -906,6 +921,12 @@ class Engine:
             if split_count == 0:
                 self.log("No file in this book has 2+ chapter boundaries to split.")
                 return
+
+            refs = find_links_into(book, split_hrefs, current_href_origin)
+            crossref_report = rewrite_links(refs, href_by_id_by_origin)
+            self.log("")
+            self.header("[Cross-Reference Rewriter]")
+            crossref_report.print(details=details, verb="fixed")
 
             writer = EPUBWriter()
             writer.save(book, output)
