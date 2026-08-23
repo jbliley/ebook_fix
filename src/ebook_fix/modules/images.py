@@ -59,8 +59,9 @@ class ImageRepair:
     # -----------------------------------------------------
 
     def repair(self, book, analysis=None):
+        report = Report(self.name)
         if not self.config.fix_broken_images:
-            return
+            return report
 
         images = analysis.images if analysis is not None else analyze_book_images(book)
 
@@ -73,12 +74,19 @@ class ImageRepair:
             if parent is not None:
                 parent.remove(img)
                 changed_hrefs.add(ref.href)
+                report.add(
+                    ref.href,
+                    "Broken image reference removed",
+                    f"Removed <img> pointing at missing file: {ref.src}",
+                )
 
         if not changed_hrefs:
-            return
+            return report
 
         for chapter in book.chapters:
             if chapter.href in changed_hrefs:
                 chapter.modified = True
         book.mark_modified()
+
+        return report
 

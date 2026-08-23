@@ -25,6 +25,7 @@ from ebook_fix.report import Report
 from ebook_fix.paragraphs import analyze_book_paragraphs, looks_mid_sentence
 
 
+
 class ParagraphRepair:
     name = "Paragraph Repair"
 
@@ -59,6 +60,7 @@ class ParagraphRepair:
     # -----------------------------------------------------
 
     def repair(self, book, analysis=None):
+        report = Report(self.name)
         paragraphs = analysis.paragraphs if analysis is not None else analyze_book_paragraphs(book)
         by_href = {c.href: c for c in paragraphs.chapters}
 
@@ -81,9 +83,17 @@ class ParagraphRepair:
                     second = meaningful[i + 1]
 
                     if looks_mid_sentence(first, second):
+                        first_text = self._preview_text(first)
+                        second_text = self._preview_text(second)
                         self._merge(first, second)
                         meaningful.pop(i + 1)
                         changed = True
+                        report.add(
+                            chapter.href,
+                            "Paragraph split mid-sentence merged",
+                            f"Merged paragraph ending {first_text!r} with the next "
+                            f"one starting {second_text!r}.",
+                        )
 
                     i -= 1
 
@@ -96,6 +106,11 @@ class ParagraphRepair:
                     if parent is not None:
                         parent.remove(p)
                         changed = True
+                        report.add(
+                            chapter.href,
+                            "Empty paragraph removed",
+                            "Removed an empty <p></p> with no real content.",
+                        )
 
             # Remove watermark junk.
             if self.config.fix_watermark_junk:
@@ -104,12 +119,20 @@ class ParagraphRepair:
                     parent = el.getparent()
 
                     if parent is not None:
+                        text = self._preview_text(el)
                         parent.remove(el)
                         changed = True
+                        report.add(
+                            chapter.href,
+                            "Conversion watermark / junk paragraph removed",
+                            f"Removed watermark/junk paragraph: {text!r}",
+                        )
 
             if changed:
                 chapter.modified = True
                 book.mark_modified()
+
+        return report
 
     # -----------------------------------------------------
     # Helpers
@@ -142,3 +165,13 @@ class ParagraphRepair:
 
         if parent is not None:
             parent.remove(second)
+
+    def _preview_text(self, element, max_length: int = 60) -> str:
+        """Short, single-line snippet of an element's text for use in
+        repair-report descriptions -- full paragraphs would make the
+        report unreadable, so this trims to a preview instead."""
+        text = "".join(element.itertext()).strip()
+        text = " ".join(text.split())
+        if len(text) > max_length:
+            text = text[:max_length].rstrip() + "..."
+        return text

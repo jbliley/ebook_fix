@@ -97,9 +97,10 @@ class ApostropheRepair:
     # Repair
     # -----------------------------------------------------
 
-    def repair(self, book: Book, analysis: Any | None = None) -> None:
+    def repair(self, book: Book, analysis: Any | None = None) -> Report:
+        report = Report(self.name)
         if not self.config.enabled:
-            return
+            return report
 
         apostrophes = (
             analysis.apostrophes
@@ -141,11 +142,16 @@ class ApostropheRepair:
                 if not result.changed:
                     continue
 
+                report.add(
+                    issue.href,
+                    issue.category,
+                    f"{issue.category}: {source_text!r} -> {result.text!r}",
+                )
                 setattr(host, issue.attr, result.text)
                 changed_hrefs.add(issue.href)
 
         if not changed_hrefs:
-            return
+            return report
 
         for chapter in book.chapters:
             if chapter.href in changed_hrefs:
@@ -153,3 +159,5 @@ class ApostropheRepair:
 
         if hasattr(book, "mark_modified"):
             book.mark_modified()
+
+        return report

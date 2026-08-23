@@ -91,18 +91,19 @@ class ChapterMarkupRepair:
     # -----------------------------------------------------
 
     def repair(self, book, analysis=None):
+        report = Report(self.name)
         if self.config is not None and not getattr(self.config, "enabled", True):
-            return
+            return report
 
         summary = analysis.chapters if analysis is not None else analyze_book_chapters(book)
         confirmed = summary.confirmed_boundaries or []
         if not confirmed:
-            return
+            return report
 
         # Group confirmed markers by (href, parent element) so each
         # group can be sliced into sections independently.
         chapters_by_id = {c.id: c for c in book.chapters}
-        groups: dict = {}   # (href, id(parent)) -> {"parent": el, "blocks": [...]}
+        groups: dict = {}   # (href, id(parent)) -> {"parent": el, "blocks": [], "candidates": [...]}
         order = []           # preserves first-seen order of groups
 
         for candidate in confirmed:
@@ -115,12 +116,13 @@ class ChapterMarkupRepair:
 
             key = (candidate.href, id(parent))
             if key not in groups:
-                groups[key] = {"parent": parent, "blocks": []}
+                groups[key] = {"parent": parent, "blocks": [], "candidates": []}
                 order.append(key)
             groups[key]["blocks"].append(block)
+            groups[key]["candidates"].append(candidate)
 
         if not groups:
-            return
+            return report
 
         chapter_number = 0
         for key in order:
@@ -130,11 +132,19 @@ class ChapterMarkupRepair:
                 continue
             group = groups[key]
             changed = self._split_group(book, chapter, group["parent"], group["blocks"], chapter_number)
-            chapter_number += len(group["blocks"])
             if changed:
                 chapter.modified = True
+                for offset, candidate in enumerate(group["candidates"], start=1):
+                    report.add(
+                        href,
+                        "Chapter boundary split out",
+                        f"Chapter {chapter_number + offset} ({candidate.text!r}) "
+                        f"wrapped in its own <div epub:type=\"chapter\">.",
+                    )
+            chapter_number += len(group["blocks"])
 
         book.mark_modified()
+        return report
 
     # -----------------------------------------------------
     # Helpers

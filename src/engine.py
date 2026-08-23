@@ -914,7 +914,35 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
-    def repair(self, epub, output, dry_run=False, class_mapping=None, overwrite=False):
+    def _print_repair_summary(self, repair_reports, details: bool = False) -> None:
+        """Prints what was actually changed, module by module -- only
+        modules that made a change are listed at all. By default each
+        one shows a category breakdown (e.g. "Trailing indentation: 6"),
+        matching the analyze command's summary style; pass details=True
+        for the full before/after line for every single change."""
+        made_changes = [r for r in repair_reports if r.count]
+        self.header("Repair Report")
+
+        if not made_changes:
+            self.log("  No changes were made.")
+            return
+
+        total_changes = sum(r.count for r in made_changes)
+        total_files = len({issue.location for r in made_changes for issue in r.issues})
+        self.log(
+            f"  {total_changes} change(s) made across {len(made_changes)} "
+            f"module(s), touching {total_files} file(s):\n"
+        )
+
+        for r in made_changes:
+            self.header(f"  {r.module_name}")
+            r.print(details=details, verb="fixed")
+            self.log("")
+
+        if not details:
+            self.log("  (run with --details for the full before/after list)")
+
+    def repair(self, epub, output, dry_run=False, class_mapping=None, overwrite=False, details=False):
         source, temp_path = self._resolve_source(epub)
         if source is None:
             return
@@ -962,14 +990,20 @@ class Engine:
             if not modules:
                 self.log("No repair modules are enabled in the config. Nothing to do.")
                 return
+            repair_reports = []
             for module in modules:
                 self.log(f"Repairing: {module.name}")
-                module.repair(book, analysis_report)
+                repair_report = module.repair(book, analysis_report)
+                if repair_report is not None:
+                    repair_reports.append(repair_report)
 
             # The cache existed to hand this run's findings to the repair
             # modules above -- once they've all had their turn, it's just
             # a leftover file sitting next to the book, so clean it up.
             cache_file.unlink(missing_ok=True)
+
+            self.log("")
+            self._print_repair_summary(repair_reports, details=details)
 
             if dry_run:
                 self.log("\nDry run complete.")

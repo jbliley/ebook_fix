@@ -219,10 +219,12 @@ class ClassStandardizeRepair:
     # -----------------------------------------------------
 
     def repair(self, book, analysis=None):
+        report = Report(self.name)
         if not self.mapping:
-            return
+            return report
 
         changed_anything = False
+        rename_counts: dict[str, int] = {}
         base = PurePosixPath(getattr(book, "package_path", "") or "").parent
 
         # 1. External CSS files
@@ -263,6 +265,10 @@ class ClassStandardizeRepair:
                 touched = any(c in self.by_old_name for c in classes)
                 if not touched:
                     continue
+
+                for c in classes:
+                    if c in self.by_old_name:
+                        rename_counts[c] = rename_counts.get(c, 0) + 1
 
                 new_classes = [self.by_old_name[c].new_name if c in self.by_old_name else c for c in classes]
                 deduped = list(dict.fromkeys(new_classes))  # two old classes can map to one new name
@@ -309,6 +315,16 @@ class ClassStandardizeRepair:
 
         if changed_anything:
             book.mark_modified()
+
+        for old_name, count in rename_counts.items():
+            entry = self.by_old_name[old_name]
+            report.add(
+                "*",
+                f".{old_name} -> .{entry.new_name} ({entry.role})",
+                f"{count} element(s) renamed and restyled to the standard {entry.role} rules.",
+            )
+
+        return report
 
     # -----------------------------------------------------
     # Helpers

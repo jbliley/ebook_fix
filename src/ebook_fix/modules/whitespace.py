@@ -79,9 +79,10 @@ class WhitespaceRepair:
     # Repair
     # -----------------------------------------------------
 
-    def repair(self, book: Book, analysis: Any | None = None) -> None:
+    def repair(self, book: Book, analysis: Any | None = None) -> Report:
+        report = Report(self.name)
         if not self.config.enabled:
-            return
+            return report
 
         whitespace = (
             analysis.whitespace
@@ -109,6 +110,11 @@ class WhitespaceRepair:
                     if not self.config.collapse_whitespace_only_nodes:
                         continue
                     new_text: str | None = " "
+                    report.add(
+                        issue.href,
+                        issue.category,
+                        f"{issue.category}: collapsed to a single space",
+                    )
                 else:
                     result = normalize_fragment(
                         issue.before,
@@ -119,12 +125,17 @@ class WhitespaceRepair:
                     if not result.changed:
                         continue
                     new_text = result.text
+                    report.add(
+                        issue.href,
+                        issue.category,
+                        f"{issue.category}: {issue.before!r} -> {result.text!r}",
+                    )
 
                 setattr(host, issue.attr, new_text if new_text else None)
                 changed_hrefs.add(issue.href)
 
         if not changed_hrefs:
-            return
+            return report
 
         for chapter in book.chapters:
             if chapter.href in changed_hrefs:
@@ -132,6 +143,8 @@ class WhitespaceRepair:
         
         if hasattr(book, "mark_modified"):
             book.mark_modified()
+
+        return report
 
     # -----------------------------------------------------
     # Helpers

@@ -75,24 +75,29 @@ class EPUB3UpgradeRepair:
     # -----------------------------------------------------
 
     def repair(self, book, analysis=None):
+        report = Report(self.name)
         if self.config is not None and not getattr(self.config, "enabled", True):
-            return
+            return report
 
         if analysis is not None:
             needs_upgrade = analysis.summary.epub_needs_upgrade
+            detected_version = analysis.summary.epub_version
             target_version = analysis.summary.epub_target_version
         else:
             info = epub_version.detect(book)
             needs_upgrade = info.needs_upgrade
+            detected_version = info.detected_version
             target_version = info.target_version
 
         if not needs_upgrade:
-            return
+            return report
 
         opf = getattr(book, "opf_document", None)
         if opf is None:
             # Nothing parsed to edit against -- can't safely upgrade.
-            return
+            return report
+
+        had_nav = self._has_nav_document(opf)
 
         opf.set("version", target_version)
         self._ensure_modified_meta(opf)
@@ -101,6 +106,19 @@ class EPUB3UpgradeRepair:
         book.version = target_version
         book.opf_modified = True
         book.mark_modified()
+
+        report.add(
+            "content.opf",
+            "Package version upgraded",
+            f"Package version {detected_version!r} upgraded to EPUB {target_version}.",
+        )
+        if not had_nav:
+            report.add(
+                "content.opf",
+                "Navigation document added",
+                "Generated an EPUB 3 nav.xhtml from the spine reading order.",
+            )
+        return report
 
     # -----------------------------------------------------
     # Metadata
@@ -124,6 +142,15 @@ class EPUB3UpgradeRepair:
     # -----------------------------------------------------
     # Navigation document
     # -----------------------------------------------------
+
+    def _has_nav_document(self, opf):
+        manifest = opf.find(f"{{{OPF_NS}}}manifest")
+        if manifest is None:
+            return False
+        return any(
+            "nav" in (item.get("properties") or "").split()
+            for item in manifest.findall(f"{{{OPF_NS}}}item")
+        )
 
     def _add_nav_document(self, book, opf):
         manifest = opf.find(f"{{{OPF_NS}}}manifest")

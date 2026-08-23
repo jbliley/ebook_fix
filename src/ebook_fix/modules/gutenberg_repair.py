@@ -102,12 +102,13 @@ class GutenbergRepair:
     # -----------------------------------------------------
 
     def repair(self, book, analysis=None):
+        report = Report(self.name)
         if self.config is not None and not getattr(self.config, "enabled", True):
-            return
+            return report
 
         gb = analysis.gutenberg if analysis is not None else analyze_book_gutenberg(book)
         if not gb.detected:
-            return
+            return report
 
         changed = False
 
@@ -116,16 +117,33 @@ class GutenbergRepair:
             if chapter is not None and _remove_front_boilerplate(chapter, gb.front):
                 chapter.modified = True
                 changed = True
+                report.add(
+                    gb.front.href,
+                    "Front disclaimer removed",
+                    f"Front Gutenberg disclaimer removed (detected via {gb.front.method})",
+                )
 
         if gb.back_found and getattr(self.config, "fix_back_matter", True):
             if _repair_back(book, gb.back):
                 changed = True
+                report.add(
+                    gb.back.href,
+                    "Back license removed",
+                    f"Back Gutenberg license removed (detected via {gb.back.method})",
+                )
             for href in gb.trailing_back_matter_hrefs:
                 if _remove_whole_chapter(book, href):
                     changed = True
+                    report.add(
+                        href,
+                        "Trailing back-matter file removed",
+                        "Whole file removed -- was leftover Gutenberg license text with no marker of its own",
+                    )
 
         if changed:
             book.mark_modified()
+
+        return report
 
 
 # ---------------------------------------------------------------------

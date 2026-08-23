@@ -62,30 +62,33 @@ class Report:
     def locations_affected(self) -> int:
         return len({issue.location for issue in self.issues})
 
-    def print(self, details: bool = False) -> None:
+    def print(self, details: bool = False, verb: str = "found") -> None:
         if details:
-            self._print_details()
+            self._print_details(verb=verb)
         else:
-            self._print_summary()
+            self._print_summary(verb=verb)
 
-    def _print_summary(self) -> None:
+    def _print_summary(self, verb: str = "found") -> None:
         if not self.issues:
-            console.print("  No issues found.")
+            console.print(f"  No issues {verb}.")
             return
 
         console.print(
-            f"  {self.count} issue(s) found across {self.locations_affected} file(s):"
+            f"  {self.count} issue(s) {verb} across {self.locations_affected} file(s):"
         )
         print_header("  Issue Type")
         for category, count in self.category_counts.most_common():
             console.print(f"  {category}: {count}")
         console.print("  (run with --details for the full list)")
 
-    def _print_details(self) -> None:
+    def _print_details(self, verb: str = "found") -> None:
         if not self.issues:
-            console.print("  No issues found.")
+            console.print(f"  No issues {verb}.")
             return
 
+        console.print(
+            f"  {self.count} issue(s) {verb} across {self.locations_affected} file(s):"
+        )
         print_header("  Location: Issue")
         for issue in self.issues:
             console.print(f"  {issue.location}: {issue.description}")

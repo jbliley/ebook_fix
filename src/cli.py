@@ -67,6 +67,11 @@ def build_parser():
         help="Analyze repairs without writing a file."
     )
     repair.add_argument(
+        "--details",
+        action="store_true",
+        help="Show the full before/after list of every change instead of the category summary."
+    )
+    repair.add_argument(
         "--class-mapping",
         metavar="FILE",
         help="Apply a confirmed class-standardization mapping (from `map-css --write-mapping`, reviewed by hand) as part of this repair -- renames chapter-heading/body-text classes and standardizes their CSS."
@@ -280,6 +285,7 @@ def main():
             dry_run=args.dry_run,
             class_mapping=getattr(args, "class_mapping", None),
             overwrite=args.overwrite,
+            details=args.details,
         )
 
 if __name__ == "__main__":
