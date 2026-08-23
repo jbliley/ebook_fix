@@ -752,6 +752,17 @@ class Engine:
 
             self.log("")
 
+            # The cache exists purely to hand this run's findings from
+            # the analysis pass to whatever reads analysis_report next
+            # -- the [Module Checks] loop just above, in this case.
+            # Nothing reads it back in from disk (see serialize.py's
+            # module docstring for why: the JSON is a plain dict, not
+            # something reconstructed back into these dataclasses), so
+            # once this report is fully printed it's just a leftover
+            # file next to the book. Same cleanup `repair` already
+            # does once its modules have had their turn.
+            cache_file.unlink(missing_ok=True)
+
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
