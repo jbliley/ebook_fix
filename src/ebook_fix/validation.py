@@ -63,7 +63,7 @@ class ValidationResult:
         return None
 
     def print(self) -> None:
-        print_header("File integrity check")
+        print_header("[File integrity check]")
         for check in self.checks:
             status = "[green]PASS[/green]" if check.passed else "[red]FAIL[/red]"
             console.print(f"  {check.name}: {status}")

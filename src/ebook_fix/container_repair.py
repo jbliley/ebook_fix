@@ -85,7 +85,7 @@ class RepairResult:
 
     def print(self) -> None:
         if self.actions:
-            print_header("Repair attempt")
+            print_header("[Repair attempt]")
             for action in self.actions:
                 mark = "[green]done[/green]" if action.succeeded else "[red]skipped[/red]"
                 console.print(f"  [{mark}] {action.description}")

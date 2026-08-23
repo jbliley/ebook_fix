@@ -187,7 +187,7 @@ class Engine:
             # 1. ANALYSIS & OVERVIEW (Top Section)
             # ==========================================
 
-            self.header("/n[Book Metadata]")
+            self.header("[Book Metadata]")
             self.log(
                 f"Title: {s.title or '(none found)'}"
                 f"\nAuthor: {s.author or '(none found)'}"
@@ -262,7 +262,7 @@ class Engine:
                 self.log("Front/Back Matter: not classified (no confirmed chapter sequence to anchor on)")
 
             self.log("")
-            self.header("Typography Overview")
+            self.header("[Typography Overview]")
             self.log(
                 f"Quotes: {t.total_straight_double_quotes} straight double, {t.total_curly_double_quotes} curly double"
                 f"\nApostrophes: {t.total_straight_apostrophes} straight apostrophe, {t.total_curly_apostrophes} curly apostrophe"
@@ -273,7 +273,7 @@ class Engine:
             )
 
             self.log("")
-            self.header("CSS Overview")
+            self.header("[CSS Overview]")
             self.log(
                 f"Stylesheets: {css.css_file_count} | Rules: {css.total_rules} | !important uses: {css.total_important}"
                 f"\nDeclared classes: {css.declared_class_count} | Declared ids: {css.declared_id_count}"
@@ -283,7 +283,7 @@ class Engine:
             # Optional detailed structural breakdown output
             if details:
                 self.log("")
-                self.header("Detailed Chapter Structure")
+                self.header("[Detailed Chapter Structure]")
                 if ch_summary.best_sequence:
                     for c in ch_summary.best_sequence.candidates:
                         repeat_note = (
@@ -310,7 +310,7 @@ class Engine:
             # ==========================================
 
             self.log("")
-            self.header("Issues & Findings Summary")
+            self.header("[Issues & Findings Summary]")
 
             # Structure Issues
             structural_issues = []
@@ -631,17 +631,17 @@ class Engine:
             ws = analysis_report.whitespace
             whitespace_issues = []
             if ws.leading_indent_count:
-                whitespace_issues.append(f"Leading indentation removed: {ws.leading_indent_count}")
+                whitespace_issues.append(f"Leading indentation: {ws.leading_indent_count}")
             if ws.trailing_indent_count:
-                whitespace_issues.append(f"Trailing indentation removed: {ws.trailing_indent_count}")
+                whitespace_issues.append(f"Trailing indentation: {ws.trailing_indent_count}")
             if ws.repeated_whitespace_count:
-                whitespace_issues.append(f"Repeated whitespace collapsed: {ws.repeated_whitespace_count}")
+                whitespace_issues.append(f"Repeated whitespace: {ws.repeated_whitespace_count}")
             if ws.tabs_converted_count:
-                whitespace_issues.append(f"Tabs converted to spaces: {ws.tabs_converted_count}")
+                whitespace_issues.append(f"Tabs found (should be spaces): {ws.tabs_converted_count}")
             if ws.space_before_punct_count:
-                whitespace_issues.append(f"Space before punctuation removed: {ws.space_before_punct_count}")
+                whitespace_issues.append(f"Space before punctuation: {ws.space_before_punct_count}")
             if ws.missing_sentence_space_count:
-                whitespace_issues.append(f"Missing space after punctuation added: {ws.missing_sentence_space_count}")
+                whitespace_issues.append(f"Missing space after punctuation: {ws.missing_sentence_space_count}")
             if ws.whitespace_only_node_count:
                 whitespace_issues.append(f"Whitespace-only text nodes: {ws.whitespace_only_node_count}")
             if ws.protected_nodes_skipped_count:
@@ -921,7 +921,7 @@ class Engine:
         matching the analyze command's summary style; pass details=True
         for the full before/after line for every single change."""
         made_changes = [r for r in repair_reports if r.count]
-        self.header("Repair Report")
+        self.header("[Repair Report]")
 
         if not made_changes:
             self.log("  No changes were made.")
@@ -935,7 +935,7 @@ class Engine:
         )
 
         for r in made_changes:
-            self.header(f"  {r.module_name}")
+            self.header(f"  [{r.module_name}]")
             r.print(details=details, verb="fixed")
             self.log("")
 

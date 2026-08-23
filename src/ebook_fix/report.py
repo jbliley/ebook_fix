@@ -76,7 +76,7 @@ class Report:
         console.print(
             f"  {self.count} issue(s) {verb} across {self.locations_affected} file(s):"
         )
-        print_header("  Issue Type")
+        print_header("  [Issue Type]")
         for category, count in self.category_counts.most_common():
             console.print(f"  {category}: {count}")
         console.print("  (run with --details for the full list)")
@@ -89,6 +89,6 @@ class Report:
         console.print(
             f"  {self.count} issue(s) {verb} across {self.locations_affected} file(s):"
         )
-        print_header("  Location: Issue")
+        print_header("  [Location: Issue]")
         for issue in self.issues:
             console.print(f"  {issue.location}: {issue.description}")
