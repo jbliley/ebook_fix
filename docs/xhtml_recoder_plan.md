@@ -220,11 +220,42 @@ its own. Status of each tracked here as they're done.
   other internal cross-references.
 
 ### Phase 3 -- NCX / nav TOC generation or repair
-- Books that were one big file with `calibre_pb_N`-style internal
-  anchors (no real per-file TOC) need a TOC generated from the new
-  chapter files.
-- Books that already had a working TOC need it re-validated against
-  Phase 2's rewritten links.
+Split into small pieces, same reasoning as Phase 2 above -- each one
+ends with something real and working, so a session that runs out
+mid-phase still leaves solid ground to resume from.
+
+- **Phase 3a -- Make the NCX (and nav.xhtml, if present) editable
+  documents.** Right now both are parsed once into a read-only
+  `book.toc` list, purely for display/validation (see toc.py) -- no
+  code path anywhere edits them back. This step loads them as live,
+  mutable trees on the Book model, the same way `chapter.document`
+  already works, and teaches the writer to serialize changes back
+  out. Nothing rewrites anything yet; this just removes the blocker
+  everything else in this phase depends on. Testable by confirming an
+  untouched book round-trips with zero diff.
+- **Phase 3b -- Rewrite existing TOC/nav entries whose target file got
+  split.** Reuses the same `href_by_id`/`current_href_origin`
+  machinery Phase 2 already built for in-body links, just pointed at
+  NCX `<content src="...">` and nav `<a href="...">` entries instead.
+  This is the "already had a working TOC" half of this phase's
+  original two-line scope. Testable against ChaptersNotAligned-New
+  (real NCX, real multi-chapter-per-file split) and
+  CrossReferences-Synthetic (already has a toc.ncx entry to exercise).
+- **Phase 3c -- Generate new TOC entries for chapters that split apart
+  with no entry of their own.** The harder, more design-heavy half:
+  when one file with one TOC entry splits into five chapter files,
+  only one (or zero) of them had a real entry to begin with. This
+  phase inserts entries for the others -- this is where "TOC/nav label
+  reuse during chapter mapping" (see the open bug list this doc's
+  continuity note points back to) belongs. Likely to need further
+  slicing once actually in progress, since the label-reuse question
+  alone (what to call a newly-split chapter that never had its own
+  TOC entry) has more than one reasonable answer.
+- **Phase 3d -- NCX/nav consistency + full regression.** If a book has
+  both an NCX and an EPUB3 nav document, keep them in sync with each
+  other rather than only fixing whichever one 3b/3c happened to touch
+  first. Finishes with the standard full regression pass (word-count
+  diffing plus analyze/repair/re-analyze) across every sample book.
 
 ### Phase 4 -- Edge cases and hardening
 - Nested structure (Parts with multiple chapters).

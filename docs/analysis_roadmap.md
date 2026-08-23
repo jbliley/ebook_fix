@@ -664,11 +664,14 @@ embedded but that no `@font-face` rule anywhere ever references.
 
 Jacob asked to keep this in mind for whenever it's picked up: analysis
 support for the other major ebook formats besides EPUB, starting with
-MOBI and AZW3. Not scoped, sized, or started -- every module in this
-project currently assumes an EPUB's zip-of-XHTML-plus-OPF shape, so
-this would be a new parser/format layer, not an extension of the
-existing one. Parking it here rather than in "Carried over" since it's
-a new idea, not something dropped from an earlier plan.
+MOBI and AZW3. Every module in this project currently assumes an
+EPUB's zip-of-XHTML-plus-OPF shape, so this is a new parser/format
+layer, not an extension of the existing one -- same situation the
+XHTML Recoder was in, so it gets its own planning doc for the same
+reason: **see `docs/format_support_plan.md`**. That doc now carries
+the actual planning (background on the MOBI format, a rough phased
+sketch starting with analysis-only support, open questions); this
+entry stays here only as a pointer so it isn't lost.
 
 ## Next: TOC generation when missing
 
