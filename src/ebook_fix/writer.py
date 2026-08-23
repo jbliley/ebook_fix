@@ -95,9 +95,27 @@ class EPUBWriter:
                         new_files.pop(name, None)
 
                     # Anything genuinely new that wasn't already an
-                    # entry in the original archive.
+                    # entry in the original archive. A modified chapter
+                    # whose path isn't one of the source archive's
+                    # names (e.g. a file the splitter just created)
+                    # falls in here too -- it's always re-serialized
+                    # live from its document, the same as any other
+                    # modified chapter, rather than from whatever
+                    # frozen bytes might also be sitting in new_files
+                    # for that path. Without this, a later step that
+                    # mutates a newly-split file's content (e.g. the
+                    # cross-reference rewriter) would have its changes
+                    # silently dropped, since nothing would ever look
+                    # at the document again before writing.
+                    written = set()
+                    for name, chapter in modified_chapters.items():
+                        if name in names or name in removed_files:
+                            continue
+                        dest.writestr(name, self._serialize(chapter))
+                        written.add(name)
+
                     for name, data in new_files.items():
-                        if name in removed_files:
+                        if name in removed_files or name in written:
                             continue
                         dest.writestr(name, data)
 

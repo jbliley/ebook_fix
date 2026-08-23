@@ -210,19 +210,6 @@ def _index_by_identity(seq, item):
     return None
 
 
-def _serialize_document(document) -> bytes:
-    """Same serialization writer.py uses for a modified chapter --
-    kept in sync here since a genuinely new file (not already an
-    archive entry) has to go through book.new_files as raw bytes
-    rather than through the modified-chapter path."""
-    return etree.tostring(
-        document,
-        xml_declaration=True,
-        encoding="utf-8",
-        doctype="<!DOCTYPE html>",
-    )
-
-
 def _unique(existing: set, candidate: str, template: str) -> str:
     """Same de-duplication idiom as modules/epub3_upgrade.py's
     _unique -- appends _2, _3, ... until the name is free."""
@@ -543,8 +530,6 @@ def _wire_into_book(book, chapter, documents: list, segments: list, new_hrefs: l
         new_itemref_el.set("idref", item_id)
         itemref_el.addnext(new_itemref_el)
         itemref_el = new_itemref_el
-
-        book.new_files[str(base / href)] = _serialize_document(document)
 
     manifest_index = _index_by_identity(book.manifest, original_manifest_item)
     book.manifest[manifest_index:manifest_index + 1] = new_manifest_items
