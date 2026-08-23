@@ -118,7 +118,8 @@ def _local_tag(element) -> str:
 # Text normalization rules
 # ---------------------------------------------------------------------
 
-_SPACE_BEFORE_PUNCT_RE = re.compile(r"[ \t]+([,.;:!?\u2026])")
+# Don't strip space if it's a period followed by a letter or digit (e.g., " .44", " .com", " .py")
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"[ \t]+(?!\.[A-Za-z0-9])([,.;:!?\u2026])")
 
 # Common abbreviations/titles/initials that legitimately end in a
 # period with no following space intended, or that would otherwise
