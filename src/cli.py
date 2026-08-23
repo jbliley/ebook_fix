@@ -92,7 +92,7 @@ def build_parser():
     repair.add_argument(
         "--overwrite",
         action="store_true",
-        help="Replace the output file if it already exists. Without this, repair refuses to run rather than overwrite something silently."
+        help="Replace the output file if it already exists. Without -o/--output, this replaces the original file itself instead of writing <input>_fixed.epub -- you'll be asked to confirm before that happens."
     )
 
     # Validate
@@ -167,7 +167,7 @@ def build_parser():
     split_structure.add_argument(
         "--overwrite",
         action="store_true",
-        help="Replace the output file if it already exists. Without this, split-structure refuses to run rather than overwrite something silently."
+        help="Replace the output file if it already exists. Without -o/--output, this replaces the original file itself instead of writing <input>_split.epub -- you'll be asked to confirm before that happens."
     )
 
     # Init-config
@@ -183,6 +183,17 @@ def build_parser():
     )
 
     return parser
+
+def _confirm_replace_original(path: Path) -> bool:
+    """Interactive last-chance confirmation for the one case that's
+    actually irreversible: --overwrite with no -o/--output, which
+    targets the original file itself instead of a separate _fixed/
+    _split copy. Everywhere else, the original is never touched no
+    matter what --overwrite does."""
+    print(f"WARNING: This will replace '{path}' itself -- there's no separate copy and no undo.")
+    answer = input("Type Y to continue, anything else to cancel: ").strip().lower()
+    return answer == "y"
+
 
 def main():
     parser = build_parser()
@@ -239,12 +250,30 @@ def main():
     elif args.command == "split-structure":
         output = args.output
         if output is None:
-            output = epub.with_stem(epub.stem + "_split")
+            if args.overwrite:
+                # No -o given, but --overwrite was -- target the
+                # original file directly rather than the usual
+                # <input>_split.epub, once the person confirms.
+                if not _confirm_replace_original(epub):
+                    print("Cancelled.")
+                    sys.exit(1)
+                output = epub
+            else:
+                output = epub.with_stem(epub.stem + "_split")
         engine.split_chapters(epub, Path(output), overwrite=args.overwrite)
     elif args.command == "repair":
         output = args.output
         if output is None:
-            output = epub.with_stem(epub.stem + "_fixed")
+            if args.overwrite and not args.dry_run:
+                # Same as above -- --overwrite alone (no -o) means
+                # replace the original. A --dry-run never writes
+                # anything, so there's nothing to confirm in that case.
+                if not _confirm_replace_original(epub):
+                    print("Cancelled.")
+                    sys.exit(1)
+                output = epub
+            else:
+                output = epub.with_stem(epub.stem + "_fixed")
         engine.repair(
             epub,
             Path(output),

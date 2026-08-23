@@ -14,14 +14,17 @@ is copied through from the original file untouched, byte for byte.
 """
 
 from __future__ import annotations
+import os
+import tempfile
 import zipfile
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from lxml import etree
 
 
 class EPUBWriter:
 
     def save(self, book, output_path):
+        output_path = Path(output_path)
         base = PurePosixPath(book.package_path).parent
 
         # Map full in-zip path -> chapter, for the chapters we touched.
@@ -39,48 +42,70 @@ class EPUBWriter:
         removed_files = set(getattr(book, "removed_files", set()) or set())
         opf_modified = bool(getattr(book, "opf_modified", False))
 
-        with zipfile.ZipFile(book.source, "r") as src:
-            names = src.namelist()
+        # Written to a temporary file first, then moved into place only
+        # once everything below has succeeded -- this matters most when
+        # output_path is the same file as book.source (e.g. `repair
+        # --overwrite` replacing the original in place). Opening
+        # output_path directly in "w" mode would truncate it
+        # immediately, and since the source archive below is still
+        # being read from as each untouched file is copied through,
+        # that would corrupt the very file this method is reading from
+        # mid-copy -- exactly the "Truncated file header" crash this
+        # was written to prevent.
+        tmp_dir = str(output_path.parent) if str(output_path.parent) else "."
+        tmp_fd, tmp_name = tempfile.mkstemp(dir=tmp_dir, suffix=".epub.tmp")
+        os.close(tmp_fd)
+        tmp_path = Path(tmp_name)
 
-            with zipfile.ZipFile(
-                output_path, "w", zipfile.ZIP_DEFLATED
-            ) as dest:
-                # The "mimetype" entry must be first and stored
-                # uncompressed, per the EPUB spec.
-                if "mimetype" in names:
-                    dest.writestr(
-                        zipfile.ZipInfo("mimetype"),
-                        src.read("mimetype"),
-                        zipfile.ZIP_STORED,
-                    )
+        try:
+            with zipfile.ZipFile(book.source, "r") as src:
+                names = src.namelist()
 
-                for name in names:
-                    if name == "mimetype":
-                        continue
+                with zipfile.ZipFile(
+                    tmp_path, "w", zipfile.ZIP_DEFLATED
+                ) as dest:
+                    # The "mimetype" entry must be first and stored
+                    # uncompressed, per the EPUB spec.
+                    if "mimetype" in names:
+                        dest.writestr(
+                            zipfile.ZipInfo("mimetype"),
+                            src.read("mimetype"),
+                            zipfile.ZIP_STORED,
+                        )
 
-                    if name in removed_files:
+                    for name in names:
+                        if name == "mimetype":
+                            continue
+
+                        if name in removed_files:
+                            new_files.pop(name, None)
+                            continue
+
+                        if name in modified_chapters:
+                            chapter = modified_chapters[name]
+                            data = self._serialize(chapter)
+                        elif name == book.package_path and opf_modified:
+                            data = self._serialize_opf(book.opf_document)
+                        elif name in new_files:
+                            data = new_files[name]
+                        else:
+                            data = src.read(name)
+
+                        dest.writestr(name, data)
                         new_files.pop(name, None)
-                        continue
 
-                    if name in modified_chapters:
-                        chapter = modified_chapters[name]
-                        data = self._serialize(chapter)
-                    elif name == book.package_path and opf_modified:
-                        data = self._serialize_opf(book.opf_document)
-                    elif name in new_files:
-                        data = new_files[name]
-                    else:
-                        data = src.read(name)
+                    # Anything genuinely new that wasn't already an
+                    # entry in the original archive.
+                    for name, data in new_files.items():
+                        if name in removed_files:
+                            continue
+                        dest.writestr(name, data)
 
-                    dest.writestr(name, data)
-                    new_files.pop(name, None)
+            os.replace(tmp_path, output_path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
-                # Anything genuinely new that wasn't already an entry
-                # in the original archive.
-                for name, data in new_files.items():
-                    if name in removed_files:
-                        continue
-                    dest.writestr(name, data)
 
     # ---------------------------------------------------------
 
