@@ -98,6 +98,14 @@ class SplitResult:
     new_hrefs: list = field(default_factory=list)  # newly created files only
     segment_word_counts: list = field(default_factory=list)  # one per resulting file, in order
     original_word_count: int = 0
+    href_by_id: dict = field(default_factory=dict)  # every id that existed in the
+    # original file, mapped to whichever href now holds it -- original_href for
+    # anything that stayed in segment 0, one of new_hrefs for anything that moved.
+    # This is Phase 2a of the XHTML Recoder plan (see docs/xhtml_recoder_plan.md):
+    # the foundation cross-reference rewriting needs, before any link is actually
+    # touched. Doesn't include ids that were never used as a link target -- it's
+    # every id regardless, since there's no way to know in advance which ones a
+    # link elsewhere in the book might point at.
 
     @property
     def word_counts_match(self) -> bool:
@@ -366,6 +374,38 @@ def build_split_documents(document, segments: list) -> list:
     return documents
 
 
+def _ids_in_segment(segment: SplitSegment) -> set:
+    """Every `id` attribute anywhere inside a segment's elements,
+    including the elements themselves -- not just chapter-heading-
+    adjacent ids like structure.py's _candidate_ids checks for
+    corroboration. A cross-reference can point at any id in the book
+    (a footnote definition, a mid-paragraph anchor, anything), so this
+    needs the full subtree, not a shortcut."""
+    ids = set()
+    for element in segment.elements:
+        for el in element.iter():
+            if not isinstance(el.tag, str):
+                continue  # skip comments/PIs, which iter() also yields
+            el_id = el.get("id")
+            if el_id:
+                ids.add(el_id)
+    return ids
+
+
+def build_href_by_id(segments: list, hrefs: list) -> dict:
+    """Maps every id that existed in the original file to whichever
+    href now holds it, given the same segments/hrefs pairing
+    generate_split_hrefs produces (one href per segment, in order,
+    with hrefs[0] always the original href). Called once, right after
+    the split's own word-count integrity check passes -- see
+    apply_split below."""
+    href_by_id: dict = {}
+    for segment, href in zip(segments, hrefs):
+        for el_id in _ids_in_segment(segment):
+            href_by_id[el_id] = href
+    return href_by_id
+
+
 def _reassemble_original_body(segments: list) -> None:
     """Undoes build_split_documents if the integrity check below ever
     fails: moves every later segment's elements back where they came
@@ -563,6 +603,7 @@ def apply_split(book, chapter, markers: list) -> SplitResult:
 
     existing_hrefs = {m.href for m in book.manifest}
     new_hrefs = generate_split_hrefs(chapter.href, segments, existing_hrefs)
+    href_by_id = build_href_by_id(segments, new_hrefs)
 
     _wire_into_book(book, chapter, documents, segments, new_hrefs)
 
@@ -571,4 +612,5 @@ def apply_split(book, chapter, markers: list) -> SplitResult:
         new_hrefs=new_hrefs[1:],
         segment_word_counts=segment_word_counts,
         original_word_count=original_word_count,
+        href_by_id=href_by_id,
     )
