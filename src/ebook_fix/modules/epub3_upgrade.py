@@ -8,10 +8,18 @@ chapter markup. It:
 
 1. Bumps the OPF <package version="..."> attribute to "3.0".
 2. Adds/refreshes a dcterms:modified metadata entry, required by EPUB 3.
-3. Generates an EPUB 3 Navigation Document (nav.xhtml) built from the
-   spine reading order and each chapter's own <title> (falling back to
-   its first heading, then its filename), since EPUB 3 requires exactly
-   one manifest item with properties="nav".
+3. Generates an EPUB 3 Navigation Document (nav.xhtml), since EPUB 3
+   requires exactly one manifest item with properties="nav". Built by
+   translating the book's own existing TOC (book.toc, from the NCX or
+   an existing nav document -- see parser.py) into nested <ol>/<li>
+   markup, one entry per TOC entry, not one per spine file -- a book
+   can easily have far more chapters than physical XHTML files (a
+   calibre-style split puts many chapters in one file, addressed by
+   id="..." fragments), and collapsing to one nav entry per file would
+   throw away everything but a handful of top-level entries. Only a
+   book with no TOC at all falls back to one entry per spine file,
+   labeled from each chapter's own <title> (or first heading, or
+   filename) -- see _build_spine_ol below.
 
 The existing NCX, if present, is left exactly as-is and still
 referenced by <spine toc="ncx">, so EPUB2-only readers keep working.
@@ -116,7 +124,9 @@ class EPUB3UpgradeRepair:
             report.add(
                 "content.opf",
                 "Navigation document added",
-                "Generated an EPUB 3 nav.xhtml from the spine reading order.",
+                "Generated an EPUB 3 nav.xhtml from the book's existing TOC."
+                if getattr(book, "toc", None)
+                else "Generated an EPUB 3 nav.xhtml from the spine reading order (no existing TOC found).",
             )
         return report
 
@@ -202,24 +212,13 @@ class EPUB3UpgradeRepair:
         nav.set("id", "toc")
         heading = etree.SubElement(nav, E + "h1")
         heading.text = "Table of Contents"
-        ol = etree.SubElement(nav, E + "ol")
 
-        by_id = {item.id: item for item in book.manifest}
-        chapters_by_id = {c.id: c for c in book.chapters}
-        toc_labels = self._toc_label_by_href(book)
-        for idref in book.spine:
-            item = by_id.get(idref)
-            if item is None or item.media_type != "application/xhtml+xml":
-                continue
-            label = (
-                toc_labels.get(item.href)
-                or self._chapter_label(chapters_by_id.get(idref))
-                or item.href
-            )
-            li = etree.SubElement(ol, E + "li")
-            a = etree.SubElement(li, E + "a")
-            a.set("href", item.href)
-            a.text = label
+        toc_entries = getattr(book, "toc", None) or []
+        if toc_entries:
+            ol = self._build_toc_ol(E, toc_entries)
+        else:
+            ol = self._build_spine_ol(E, book)
+        nav.append(ol)
 
         return etree.tostring(
             html,
@@ -228,35 +227,51 @@ class EPUB3UpgradeRepair:
             doctype="<!DOCTYPE html>",
         )
 
-    def _toc_label_by_href(self, book):
-        """Maps each chapter href to the label the book's own NCX/nav
-        TOC already uses for it (book.toc, populated by parser.py),
-        checked FIRST -- ahead of a chapter's own <head><title> -- in
-        _build_nav_bytes above. A per-page <title> is frequently just
-        the book title stamped onto every file by a conversion tool,
-        while an NCX/nav navLabel is a real, usually-correct, per-
-        chapter label. See docs/analysis_roadmap.md for the bug report
-        that found this (every chapter showing the same generic label
-        after an EPUB2->3 upgrade)."""
-
-        mapping = {}
-        for entry in self._flatten_toc(getattr(book, "toc", None) or []):
-            if not entry.href or not entry.label:
-                continue
-            path = entry.href.partition("#")[0]
-            # First entry seen per file wins -- a chapter-level
-            # navPoint/li normally lists its own file before any
-            # nested sub-section entries that share the same file with
-            # a different #fragment.
-            if path and path not in mapping:
-                mapping[path] = entry.label
-        return mapping
-
-    def _flatten_toc(self, entries):
+    def _build_toc_ol(self, E, entries):
+        """Mirrors the book's own TOC (book.toc, a TocEntry tree from
+        the NCX or an existing nav document -- see parser.py) into
+        EPUB 3 nav markup: one <li> per TOC entry, nested <ol>s for
+        children, in the same order and depth as the source. This is
+        what keeps a book with far more chapters than physical XHTML
+        files (a calibre-style split puts many chapters in one file,
+        addressed by #fragment) from losing everything but a handful
+        of top-level entries -- see the module docstring."""
+        ol = etree.Element(E + "ol")
         for entry in entries:
-            yield entry
+            li = etree.SubElement(ol, E + "li")
+            if entry.href:
+                a = etree.SubElement(li, E + "a")
+                a.set("href", entry.href)
+                a.text = entry.label or entry.href
+            else:
+                # EPUB 3 nav requires a <span>, not a bare <li> text,
+                # for an entry with nothing to link to (rare -- a
+                # heading-only navPoint with no content src).
+                span = etree.SubElement(li, E + "span")
+                span.text = entry.label or ""
             if entry.children:
-                yield from self._flatten_toc(entry.children)
+                li.append(self._build_toc_ol(E, entry.children))
+        return ol
+
+    def _build_spine_ol(self, E, book):
+        """Fallback for a book with no TOC at all (no NCX, no existing
+        nav document): one <li> per spine file, labeled from that
+        chapter's own <title> (falling back to its first heading, then
+        its filename). Coarser than a real TOC, but there's no finer
+        structure to draw on."""
+        ol = etree.Element(E + "ol")
+        by_id = {item.id: item for item in book.manifest}
+        chapters_by_id = {c.id: c for c in book.chapters}
+        for idref in book.spine:
+            item = by_id.get(idref)
+            if item is None or item.media_type != "application/xhtml+xml":
+                continue
+            label = self._chapter_label(chapters_by_id.get(idref)) or item.href
+            li = etree.SubElement(ol, E + "li")
+            a = etree.SubElement(li, E + "a")
+            a.set("href", item.href)
+            a.text = label
+        return ol
 
     def _chapter_label(self, chapter):
         if chapter is None or chapter.document is None:

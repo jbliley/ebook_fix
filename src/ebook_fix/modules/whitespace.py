@@ -14,6 +14,7 @@ from ebook_fix.report import Report
 from ebook_fix.whitespace import (
     NormalizationRules,
     analyze_book_whitespace,
+    is_whitespace_only,
     normalize_fragment,
 )
 
@@ -98,16 +99,34 @@ class WhitespaceRepair:
                 if host is None or not hasattr(issue, "attr"):
                     continue
 
-                # If an earlier repair module in this same run (e.g.
-                # Paragraph Repair merging paragraphs) already changed
-                # this exact text/tail since analysis ran, don't
-                # overwrite something we no longer recognize.
+                # An earlier repair module in this same run (e.g.
+                # Paragraph Repair merging paragraphs, or Chapter
+                # Markup splitting one) may have already changed this
+                # exact text/tail since analysis ran. Rather than
+                # discarding the whitespace fix outright in that case
+                # -- which silently left doubled spaces and similar
+                # issues sitting in the output whenever another module
+                # happened to touch the same node first -- recompute
+                # against whatever the text/tail actually is right
+                # now. normalize_fragment is pure and safe to run on
+                # any text regardless of where it came from, so this
+                # costs nothing when the node wasn't touched (current
+                # value equals issue.before, same result either way)
+                # and closes the gap when it was.
                 current_val = getattr(host, issue.attr, None)
-                if current_val != issue.before:
+                if current_val is None:
                     continue
 
                 if issue.is_whitespace_only:
                     if not self.config.collapse_whitespace_only_nodes:
+                        continue
+                    if not is_whitespace_only(current_val):
+                        # A later module gave this node real content
+                        # since analysis ran -- it's no longer a pure
+                        # whitespace node, so collapsing it to " "
+                        # would eat that content. Leave it alone.
+                        continue
+                    if current_val == " ":
                         continue
                     new_text: str | None = " "
                     report.add(
@@ -117,7 +136,7 @@ class WhitespaceRepair:
                     )
                 else:
                     result = normalize_fragment(
-                        issue.before,
+                        current_val,
                         leading_glue=issue.leading_glue,
                         trailing_glue=issue.trailing_glue,
                         rules=rules,
@@ -128,7 +147,7 @@ class WhitespaceRepair:
                     report.add(
                         issue.href,
                         issue.category,
-                        f"{issue.category}: {issue.before!r} -> {result.text!r}",
+                        f"{issue.category}: {current_val!r} -> {result.text!r}",
                     )
 
                 setattr(host, issue.attr, new_text if new_text else None)

@@ -78,21 +78,33 @@ class EllipsisRepair:
                 if host is None or not hasattr(issue, "attr"):
                     continue
 
-                # If an earlier repair module in this same run already
-                # changed this exact text/tail since analysis ran,
-                # don't overwrite something we no longer recognize.
                 current_val = getattr(host, issue.attr, None)
-                if current_val != issue.before:
+                if current_val is None:
                     continue
 
-                result = normalize_ellipsis_text(issue.before, target_style=self.config.target_style)
+                # If an earlier repair module in this same run already
+                # changed this exact text/tail since analysis ran, the
+                # snapshot in issue.before is stale -- but rather than
+                # skip the node outright (which would silently drop a
+                # real, still-valid ellipsis fix just because some
+                # unrelated part of the same text changed -- e.g.
+                # Paragraph Repair merging this text with an adjacent
+                # paragraph), recompute fresh against whatever the
+                # text actually is right now. normalize_ellipsis_text
+                # only ever touches "..."/literal-dot-run patterns, so
+                # re-running it against text another module has
+                # already edited is safe -- see the same reasoning in
+                # apostrophe_repair.py's repair().
+                source_text = issue.before if current_val == issue.before else current_val
+
+                result = normalize_ellipsis_text(source_text, target_style=self.config.target_style)
                 if not result.changed:
                     continue
 
                 report.add(
                     issue.href,
                     issue.category,
-                    f"{issue.category}: {issue.before!r} -> {result.text!r}",
+                    f"{issue.category}: {source_text!r} -> {result.text!r}",
                 )
                 setattr(host, issue.attr, result.text)
                 changed_hrefs.add(issue.href)

@@ -55,29 +55,36 @@ class Engine:
             modules.append(ChapterMarkupRepair(self.config.chapter_markup))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
-        # Runs before Whitespace Normalizer, not after: both modules
-        # can end up wanting to touch the very same text/tail node
-        # (an ellipsis sitting in a paragraph that also has, say,
-        # doubled internal whitespace). Each repair module only
-        # trusts its own analysis-time snapshot of a node's text and
-        # skips it if that node was already changed since -- see the
-        # "current_val != issue.before" guard in both modules' repair()
-        # -- so whichever of the two runs second loses that node for
-        # this pass. Ellipsis wins the tie deliberately: an unwanted
-        # "..." is a content issue, not just formatting, and running
-        # this repair pipeline again afterward (once the book has been
-        # re-analyzed) still catches any whitespace on that same node
-        # that got skipped this time.
+        # Runs before Whitespace Normalizer: both modules can end up
+        # wanting to touch the very same text/tail node (an ellipsis
+        # sitting in a paragraph that also has, say, doubled internal
+        # whitespace). Each repair module's repair() recomputes fresh
+        # against the node's CURRENT text/tail rather than trusting
+        # its own analysis-time snapshot once that snapshot goes stale
+        # -- see the "source_text = issue.before if current_val ==
+        # issue.before else current_val" pattern in ellipsis_repair.py,
+        # apostrophe_repair.py, and modules/whitespace.py -- so this
+        # order no longer decides which module "wins" an issue both
+        # modules already flagged on the same node. Ellipsis still
+        # runs first on principle (an unwanted "..." is a content
+        # issue, not just formatting), but it's no longer load-bearing
+        # for that specific collision.
+        #
+        # This does NOT make one repair pass fully idempotent, though:
+        # Paragraph Repair merging two paragraphs can leave a brand
+        # new trailing-space pattern at the join that never existed as
+        # its own text/tail slot for the single upfront analysis pass
+        # to have found in the first place -- there's no stale issue
+        # to recompute against, because there was no issue there yet.
+        # Re-running repair on the output still mops those up, same as
+        # always.
         if getattr(self.config, "ellipsis_repair", None) and getattr(self.config.ellipsis_repair, "enabled", True):
             modules.append(EllipsisRepair(self.config.ellipsis_repair))
-        # Same reasoning as Ellipsis just above: this can touch a
-        # text/tail node the Whitespace Normalizer would also want,
-        # so it needs to run before that module for the "current_val
-        # != issue.before" stale-check guard to actually protect it.
-        # Runs after Ellipsis since the two rarely overlap in
-        # practice (a missing apostrophe needs a bare single-space
-        # gap between two whitelisted words, an ellipsis artifact
-        # needs periods) -- order between them isn't load-bearing.
+        # Same reasoning as Ellipsis just above -- order between the
+        # two isn't load-bearing either, in practice they rarely
+        # overlap (a missing apostrophe needs a bare single-space gap
+        # between two whitelisted words, an ellipsis artifact needs
+        # periods).
         if getattr(self.config, "apostrophe_repair", None) and getattr(self.config.apostrophe_repair, "enabled", True):
             modules.append(ApostropheRepair(self.config.apostrophe_repair))
         if getattr(self.config, "whitespace_repair", None) and getattr(self.config.whitespace_repair, "enabled", True):
