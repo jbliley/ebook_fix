@@ -2,9 +2,10 @@
 
 **Status:** In progress. Phases 0 (structure analyzer audit/hardening),
 1 (single-file splitting mechanics), 2 (cross-reference rewriting),
-and 3a (NCX/nav made editable) are done -- see below. Phase 3b
-(rewriting existing TOC/nav entries whose target file got split) is
-the next piece.
+3a (NCX/nav made editable), and 3b (rewriting existing TOC/nav entries)
+are done -- see below. Phase 3c (generating new TOC entries for
+chapters that split apart with no entry of their own) is the next
+piece.
 **Started:** session ending with the chapter_markup page_breaks.py cleanup.
 
 ## The problem
@@ -277,13 +278,51 @@ mid-phase still leaves solid ground to resume from.
   pre-Phase-3a code produces, aside from the `dcterms:modified`
   timestamp every repair run already stamps.
 - **Phase 3b -- Rewrite existing TOC/nav entries whose target file got
-  split.** Reuses the same `href_by_id`/`current_href_origin`
-  machinery Phase 2 already built for in-body links, just pointed at
-  NCX `<content src="...">` and nav `<a href="...">` entries instead.
-  This is the "already had a working TOC" half of this phase's
-  original two-line scope. Testable against ChaptersNotAligned-New
-  (real NCX, real multi-chapter-per-file split) and
-  CrossReferences-Synthetic (already has a toc.ncx entry to exercise).
+  split.** [x] Done.
+  Turned out to split into two pieces once actually built, not one:
+  the nav half was already covered by Phase 2's existing
+  `find_links_into`/`rewrite_links` -- nav.xhtml is a normal `Chapter`
+  (see Phase 3a), so its `<a href>` TOC/landmarks/page-list entries
+  were already being scanned and rewritten by the exact same in-body
+  link code every footnote and cross-reference goes through. Confirmed
+  this with a synthetic EPUB3 fixture (a copy of ChaptersNotAligned-New
+  with a hand-built nav.xhtml wired in) before writing anything new,
+  so Phase 3b's actual new code is the NCX half only:
+  `find_ncx_links_into`/`rewrite_ncx_links` in `crossref.py`, walking
+  `book.ncx_document`'s `<content src="...">` elements the same way
+  `find_links_into` walks `<a href>` elements, and reusing the exact
+  same `href_by_id_by_origin` map Phase 2 already builds per split.
+  Wired into `engine.py`'s `split_chapters` right after the existing
+  cross-reference rewriter, with its own `[NCX Rewriter]` report
+  section.
+  Found and fixed a real bug in Phase 2's existing code while building
+  the synthetic nav fixture above: `rewrite_links` mutated an `<a>`
+  element's `href` directly but never flagged the chapter it lived in
+  as `modified`, so the writer -- which only re-serializes chapters
+  with `chapter.modified = True` -- silently discarded any fix made to
+  a chapter that wasn't itself one of the split's own new files. Every
+  sample book tested so far happened to avoid this (every touched
+  chapter was always either segment 0 or a newly-created split file,
+  both already flagged modified by `_wire_into_book`), so it had never
+  surfaced. nav.xhtml was the first real case of a fix landing in a
+  chapter the split itself never touched, which is exactly what
+  exposed it. Fixed by giving `LinkReference` a `chapter` field
+  (populated in `find_links_into`, which already has the `Chapter`
+  object in scope) and setting `ref.chapter.modified = True` in
+  `rewrite_links` whenever a link actually changes.
+  Verified against all ten sample books: `split-structure` runs clean
+  with zero integrity-check failures, every resulting file still
+  re-analyzes as a valid EPUB, and a body-text-only word count (the
+  book-wide total already has a documented `<head>`-duplication
+  inflation issue from Phase 1, unrelated to this work) matches
+  exactly between each original and its split output. Also spot-
+  checked every rewritten NCX fragment on ChaptersNotAligned-New by
+  parsing the split output back open and confirming each id genuinely
+  exists in the file the NCX now points to (21 for 21). Re-ran the
+  full repair regression pass (analyze, repair, re-analyze) across all
+  ten sample books too, to confirm the `LinkReference` bug fix didn't
+  touch anything outside the splitter/crossref path -- repair output
+  was unchanged.
 - **Phase 3c -- Generate new TOC entries for chapters that split apart
   with no entry of their own.** The harder, more design-heavy half:
   when one file with one TOC entry splits into five chapter files,

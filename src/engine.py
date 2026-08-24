@@ -14,7 +14,7 @@ from ebook_fix.serialize import save_report
 from ebook_fix.class_map import build_class_profiles, format_class_map, write_mapping_file
 from ebook_fix.structure import analyze_structure, format_structure_report, iter_chapter_nodes, SplitConfidence
 from ebook_fix.splitter import apply_split, SplitMarker, SplitError
-from ebook_fix.crossref import find_links_into, rewrite_links
+from ebook_fix.crossref import find_links_into, rewrite_links, find_ncx_links_into, rewrite_ncx_links
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -830,9 +830,9 @@ class Engine:
         """Phase 1 of the XHTML Recoder plan (see
         docs/xhtml_recoder_plan.md): a hands-on way to try the
         splitter mechanics (ebook_fix.splitter) against a real book.
-        Also runs Phase 2's in-body cross-reference rewriting
-        (ebook_fix.crossref) immediately afterward, once per run
-        across every file split.
+        Also runs Phase 2's in-body cross-reference rewriting and
+        Phase 3b's NCX entry rewriting (both in ebook_fix.crossref)
+        immediately afterward, once per run across every file split.
 
         NOT gated by the full split-safety-bar corroboration
         requirement yet (see docs/split_safety_bar.md) -- proper
@@ -843,10 +843,11 @@ class Engine:
         CORROBORATED boundary (see Phase 0e/0f).
 
         Treat any output from this command as a mechanics test, not a
-        finished conversion -- an existing TOC/nav entry pointing into
-        a file that gets split here still won't have been updated to
-        match; only in-body links (footnotes, cross-references) are
-        rewritten. See Phase 3 in the plan doc for the TOC/nav side.
+        finished conversion -- an EPUB3 nav document's TOC/landmarks
+        and a book's NCX both get their entries rewritten to follow a
+        split, but Phase 3c (generating a TOC entry for a chapter that
+        never had one of its own) doesn't exist yet, so a split file
+        with no original TOC entry still won't get one.
         """
         source, temp_path = self._resolve_source(epub)
         if source is None:
@@ -863,12 +864,13 @@ class Engine:
             self.log(
                 "Physically splits any file that has 2+ chapter boundaries at\n"
                 "sequence-only confidence or better, then rewrites any in-body\n"
-                "footnote/cross-reference links affected by the split. This\n"
-                "tests the splitting mechanics themselves, not a finished\n"
-                "conversion -- see docs/xhtml_recoder_plan.md for what Phases\n"
-                "3-5 still need to add (TOC/nav regeneration and the review\n"
-                "gate that will eventually require a corroborated boundary\n"
-                "before splitting anything).\n"
+                "footnote/cross-reference links and NCX/nav entries affected by\n"
+                "the split. This tests the splitting mechanics themselves, not\n"
+                "a finished conversion -- see docs/xhtml_recoder_plan.md for\n"
+                "what Phase 3c still needs to add (generating a TOC entry for a\n"
+                "chapter that never had one of its own) and the review gate\n"
+                "Phase 5 will add (requiring a corroborated boundary before\n"
+                "splitting anything).\n"
             )
 
             tree = analyze_structure(book)
@@ -927,6 +929,12 @@ class Engine:
             self.log("")
             self.header("[Cross-Reference Rewriter]")
             crossref_report.print(details=details, verb="fixed")
+
+            ncx_refs = find_ncx_links_into(book, split_hrefs)
+            ncx_report = rewrite_ncx_links(book, ncx_refs, href_by_id_by_origin)
+            self.log("")
+            self.header("[NCX Rewriter]")
+            ncx_report.print(details=details, verb="fixed")
 
             writer = EPUBWriter()
             writer.save(book, output)

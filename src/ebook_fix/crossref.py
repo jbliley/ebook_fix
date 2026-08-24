@@ -1,20 +1,26 @@
 """
 ebook_fix.crossref
 
-Phase 2 of the XHTML Recoder plan (see docs/xhtml_recoder_plan.md):
-cross-reference rewriting after a split. Phase 1 (splitter.py) cuts a
-file into several standalone files but leaves every link that used to
-point at the original file exactly as it was -- this module finds
-those links (Phase 2b, below) and rewrites the ones it safely can
-(Phase 2c, further down).
+Phase 2 and Phase 3b of the XHTML Recoder plan (see
+docs/xhtml_recoder_plan.md): cross-reference rewriting after a split.
+Phase 1 (splitter.py) cuts a file into several standalone files but
+leaves every link that used to point at the original file exactly as
+it was -- this module finds those links and rewrites the ones it
+safely can.
 
-Deliberately in-body links only: a footnote, an endnote backlink, a
-"see Chapter 5" cross-reference, anything living inside a chapter's
-own document tree, which is the only kind of link this project can
-currently mutate. The NCX and EPUB3 nav documents are parsed read-only
-today (see parser.py) -- not live editable trees -- so an existing TOC
-entry or nav link into a split file is a known, left-alone limitation
-here, not a bug. Regenerating/repairing those is Phase 3's job.
+Two independent halves, sharing the same href_by_id/current_href_origin
+machinery Phase 2 built:
+
+- In-body links (Phase 2, find_links_into / rewrite_links): a
+  footnote, an endnote backlink, a "see Chapter 5" cross-reference,
+  anything living inside a chapter's own document tree -- including
+  the EPUB3 nav document itself, since nav.xhtml's media_type already
+  makes it a normal Chapter with a live, editable tree like any other.
+- NCX entries (Phase 3b, find_ncx_links_into / rewrite_ncx_links): a
+  navPoint's <content src="..."> pointing into a file that got split.
+  This half didn't exist until Phase 3a made book.ncx_document a live
+  tree instead of read-only parsed data -- before that, an existing
+  NCX entry into a split file was a known, left-alone limitation.
 
 Mirrors structure.py's _internal_link_targets in NOT resolving
 relative directory paths -- same flat-directory assumption already
@@ -47,12 +53,22 @@ class LinkReference:
     its own chapter *originally* was, which matters when a footnote
     and its backlink started in the same file but landed in different
     segments after the split.
+
+    `chapter` is the live Chapter object the <a> element lives in --
+    needed so rewrite_links can flag it modified when it actually
+    changes a link. Without this, a rewrite to a chapter that wasn't
+    itself newly created by this run's split (nav.xhtml, or any other
+    untouched chapter with a stray cross-reference into a split file)
+    would mutate the in-memory tree correctly but never get written
+    out, since the writer only re-serializes chapters flagged
+    modified.
     """
 
     home_href: str          # href of the chapter document the <a> currently lives in
     element: object          # the live <a> element (mutate href= directly to rewrite)
     origin_href: str         # href the link's target was originally written for
     fragment: str            # target fragment id, "" for a whole-file link
+    chapter: object = None   # the live Chapter the <a> element belongs to
 
 
 def find_links_into(book: Any, split_hrefs: set, current_href_origin: dict) -> list:
@@ -100,6 +116,7 @@ def find_links_into(book: Any, split_hrefs: set, current_href_origin: dict) -> l
                     element=el,
                     origin_href=origin_href,
                     fragment=fragment,
+                    chapter=chapter,
                 )
             )
 
@@ -167,10 +184,136 @@ def rewrite_links(refs: list, href_by_id_by_origin: dict) -> Report:
             continue
 
         ref.element.set("href", new_href)
+        if ref.chapter is not None:
+            ref.chapter.modified = True
         report.add(
             ref.home_href,
             "Link rewritten",
             f"{old_href!r} -> {new_href!r}",
+        )
+
+    return report
+
+
+# ---------------------------------------------------------------------
+# Phase 3b -- NCX <content src="..."> rewriting
+# ---------------------------------------------------------------------
+
+NCX_NS_URI = "http://www.daisy.org/z3986/2005/ncx/"
+
+
+@dataclass(slots=True)
+class NcxReference:
+    """One <content src="..."> element inside the book's NCX whose
+    target resolves to a file that was split during this run.
+
+    No home_href/chapter fields the way LinkReference has: a
+    <content> element doesn't live inside one of the book's own
+    chapter documents the way an <a> does, so there's no "which
+    chapter is this link written for" question to resolve -- src is
+    always a full path already, resolved against the NCX file's own
+    location once, back in parser.py. A single book has (at most) one
+    NCX, so there's nothing per-reference to track beyond the element
+    itself and what it's pointing at.
+    """
+
+    element: object   # the live <content> element (mutate src= directly to rewrite)
+    origin_href: str  # href the link's target was originally written for
+    fragment: str     # target fragment id, "" for a whole-file link
+
+
+def find_ncx_links_into(book: Any, split_hrefs: set) -> list:
+    """
+    Scans the book's NCX (book.ncx_document, see Phase 3a) for every
+    <content src="..."> element whose target originally pointed into
+    one of `split_hrefs`.
+
+    No current_href_origin lookup needed here the way find_links_into
+    needs one for in-body links: an NCX <content> src is always
+    written as a full path (there's no "bare #fragment" shorthand the
+    way a same-file <a href="#frag"> can use, since a navPoint isn't
+    "inside" any particular content file itself), so origin resolution
+    is a direct split_hrefs membership check on whatever path is
+    already there.
+
+    Returns every match, including whole-file entries (no fragment) --
+    same "found, not yet judged" split find_links_into already uses;
+    it's rewrite_ncx_links's job to decide what to do with those.
+    """
+    ncx = getattr(book, "ncx_document", None)
+    if ncx is None:
+        return []
+
+    results: list = []
+    for content in ncx.iter():
+        if not isinstance(content.tag, str):
+            continue
+        if etree.QName(content).localname != "content":
+            continue
+        src = content.get("src") or ""
+        if not src:
+            continue
+
+        path, _, fragment = src.partition("#")
+        if path not in split_hrefs:
+            continue
+
+        results.append(
+            NcxReference(element=content, origin_href=path, fragment=fragment)
+        )
+
+    return results
+
+
+def rewrite_ncx_links(book: Any, refs: list, href_by_id_by_origin: dict) -> Report:
+    """
+    Rewrites each NcxReference's src to point at wherever its target
+    id now lives, using href_by_id_by_origin[origin_href] -- the same
+    per-split id map rewrite_links already reads. Sets book.ncx_modified
+    when anything actually changes, so the writer knows to serialize
+    book.ncx_document back out (see Phase 3a) instead of copying the
+    original NCX bytes through untouched.
+
+    Same two deliberately-untouched cases as rewrite_links, for the
+    same reasons -- a whole-file entry isn't broken (the original
+    file still exists as segment 0), and an unresolved fragment is
+    reported rather than guessed at:
+    """
+    report = Report("NCX Rewriter")
+
+    for ref in refs:
+        location = getattr(book, "ncx_href", "") or "toc.ncx"
+
+        if not ref.fragment:
+            report.add(
+                location,
+                "Whole-file entry left as-is",
+                f"navPoint into {ref.origin_href} has no fragment -- still "
+                f"resolves to the original file, not rewritten",
+            )
+            continue
+
+        id_map = href_by_id_by_origin.get(ref.origin_href)
+        target_href = id_map.get(ref.fragment) if id_map else None
+        if target_href is None:
+            report.add(
+                location,
+                "Unresolved target",
+                f"#{ref.fragment}: id not found among {ref.origin_href}'s tracked ids",
+            )
+            continue
+
+        old_src = ref.element.get("src")
+        new_src = f"{target_href}#{ref.fragment}"
+        if new_src == old_src:
+            continue
+
+        ref.element.set("src", new_src)
+        book.ncx_modified = True
+        report.add(
+            location,
+            "Entry rewritten",
+            f"{old_src!r} -> {new_src!r}",
         )
 
     return report
