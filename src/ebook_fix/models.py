@@ -102,6 +102,9 @@ class Book:
     spine: list[str] = field(default_factory=list)
     toc: list[TocEntry] = field(default_factory=list)
     toc_source: str = ""  # "ncx", "nav", or "" if the book has neither
+    ncx_document: Any = None
+    ncx_href: str = ""
+    ncx_modified: bool = False
     chapters: list[Chapter] = field(default_factory=list)
     css: list[Resource] = field(default_factory=list)
     images: list[Resource] = field(default_factory=list)
@@ -117,6 +120,18 @@ class Book:
 #     have something to edit. Set opf_modified=True after changing it
 #     so the writer knows to re-serialize it instead of copying the
 #     original bytes through untouched.
+# ncx_document: the raw lxml <ncx> element from the book's toc.ncx,
+#     None if the book has no NCX at all. Same idiom as opf_document --
+#     set ncx_modified=True after changing it so the writer knows to
+#     re-serialize it. book.toc (above) stays what it's always been: a
+#     read-only, already-parsed TocEntry list for anything that just
+#     wants to read the table of contents. ncx_document is the live
+#     tree underneath it, for anything that needs to actually edit the
+#     NCX (see docs/xhtml_recoder_plan.md, Phase 3a). The EPUB3 nav
+#     document doesn't get its own field here -- its media_type
+#     already puts it through the normal chapter-loading path, so it's
+#     already a live tree sitting in book.chapters (see Book.nav_chapter
+#     below).
 # new_files: files that don't exist in the source archive at all yet
 #     (e.g. a generated EPUB3 nav.xhtml), keyed by their full in-zip
 #     path, value is the raw bytes to write.
@@ -145,6 +160,32 @@ class Book:
     @property
     def font_count(self) -> int:
         return len(self.fonts)
+
+    @property
+    def nav_item(self) -> ManifestItem | None:
+        """The manifest entry for the EPUB3 nav document, if the book
+        declares one (properties="nav"), else None."""
+        for item in self.manifest:
+            if "nav" in item.properties.split():
+                return item
+        return None
+
+    @property
+    def nav_chapter(self) -> Chapter | None:
+        """The EPUB3 nav document as its own Chapter -- already a
+        live, editable lxml tree like any other chapter, since
+        nav.xhtml's media_type (application/xhtml+xml) means
+        parser.py's normal xhtml-loading path already picked it up.
+        This just gives calling code a direct way to find it instead
+        of hunting through book.chapters itself. None if the book has
+        no nav document."""
+        item = self.nav_item
+        if item is None:
+            return None
+        for chapter in self.chapters:
+            if chapter.href == item.href:
+                return chapter
+        return None
 
 # -------------------------------------------------------------
 # Helpers

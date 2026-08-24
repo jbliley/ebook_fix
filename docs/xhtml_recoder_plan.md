@@ -1,6 +1,10 @@
 # XHTML Recoder -- Planning Doc
 
-**Status:** Not started. This is a planning doc only -- no code yet.
+**Status:** In progress. Phases 0 (structure analyzer audit/hardening),
+1 (single-file splitting mechanics), 2 (cross-reference rewriting),
+and 3a (NCX/nav made editable) are done -- see below. Phase 3b
+(rewriting existing TOC/nav entries whose target file got split) is
+the next piece.
 **Started:** session ending with the chapter_markup page_breaks.py cleanup.
 
 ## The problem
@@ -212,12 +216,25 @@ its own. Status of each tracked here as they're done.
   against raw body text). Worth a separate look at some point; out of
   scope for this phase.
 
-### Phase 2 -- Cross-reference rewriting
-- Every internal `href="...#fragment"` anywhere in the book that
-  pointed into a file that just got split needs to be redirected to
-  the new file + fragment.
-- Covers: NCX/nav TOC entries, in-body footnote/endnote links, any
-  other internal cross-references.
+### Phase 2 -- Cross-reference rewriting -- DONE
+- Built `src/ebook_fix/crossref.py`: after a split, every in-body
+  `href="...#fragment"` link that pointed into a file that just got
+  cut apart is found (`find_links_into`) and redirected to whichever
+  new file + fragment its target actually landed in
+  (`rewrite_links`). Wired into `engine.py`'s `split_chapters`, run
+  once per split so it always sees the full set of files that moved
+  in that run rather than checking one split at a time.
+- Deliberately in-body links only, as planned -- a footnote, an
+  endnote backlink, a "see Chapter 5" cross-reference, anything
+  living inside a chapter's own document tree, which is the only
+  kind of link this project could mutate at the time this was built.
+  NCX/nav TOC entries are explicitly NOT covered here: they were
+  still read-only parsed data when this phase was built (see Phase
+  3a below, which removes that blocker), so an existing TOC/nav link
+  into a split file was a known, left-alone limitation of this phase,
+  not a bug. Regenerating/repairing those is Phase 3's job.
+- External links (`http://`, `https://`, `mailto:`) are correctly
+  left untouched.
 
 ### Phase 3 -- NCX / nav TOC generation or repair
 Split into small pieces, same reasoning as Phase 2 above -- each one
@@ -225,14 +242,40 @@ ends with something real and working, so a session that runs out
 mid-phase still leaves solid ground to resume from.
 
 - **Phase 3a -- Make the NCX (and nav.xhtml, if present) editable
-  documents.** Right now both are parsed once into a read-only
-  `book.toc` list, purely for display/validation (see toc.py) -- no
-  code path anywhere edits them back. This step loads them as live,
-  mutable trees on the Book model, the same way `chapter.document`
-  already works, and teaches the writer to serialize changes back
-  out. Nothing rewrites anything yet; this just removes the blocker
-  everything else in this phase depends on. Testable by confirming an
-  untouched book round-trips with zero diff.
+  documents.** [x] Done.
+  Turned out to be a smaller change than the original scope implied,
+  once actually checked: the EPUB3 nav document already gets loaded
+  as a normal `Chapter` by `parser.py` (its media_type is
+  `application/xhtml+xml`, same as every chapter file), so
+  `chapter.document` was already a live, editable tree for it -- the
+  only missing piece was a convenient way to find that chapter
+  without hunting through `book.chapters` by hand. Added
+  `Book.nav_item` and `Book.nav_chapter` properties in `models.py` for
+  that.
+  The NCX was the real gap, since its media_type
+  (`application/x-dtbncx+xml`) never went through the chapter-loading
+  path at all -- it was only ever parsed once into the read-only
+  `book.toc` list. `parser.py`'s `_read_toc` now keeps the parsed NCX
+  tree around on a new `book.ncx_document` field (plus `book.ncx_href`
+  for its in-zip location), the same idiom as `book.opf_document`.
+  `book.toc` itself is untouched -- still the same read-only,
+  already-parsed list anything can read from without caring about
+  live trees at all. `writer.py` now serializes `book.ncx_document`
+  back out (with a standard NCX doctype, same fixed-doctype idiom the
+  chapter serializer already uses) whenever a new `book.ncx_modified`
+  flag is set, mirroring `opf_modified`.
+  Nothing rewrites anything yet -- this was purely the plumbing Phase
+  3b onward depends on. Verified against all ten sample books: an
+  untouched book round-trips byte-identical (mimetype through every
+  chapter, OPF, and NCX), and a synthetic edit to a live
+  `ncx_document` (relabeling a navPoint) writes back correctly,
+  reloads cleanly, and touches nothing else in the archive. Also
+  re-ran the full existing regression pass (analyze, repair,
+  re-analyze, word-count diffing) across all ten sample books to
+  confirm this plumbing change didn't disturb anything already
+  built -- repaired output was byte-identical to what the
+  pre-Phase-3a code produces, aside from the `dcterms:modified`
+  timestamp every repair run already stamps.
 - **Phase 3b -- Rewrite existing TOC/nav entries whose target file got
   split.** Reuses the same `href_by_id`/`current_href_origin`
   machinery Phase 2 already built for in-body links, just pointed at

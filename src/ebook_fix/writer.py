@@ -20,6 +20,19 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from lxml import etree
 
+# Standard EPUB2 NCX doctype. Written whenever a modified NCX is
+# serialized, same idiom as _serialize's fixed "<!DOCTYPE html>" for
+# chapters -- neither reproduces whatever doctype (or lack of one) the
+# original file happened to have, on the theory that a book's own
+# doctype quirks aren't worth preserving once something is actually
+# rewriting the file's content. EPUB3 doesn't require this doctype for
+# a legacy NCX, but including it is harmless and matches what most
+# real-world NCX files already carry.
+NCX_DOCTYPE = (
+    '<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" '
+    '"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">'
+)
+
 
 class EPUBWriter:
 
@@ -41,6 +54,10 @@ class EPUBWriter:
         new_files = dict(getattr(book, "new_files", {}) or {})
         removed_files = set(getattr(book, "removed_files", set()) or set())
         opf_modified = bool(getattr(book, "opf_modified", False))
+
+        ncx_modified = bool(getattr(book, "ncx_modified", False))
+        ncx_href = getattr(book, "ncx_href", "") or ""
+        ncx_full_path = str(base / ncx_href) if ncx_href else None
 
         # Written to a temporary file first, then moved into place only
         # once everything below has succeeded -- this matters most when
@@ -86,6 +103,8 @@ class EPUBWriter:
                             data = self._serialize(chapter)
                         elif name == book.package_path and opf_modified:
                             data = self._serialize_opf(book.opf_document)
+                        elif ncx_modified and name == ncx_full_path:
+                            data = self._serialize_ncx(book.ncx_document)
                         elif name in new_files:
                             data = new_files[name]
                         else:
@@ -140,5 +159,13 @@ class EPUBWriter:
             opf_document,
             xml_declaration=True,
             encoding="utf-8",
+        )
+
+    def _serialize_ncx(self, ncx_document):
+        return etree.tostring(
+            ncx_document,
+            xml_declaration=True,
+            encoding="utf-8",
+            doctype=NCX_DOCTYPE,
         )
 

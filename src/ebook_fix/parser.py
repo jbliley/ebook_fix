@@ -308,11 +308,17 @@ class EPUBParser:
 
         entries = []
         source = ""
+        ncx_tree = None
 
         if ncx_item is not None:
-            entries = self._parse_ncx(archive, base, ncx_item)
-            if entries:
-                source = "ncx"
+            xml = self._read_optional(archive, str(base / ncx_item.href))
+            if xml is not None:
+                ncx_tree = self._parse_xml(xml)
+            if ncx_tree is not None:
+                ncx_dir = str(PurePosixPath(ncx_item.href).parent)
+                entries = self._parse_ncx(ncx_tree, ncx_dir)
+                if entries:
+                    source = "ncx"
 
         if not entries and nav_item is not None:
             entries = self._parse_nav_toc(archive, base, nav_item)
@@ -321,6 +327,21 @@ class EPUBParser:
 
         book.toc = self._merge_split_labels(entries)
         book.toc_source = source
+
+        # Phase 3a of the XHTML Recoder plan (see
+        # docs/xhtml_recoder_plan.md): keep the NCX around as a live,
+        # editable tree on the Book model -- the same idiom as
+        # chapter.document / book.opf_document -- rather than only
+        # ever reading it once into the read-only book.toc list above.
+        # ncx_tree is None (and ncx_href empty) for a book with no NCX
+        # at all, or one whose NCX is missing/malformed -- callers
+        # that want to edit it need to check for that first. The
+        # EPUB3 nav document doesn't need the same treatment here: its
+        # media_type already puts it through the normal chapter-
+        # loading path below, so it's already a live tree sitting in
+        # book.chapters (see Book.nav_chapter).
+        book.ncx_document = ncx_tree
+        book.ncx_href = ncx_item.href if ncx_item is not None else ""
 
     def _merge_split_labels(self, entries):
         """Calibre's PDF-to-EPUB conversion (and others like it) often
@@ -353,18 +374,15 @@ class EPUBParser:
             merged.append(entry)
         return merged
 
-    def _parse_ncx(self, archive, base, item):
-        # item.href is relative to the OPF's directory (same
-        # convention as every other href in this module); a navPoint's
-        # own content src is relative to the NCX file itself, so this
-        # is the directory those content srcs need resolving against.
-        ncx_dir = str(PurePosixPath(item.href).parent)
-        xml = self._read_optional(archive, str(base / item.href))
-        if xml is None:
-            return []
-        tree = self._parse_xml(xml)
-        if tree is None:
-            return []
+    def _parse_ncx(self, tree, ncx_dir):
+        # ncx_dir is the NCX file's own directory (relative to the
+        # OPF's, same convention as every other href in this module);
+        # a navPoint's own content src is relative to the NCX file
+        # itself, so this is the directory those content srcs need
+        # resolving against. tree is the already-parsed NCX document --
+        # see _read_toc, which loads it once and keeps it around on
+        # book.ncx_document (Phase 3a of the XHTML Recoder plan)
+        # instead of this method re-reading and re-parsing it itself.
         nav_map = tree.find("ncx:navMap", NCX_NS)
         if nav_map is None:
             return []
