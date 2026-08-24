@@ -978,7 +978,7 @@ class Engine:
         if not details:
             self.log("  (run with --details for the full before/after list)")
 
-    def repair(self, epub, output, dry_run=False, class_mapping=None, overwrite=False, details=False):
+    def repair(self, epub, output, dry_run=False, class_mapping=None, overwrite=False, details=False, max_passes=5):
         source, temp_path = self._resolve_source(epub)
         if source is None:
             return
@@ -1026,12 +1026,58 @@ class Engine:
             if not modules:
                 self.log("No repair modules are enabled in the config. Nothing to do.")
                 return
-            repair_reports = []
-            for module in modules:
-                self.log(f"Repairing: {module.name}")
-                repair_report = module.repair(book, analysis_report)
-                if repair_report is not None:
-                    repair_reports.append(repair_report)
+
+            # Run the whole module list, then check whether that pass
+            # changed anything a FRESH analysis would now flag as a
+            # NEW issue -- not one already recomputed live against the
+            # current text (see the "source_text = issue.before if
+            # current_val == issue.before else current_val" pattern in
+            # ellipsis_repair.py, apostrophe_repair.py, and
+            # modules/whitespace.py, which already closes the "another
+            # module edited this exact node first" gap within a single
+            # pass). What a single pass genuinely can't see is a
+            # problem that didn't exist until this pass's own edits
+            # created it -- e.g. Paragraph Repair merging two
+            # paragraphs and leaving a fresh trailing-space seam at
+            # the join, which is a real text/tail slot that had
+            # nothing wrong with it when analysis first ran. Re-
+            # analyzing and running the modules again catches that,
+            # same as manually re-running repair on the output would.
+            # Capped at max_passes so a genuine (if unexpected)
+            # oscillation between two modules can't loop forever --
+            # each pass only continues if the previous one actually
+            # changed something, so a book that's already clean, or
+            # that converges in one or two passes like most do, never
+            # pays for more than it needs.
+            reports_by_module = {}
+            pass_num = 1
+            while True:
+                if pass_num > 1:
+                    self.log(f"\n[Pass {pass_num}] Re-analyzing for anything the previous pass's own edits uncovered...")
+                    analysis_report = analyzer.analyze(book)
+
+                changes_this_pass = 0
+                for module in modules:
+                    self.log(f"Repairing: {module.name}")
+                    repair_report = module.repair(book, analysis_report)
+                    if repair_report is None:
+                        continue
+                    changes_this_pass += repair_report.count
+                    existing = reports_by_module.get(module.name)
+                    if existing is None:
+                        reports_by_module[module.name] = repair_report
+                    else:
+                        existing.issues.extend(repair_report.issues)
+
+                if changes_this_pass == 0:
+                    break
+                if pass_num >= max_passes:
+                    self.log(
+                        f"\nStopped after {pass_num} passes (still finding new issues each "
+                        "pass) -- run repair again on the output if anything looks unfinished."
+                    )
+                    break
+                pass_num += 1
 
             # The cache existed to hand this run's findings to the repair
             # modules above -- once they've all had their turn, it's just
@@ -1039,7 +1085,9 @@ class Engine:
             cache_file.unlink(missing_ok=True)
 
             self.log("")
-            self._print_repair_summary(repair_reports, details=details)
+            if pass_num > 1:
+                self.log(f"(completed in {pass_num} pass(es))\n")
+            self._print_repair_summary(list(reports_by_module.values()), details=details)
 
             if dry_run:
                 self.log("\nDry run complete.")
