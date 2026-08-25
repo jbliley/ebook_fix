@@ -360,6 +360,25 @@ def _renumber_play_order(nav_map) -> None:
         point.set("playOrder", str(i))
 
 
+def _spine_position_anchor(target_hrefs: dict, href_to_position: dict, position: int):
+    """Finds the existing navPoint whose target sits closest before
+    `position` in the book's reading order, for anchoring a new entry
+    when there's no direct href match to extend (see the "rest of case
+    2" priority note in docs/xhtml_recoder_plan.md). Returns None if
+    nothing in the NCX sits before that position at all -- the caller
+    should insert at the very start of the navMap in that case."""
+    best_position = None
+    best_point = None
+    for href, point in target_hrefs.items():
+        href_position = href_to_position.get(href)
+        if href_position is None or href_position >= position:
+            continue
+        if best_position is None or href_position > best_position:
+            best_position = href_position
+            best_point = point
+    return best_point
+
+
 def generate_missing_ncx_entries(book: Any, split_hrefs: set, new_hrefs_by_origin: dict) -> Report:
     """
     Phase 3c of the XHTML Recoder plan (see docs/xhtml_recoder_plan.md):
@@ -368,18 +387,30 @@ def generate_missing_ncx_entries(book: Any, split_hrefs: set, new_hrefs_by_origi
     3b's rewriting) ends up listed -- every other new file is a real,
     distinct chapter with no entry of its own. This adds one.
 
-    Deliberately narrow in scope, matching Jacob's three-case framework
-    (see the memory note from the session this was built in):
-    - A file whose split produced no NCX coverage at all (none of its
-      resulting hrefs match any existing <content src>) is left alone
-      here -- that book has no TOC to extend in the first place, which
-      is a bigger job (generating one from nothing) than filling a gap
-      next to an entry that already exists. Reported as skipped so
-      it's visible, not silently dropped.
-    - Assumes a flat NCX (no nested Parts/sections) -- same assumption
-      find_ncx_links_into/rewrite_ncx_links already make about a
-      single book's worth of navPoints. A book with a nested TOC would
-      need Phase 4's structure work first.
+    Also covers the "rest of case 2" from Jacob's three-case framework
+    (the priority note in docs/xhtml_recoder_plan.md): a split whose
+    resulting files have no existing NCX entry to extend at all still
+    gets entries generated here, anchored by the book's own reading
+    order (book.chapters, which loads in spine order) rather than by
+    an existing neighboring entry. Concretely: walk backward from the
+    split's own position in the book until an existing navPoint
+    covering an earlier file is found, and insert the new entries
+    right after it; if nothing in the NCX covers anything earlier in
+    the book, the new entries go at the very start of the navMap.
+    Origins are processed in spine order (not set iteration order) so
+    a run generating entries for several uncovered files in the same
+    book still ends up with a correctly-ordered navMap, and a split
+    processed earlier can itself become the anchor a later one falls
+    back on.
+
+    Deliberately narrow in one respect still: assumes a flat NCX (no
+    nested Parts/sections), the same assumption
+    find_ncx_links_into/rewrite_ncx_links already make about a single
+    book's worth of navPoints. A book with a nested TOC would need
+    Phase 4's structure work first. A book with no NCX document at all
+    (an EPUB3-only book whose nav.xhtml has no TOC entries either) is
+    still out of scope here -- generating a nav.xhtml TOC from nothing
+    is separate future work, not this function's job.
 
     New entries reuse the chapter's own already-detected title
     (chapter.title, set from the structure analyzer's marker text
@@ -388,6 +419,10 @@ def generate_missing_ncx_entries(book: Any, split_hrefs: set, new_hrefs_by_origi
     of a book's own original structure as the analysis already found.
     Whole-file entries only (no fragment) -- a newly created split file
     has no finer internal structure of its own to point a fragment at.
+    A split segment with no detected title of its own (only possible
+    for a leading, untitled chunk of front matter before a file's
+    first chapter marker) is still skipped and reported rather than
+    given a fabricated label.
 
     Sets book.ncx_modified when anything is actually added, so the
     writer re-serializes book.ncx_document (see Phase 3a).
@@ -402,7 +437,9 @@ def generate_missing_ncx_entries(book: Any, split_hrefs: set, new_hrefs_by_origi
         return report
 
     location = getattr(book, "ncx_href", "") or "toc.ncx"
-    chapters_by_href = {c.href: c for c in getattr(book, "chapters", []) or []}
+    all_chapters = getattr(book, "chapters", []) or []
+    chapters_by_href = {c.href: c for c in all_chapters}
+    href_to_position = {c.href: i for i, c in enumerate(all_chapters)}
 
     # A style template to copy onto generated navPoints -- whatever
     # attribute/id-prefix convention this book's own NCX already uses,
@@ -412,21 +449,27 @@ def generate_missing_ncx_entries(book: Any, split_hrefs: set, new_hrefs_by_origi
     template_class = next((p.get("class") for p in existing_points if p.get("class")), None)
     existing_ids = {p.get("id") for p in existing_points if p.get("id")}
 
-    for origin_href in split_hrefs:
+    # Spine order, not set-iteration order, so entries land in the
+    # right relative sequence when more than one split in this run
+    # needs fallback (no-direct-anchor) positioning.
+    ordered_origins = sorted(
+        split_hrefs, key=lambda href: href_to_position.get(href, 0)
+    )
+
+    for origin_href in ordered_origins:
         new_hrefs = new_hrefs_by_origin.get(origin_href, [])
         all_hrefs = [origin_href] + list(new_hrefs)
 
         target_hrefs = _ncx_target_hrefs(ncx)
-        if not any(href in target_hrefs for href in all_hrefs):
-            report.add(
-                location,
-                "Skipped -- no existing entry to extend",
-                f"{origin_href}: none of this split's files had an existing "
-                f"NCX entry; generating a TOC from nothing is out of scope here",
-            )
-            continue
-
         anchor = None
+        if not any(href in target_hrefs for href in all_hrefs):
+            origin_position = href_to_position.get(origin_href)
+            if origin_position is not None:
+                anchor = _spine_position_anchor(target_hrefs, href_to_position, origin_position)
+            # anchor stays None if nothing in the book's reading order
+            # before this split has an entry either -- new points then
+            # go at the very start of the navMap, below.
+
         for href in all_hrefs:
             existing = target_hrefs.get(href)
             if existing is not None:

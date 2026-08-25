@@ -853,12 +853,14 @@ class Engine:
         finished conversion -- an EPUB3 nav document's TOC/landmarks
         and a book's NCX both get their entries rewritten to follow a
         split, and a split file with no NCX entry of its own gets one
-        generated using its own detected chapter title, provided the
-        book had *some* existing NCX coverage to extend in the first
-        place. A book with no NCX coverage at all is left alone --
-        generating a whole TOC from nothing is a separate, larger
-        piece of future work (see Jacob's three-case framework in
-        docs/xhtml_recoder_plan.md), not this command's job yet.
+        generated using its own detected chapter title. This now
+        covers a split with *no* existing NCX coverage to extend too,
+        anchored by the book's own reading order instead of a
+        neighboring entry (see Jacob's three-case framework in
+        docs/xhtml_recoder_plan.md) -- a book with no NCX document at
+        all (EPUB3-only, no TOC in its nav.xhtml either) is still out
+        of scope, since that's generating a nav.xhtml TOC from
+        nothing rather than extending an NCX that already exists.
         """
         source, temp_path = self._resolve_source(epub)
         if source is None:
@@ -876,12 +878,12 @@ class Engine:
                 "Physically splits any file that has 2+ chapter boundaries at\n"
                 "sequence-only confidence or better, then rewrites any in-body\n"
                 "footnote/cross-reference links and NCX/nav entries affected by\n"
-                "the split. This tests the splitting mechanics themselves, not\n"
-                "a finished conversion -- see docs/xhtml_recoder_plan.md for\n"
-                "what Phase 3c still needs to add (generating a TOC entry for a\n"
-                "chapter that never had one of its own) and the review gate\n"
-                "Phase 5 will add (requiring a corroborated boundary before\n"
-                "splitting anything).\n"
+                "the split, generating a new NCX entry for any resulting chapter\n"
+                "that doesn't already have one -- even when the whole split had no\n"
+                "existing NCX coverage to extend. This tests the splitting\n"
+                "mechanics themselves, not a finished conversion -- see\n"
+                "docs/xhtml_recoder_plan.md for the review gate Phase 5 will add\n"
+                "(requiring a corroborated boundary before splitting anything).\n"
             )
 
             tree = analyze_structure(book)

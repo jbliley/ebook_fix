@@ -17,10 +17,11 @@ deliberately on hold until chapter-separation coverage is further
 along. See the priority note after Phase 3e below for what that
 actually means against the three-case framework; Phase 3c above
 already covers the case where a file has SOME markers detected but no
-TOC to extend -- what's still missing is generating a TOC from
-nothing (the rest of case 2) and best-effort splitting when a file has
-no detected markers at all (case 3). Those come before TOC
-verification, not after.
+TOC to extend, and the priority note's first bullet now also covers a
+file with markers but *no* TOC coverage at all to extend -- what's
+still missing is best-effort splitting when a file has no detected
+markers at all (case 3). That comes before TOC verification, not
+after.
 **Started:** session ending with the chapter_markup page_breaks.py cleanup.
 
 **Jacob's three-case framework** (stated the session Phase 3c was
@@ -424,15 +425,39 @@ mid-phase still leaves solid ground to resume from.
 Per the three-case framework above, Phase 3c only closed part of case
 2 (a file with some detected markers gets an entry generated for each
 resulting piece, but only once a split already has *something* to
-anchor a new entry against). Still open, and ahead of Phase 3d/3e in
-priority:
-- Generating a TOC from nothing for a file that has detected chapter
-  markers but no existing NCX/nav entry to extend at all (the rest of
-  case 2) -- five of the ten sample books hit exactly this gap when
-  Phase 3c was tested (see Phase 3c's writeup above).
+anchor a new entry against). One piece of that gap is now closed:
+- [x] Done -- **Generating NCX entries for a split with no existing
+  entry to extend at all.** `generate_missing_ncx_entries` in
+  `crossref.py` no longer skips this case (it used to report
+  "Skipped -- no existing entry to extend" and leave the split with
+  no TOC coverage). It now falls back to the book's own reading order
+  (`book.chapters`, spine order, since the spine-order bug below is
+  fixed) to find the nearest existing navPoint before the split's
+  position and anchors new entries after it, or inserts at the very
+  start of the navMap if nothing in the book is covered yet either.
+  Origins are processed in spine order (not set-iteration order) so a
+  run with several uncovered splits still ends up correctly sequenced,
+  and a split processed earlier in the same run can itself become the
+  anchor a later one falls back on. Verified against all ten sample
+  books via `split-structure`: the five books that previously hit the
+  skip path (BrokenSentences, ChaptersMisaligned,
+  GutenbergText-ChapterSplit, RunTogetherText,
+  Watermarks-SmallChapterNumbers) now get real entries generated
+  instead, every output still reloads and validates cleanly, and a
+  spine-order check across every generated entry in every affected
+  book confirmed zero entries land out of order. The "no title to
+  use" skip (an untitled leading front-matter segment) is unchanged --
+  still reported, not guessed at.
+  Still out of scope, and now the actual remaining gap in case 2:
+  generating a nav.xhtml/NCX TOC from nothing for a book that has no
+  NCX document (or an NCX with zero real entries to anchor against at
+  all -- not even a single-entry stub) and no split running in the
+  same session to trigger this path. That's Phase 3e's territory
+  (standalone TOC verification, decoupled from splitting) more than a
+  further extension of this function.
 - Best-effort chapter splitting for a file with no detected markers at
   all (case 3), likely needing user verification when confidence is
-  low, per Jacob's framework.
+  low, per Jacob's framework. Not started.
 
 ### Phase 4 -- Edge cases and hardening
 - Nested structure (Parts with multiple chapters).
