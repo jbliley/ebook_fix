@@ -32,6 +32,7 @@ places would need updating together.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Any
 
 from lxml import etree
@@ -317,3 +318,168 @@ def rewrite_ncx_links(book: Any, refs: list, href_by_id_by_origin: dict) -> Repo
         )
 
     return report
+
+
+# ---------------------------------------------------------------------
+# Phase 3c -- generating new NCX entries for chapters that split apart
+# with no entry of their own
+# ---------------------------------------------------------------------
+
+
+def _ncx_target_hrefs(ncx_document) -> dict:
+    """Maps every distinct file path a <content src="..."> already
+    points at (fragment stripped) to the last top-level navPoint
+    element found targeting it, in document order. "Last" rather than
+    "first" so an href with several existing fragment entries (a file
+    that already had multiple chapters listed) anchors on the one
+    closest to wherever a new entry needs to be inserted."""
+    nav_map = ncx_document.find(f"{{{NCX_NS_URI}}}navMap")
+    if nav_map is None:
+        return {}
+    by_href = {}
+    for point in nav_map.findall(f"{{{NCX_NS_URI}}}navPoint"):
+        content = point.find(f"{{{NCX_NS_URI}}}content")
+        src = content.get("src") if content is not None else None
+        if not src:
+            continue
+        path, _, _ = src.partition("#")
+        if path:
+            by_href[path] = point
+    return by_href
+
+
+def _renumber_play_order(nav_map) -> None:
+    """Resequences every top-level navPoint's playOrder 1, 2, 3... in
+    its current document order. Only touches playOrder if at least one
+    existing navPoint already used it -- a minimal NCX with no
+    playOrder attributes at all is left in that same minimal style."""
+    points = nav_map.findall(f"{{{NCX_NS_URI}}}navPoint")
+    if not any(p.get("playOrder") for p in points):
+        return
+    for i, point in enumerate(points, start=1):
+        point.set("playOrder", str(i))
+
+
+def generate_missing_ncx_entries(book: Any, split_hrefs: set, new_hrefs_by_origin: dict) -> Report:
+    """
+    Phase 3c of the XHTML Recoder plan (see docs/xhtml_recoder_plan.md):
+    when a file with an existing NCX entry splits into several chapter
+    files, only whichever file kept that entry's target (after Phase
+    3b's rewriting) ends up listed -- every other new file is a real,
+    distinct chapter with no entry of its own. This adds one.
+
+    Deliberately narrow in scope, matching Jacob's three-case framework
+    (see the memory note from the session this was built in):
+    - A file whose split produced no NCX coverage at all (none of its
+      resulting hrefs match any existing <content src>) is left alone
+      here -- that book has no TOC to extend in the first place, which
+      is a bigger job (generating one from nothing) than filling a gap
+      next to an entry that already exists. Reported as skipped so
+      it's visible, not silently dropped.
+    - Assumes a flat NCX (no nested Parts/sections) -- same assumption
+      find_ncx_links_into/rewrite_ncx_links already make about a
+      single book's worth of navPoints. A book with a nested TOC would
+      need Phase 4's structure work first.
+
+    New entries reuse the chapter's own already-detected title
+    (chapter.title, set from the structure analyzer's marker text
+    during the split -- see splitter.py's SplitSegment/_wire_into_book)
+    rather than inventing one, per Jacob's preference to keep as much
+    of a book's own original structure as the analysis already found.
+    Whole-file entries only (no fragment) -- a newly created split file
+    has no finer internal structure of its own to point a fragment at.
+
+    Sets book.ncx_modified when anything is actually added, so the
+    writer re-serializes book.ncx_document (see Phase 3a).
+    """
+    report = Report("NCX Entry Generator")
+    ncx = getattr(book, "ncx_document", None)
+    if ncx is None:
+        return report
+
+    nav_map = ncx.find(f"{{{NCX_NS_URI}}}navMap")
+    if nav_map is None:
+        return report
+
+    location = getattr(book, "ncx_href", "") or "toc.ncx"
+    chapters_by_href = {c.href: c for c in getattr(book, "chapters", []) or []}
+
+    # A style template to copy onto generated navPoints -- whatever
+    # attribute/id-prefix convention this book's own NCX already uses,
+    # so a generated entry doesn't stand out from the ones the book
+    # shipped with.
+    existing_points = nav_map.findall(f"{{{NCX_NS_URI}}}navPoint")
+    template_class = next((p.get("class") for p in existing_points if p.get("class")), None)
+    existing_ids = {p.get("id") for p in existing_points if p.get("id")}
+
+    for origin_href in split_hrefs:
+        new_hrefs = new_hrefs_by_origin.get(origin_href, [])
+        all_hrefs = [origin_href] + list(new_hrefs)
+
+        target_hrefs = _ncx_target_hrefs(ncx)
+        if not any(href in target_hrefs for href in all_hrefs):
+            report.add(
+                location,
+                "Skipped -- no existing entry to extend",
+                f"{origin_href}: none of this split's files had an existing "
+                f"NCX entry; generating a TOC from nothing is out of scope here",
+            )
+            continue
+
+        anchor = None
+        for href in all_hrefs:
+            existing = target_hrefs.get(href)
+            if existing is not None:
+                anchor = existing
+                continue
+
+            chapter = chapters_by_href.get(href)
+            title = chapter.title if chapter is not None else ""
+            if not title:
+                report.add(
+                    location,
+                    "Skipped -- no title to use",
+                    f"{href}: split produced this file with no detected "
+                    f"chapter title, nothing usable for a new entry's label",
+                )
+                continue
+
+            point = etree.SubElement(nav_map, f"{{{NCX_NS_URI}}}navPoint")
+            if template_class:
+                point.set("class", template_class)
+            new_id = "navpoint-" + PurePosixPath(href).stem
+            if new_id in existing_ids:
+                new_id = _unique_id(existing_ids, new_id)
+            existing_ids.add(new_id)
+            point.set("id", new_id)
+
+            label_el = etree.SubElement(point, f"{{{NCX_NS_URI}}}navLabel")
+            text_el = etree.SubElement(label_el, f"{{{NCX_NS_URI}}}text")
+            text_el.text = title
+            content_el = etree.SubElement(point, f"{{{NCX_NS_URI}}}content")
+            content_el.set("src", href)
+
+            if anchor is not None:
+                anchor.addnext(point)
+            else:
+                nav_map.insert(0, point)
+            anchor = point
+
+            book.ncx_modified = True
+            report.add(location, "Entry generated", f"{href!r} labeled {title!r}")
+
+    if report.count:
+        _renumber_play_order(nav_map)
+
+    return report
+
+
+def _unique_id(existing: set, candidate: str) -> str:
+    """Same de-duplication idiom used elsewhere in this project
+    (splitter._unique) -- appends _2, _3, ... until free."""
+    if candidate not in existing:
+        return candidate
+    n = 2
+    while f"{candidate}_{n}" in existing:
+        n += 1
+    return f"{candidate}_{n}"

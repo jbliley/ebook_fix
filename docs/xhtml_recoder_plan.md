@@ -2,11 +2,23 @@
 
 **Status:** In progress. Phases 0 (structure analyzer audit/hardening),
 1 (single-file splitting mechanics), 2 (cross-reference rewriting),
-3a (NCX/nav made editable), and 3b (rewriting existing TOC/nav entries)
-are done -- see below. Phase 3c (generating new TOC entries for
-chapters that split apart with no entry of their own) is the next
-piece.
+3a (NCX/nav made editable), 3b (rewriting existing TOC/nav entries),
+and 3c (generating new NCX entries for chapters with no entry of
+their own) are done -- see below. Phase 3d (NCX/nav consistency +
+full regression) is the next piece.
 **Started:** session ending with the chapter_markup page_breaks.py cleanup.
+
+**Jacob's three-case framework** (stated the session Phase 3c was
+built), meant to guide this feature going forward:
+1. TOC exists + chapter markers exist -> do nothing, leave as-is.
+2. Chapter markers exist, no TOC -> eventually generate a TOC and
+   split into separate XHTML pages.
+3. No chapter markers, no TOC -> attempt best-effort chapter
+   splitting, may require user verification if confidence is low.
+Priority is preserving a book's own original structure whenever real
+chapter headers and TOC entries already exist -- see Phase 3c below,
+which inherits a chapter's own detected title rather than inventing
+one.
 
 ## The problem
 
@@ -323,16 +335,54 @@ mid-phase still leaves solid ground to resume from.
   ten sample books too, to confirm the `LinkReference` bug fix didn't
   touch anything outside the splitter/crossref path -- repair output
   was unchanged.
-- **Phase 3c -- Generate new TOC entries for chapters that split apart
-  with no entry of their own.** The harder, more design-heavy half:
-  when one file with one TOC entry splits into five chapter files,
-  only one (or zero) of them had a real entry to begin with. This
-  phase inserts entries for the others -- this is where "TOC/nav label
-  reuse during chapter mapping" (see the open bug list this doc's
-  continuity note points back to) belongs. Likely to need further
-  slicing once actually in progress, since the label-reuse question
-  alone (what to call a newly-split chapter that never had its own
-  TOC entry) has more than one reasonable answer.
+- **Phase 3c -- Generate new NCX entries for chapters that split apart
+  with no entry of their own.** [x] Done.
+  Turned out narrower than the plan doc originally worried once
+  actually checked: every split segment already carries its own real,
+  detected chapter title (splitter.py's SplitMarker.title, set from
+  the structure analyzer's own marker text -- see the eligibility
+  check in engine.py's split_chapters), so there was no genuine
+  "what do we call an untitled chapter" design problem to solve in
+  the normal case. `generate_missing_ncx_entries` in `crossref.py`
+  just reuses that title directly, per Jacob's preference to keep as
+  much of a book's own original structure as the analysis already
+  found, rather than reusing the parent's old TOC label or inventing
+  new text.
+  Scope is deliberately narrow, matching Jacob's three-case framework
+  above: a split whose resulting files have *no* existing NCX
+  coverage at all (none of them match any pre-existing <content src>,
+  even after Phase 3b's rewriting) is skipped and reported, not
+  guessed at -- generating a whole TOC from nothing is case 2 of the
+  framework, a separate future piece of work. A split segment with no
+  detected title of its own (only possible for the leading,
+  untitled chunk of content before a file's very first chapter
+  marker -- see splitter.py's split_body_at_markers) is also skipped
+  and reported rather than given a fabricated label; confirmed against
+  Sidewinders that this is the right call, not a bug -- the flagged
+  segment there really was front-matter (title page, publisher info,
+  an epigraph) sitting before "Chapter 1," not a real chapter.
+  New entries are inserted at the correct position by walking each
+  split's resulting hrefs in order and anchoring on whichever existing
+  navPoint the split's OWN files already point to (post Phase 3b
+  rewriting), inserting any missing ones right after the nearest
+  covered neighbor. playOrder is resequenced across the whole NCX
+  afterward, but only for books that already used playOrder at all --
+  a minimal NCX with no playOrder attributes stays that way. Assumes a
+  flat NCX (no nested Parts/sections), the same assumption
+  find_ncx_links_into/rewrite_ncx_links already make.
+  Verified against all ten sample books via `split-structure`: every
+  output still validates (readable, correct ZIP structure,
+  container.xml and OPF found), word counts match exactly between
+  original and split output on every book (no content lost or
+  duplicated), and CrossReferences-Synthetic's generated entries
+  (chapter_002.xhtml through chapter_005.xhtml, each correctly labeled
+  Two/Three/Four/Five) land in the right position with playOrder
+  correctly resequenced 1-5. Also confirmed the two failure-reporting
+  paths -- Sidewinders' front-matter case above, and five books
+  (BrokenSentences, ChaptersMisaligned, GutenbergText-ChapterSplit,
+  RunTogetherText, Watermarks-SmallChapterNumbers) whose splits
+  produced no existing NCX coverage at all and were correctly skipped
+  rather than guessed at.
 - **Phase 3d -- NCX/nav consistency + full regression.** If a book has
   both an NCX and an EPUB3 nav document, keep them in sync with each
   other rather than only fixing whichever one 3b/3c happened to touch

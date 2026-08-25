@@ -14,7 +14,7 @@ from ebook_fix.serialize import save_report
 from ebook_fix.class_map import build_class_profiles, format_class_map, write_mapping_file
 from ebook_fix.structure import analyze_structure, format_structure_report, iter_chapter_nodes, SplitConfidence
 from ebook_fix.splitter import apply_split, SplitMarker, SplitError
-from ebook_fix.crossref import find_links_into, rewrite_links, find_ncx_links_into, rewrite_ncx_links
+from ebook_fix.crossref import find_links_into, rewrite_links, find_ncx_links_into, rewrite_ncx_links, generate_missing_ncx_entries
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -837,24 +837,28 @@ class Engine:
         """Phase 1 of the XHTML Recoder plan (see
         docs/xhtml_recoder_plan.md): a hands-on way to try the
         splitter mechanics (ebook_fix.splitter) against a real book.
-        Also runs Phase 2's in-body cross-reference rewriting and
-        Phase 3b's NCX entry rewriting (both in ebook_fix.crossref)
-        immediately afterward, once per run across every file split.
+        Also runs Phase 2's in-body cross-reference rewriting,
+        Phase 3b's NCX entry rewriting, and Phase 3c's NCX entry
+        generation (all in ebook_fix.crossref) immediately afterward,
+        once per run across every file split.
 
         NOT gated by the full split-safety-bar corroboration
         requirement yet (see docs/split_safety_bar.md) -- proper
-        gating is Phase 5's job, once NCX handling exists too. This
-        only requires a boundary to be at least SEQUENCE_ONLY
-        confidence, so it can actually be tried against today's sample
-        library even though none of them currently have a
-        CORROBORATED boundary (see Phase 0e/0f).
+        gating is Phase 5's job. This only requires a boundary to be
+        at least SEQUENCE_ONLY confidence, so it can actually be tried
+        against today's sample library even though none of them
+        currently have a CORROBORATED boundary (see Phase 0e/0f).
 
         Treat any output from this command as a mechanics test, not a
         finished conversion -- an EPUB3 nav document's TOC/landmarks
         and a book's NCX both get their entries rewritten to follow a
-        split, but Phase 3c (generating a TOC entry for a chapter that
-        never had one of its own) doesn't exist yet, so a split file
-        with no original TOC entry still won't get one.
+        split, and a split file with no NCX entry of its own gets one
+        generated using its own detected chapter title, provided the
+        book had *some* existing NCX coverage to extend in the first
+        place. A book with no NCX coverage at all is left alone --
+        generating a whole TOC from nothing is a separate, larger
+        piece of future work (see Jacob's three-case framework in
+        docs/xhtml_recoder_plan.md), not this command's job yet.
         """
         source, temp_path = self._resolve_source(epub)
         if source is None:
@@ -894,6 +898,7 @@ class Engine:
             split_hrefs = set()
             current_href_origin = {}
             href_by_id_by_origin = {}
+            new_hrefs_by_origin = {}
             for href, nodes in by_href.items():
                 if len(nodes) < 2:
                     continue
@@ -919,6 +924,7 @@ class Engine:
                 for new_href in result.new_hrefs:
                     current_href_origin[new_href] = href
                 href_by_id_by_origin[href] = result.href_by_id
+                new_hrefs_by_origin[href] = result.new_hrefs
                 all_hrefs = [href] + result.new_hrefs
                 self.log(
                     f"Split {href}: {len(markers)} chapters -> "
@@ -942,6 +948,11 @@ class Engine:
             self.log("")
             self.header("[NCX Rewriter]")
             ncx_report.print(details=details, verb="fixed")
+
+            entry_report = generate_missing_ncx_entries(book, split_hrefs, new_hrefs_by_origin)
+            self.log("")
+            self.header("[NCX Entry Generator]")
+            entry_report.print(details=details, verb="added")
 
             writer = EPUBWriter()
             writer.save(book, output)
