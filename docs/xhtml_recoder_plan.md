@@ -4,8 +4,23 @@
 1 (single-file splitting mechanics), 2 (cross-reference rewriting),
 3a (NCX/nav made editable), 3b (rewriting existing TOC/nav entries),
 and 3c (generating new NCX entries for chapters with no entry of
-their own) are done -- see below. Phase 3d (NCX/nav consistency +
-full regression) is the next piece.
+their own) are done -- see below.
+
+**Priority reordering (2026-08-24):** Jacob's actual goal is two
+separate things, done in this order:
+1. Every detected chapter physically lives on its own XHTML page.
+2. The TOC (existing or generated) correctly points at each one.
+
+Getting every book's chapters onto their own page comes first --
+Phase 3d/3e below (TOC consistency/verification) are real, but
+deliberately on hold until chapter-separation coverage is further
+along. See the priority note after Phase 3e below for what that
+actually means against the three-case framework; Phase 3c above
+already covers the case where a file has SOME markers detected but no
+TOC to extend -- what's still missing is generating a TOC from
+nothing (the rest of case 2) and best-effort splitting when a file has
+no detected markers at all (case 3). Those come before TOC
+verification, not after.
 **Started:** session ending with the chapter_markup page_breaks.py cleanup.
 
 **Jacob's three-case framework** (stated the session Phase 3c was
@@ -388,12 +403,46 @@ mid-phase still leaves solid ground to resume from.
   other rather than only fixing whichever one 3b/3c happened to touch
   first. Finishes with the standard full regression pass (word-count
   diffing plus analyze/repair/re-analyze) across every sample book.
+  On hold -- see the priority note at the top of this doc; chapter-
+  separation completeness (Phase 4's partially-split/no-marker work
+  below) comes first.
+- **Phase 3e -- Standalone TOC verification, decoupled from
+  splitting.** Not started. Jacob's framing (2026-08-24): the real
+  goal is (1) every detected chapter on its own page, then (2) the
+  TOC correctly pointing at each one -- and today's code only ever
+  touches the TOC as a side effect of an actual physical split
+  happening in that run (see `split_chapters`'s `if len(nodes) < 2:
+  continue` skip). A book that's already fully split, one chapter per
+  file, never runs through any TOC logic at all today, correct or
+  not. This phase adds a check that runs regardless of whether a
+  split happened this run: walk every detected chapter, confirm the
+  TOC has a correct entry pointing at it, and fix or generate one
+  where it doesn't. On hold for the same reason as 3d -- see the
+  priority note at the top of this doc.
+
+### Priority note -- what "chapter separation" still needs before 3d/3e
+Per the three-case framework above, Phase 3c only closed part of case
+2 (a file with some detected markers gets an entry generated for each
+resulting piece, but only once a split already has *something* to
+anchor a new entry against). Still open, and ahead of Phase 3d/3e in
+priority:
+- Generating a TOC from nothing for a file that has detected chapter
+  markers but no existing NCX/nav entry to extend at all (the rest of
+  case 2) -- five of the ten sample books hit exactly this gap when
+  Phase 3c was tested (see Phase 3c's writeup above).
+- Best-effort chapter splitting for a file with no detected markers at
+  all (case 3), likely needing user verification when confidence is
+  low, per Jacob's framework.
 
 ### Phase 4 -- Edge cases and hardening
 - Nested structure (Parts with multiple chapters).
 - Front matter / back matter -- split out too, or left bundled?
 - Books already partially split (some chapters already separate
-  files, some not) -- mixed-state handling.
+  files, some not) -- mixed-state handling. Related to the priority
+  note above: case 3 of Jacob's framework (no detected markers at all)
+  likely lives here too, since best-effort splitting needs the same
+  kind of "what's already fine, what needs work" judgment this bullet
+  describes.
 - Minimum-content gate so a stray short "boundary" (e.g. a
   misidentified scene divider) doesn't trigger a split.
 
