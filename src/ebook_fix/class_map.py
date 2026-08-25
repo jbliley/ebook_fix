@@ -26,7 +26,7 @@ from pathlib import Path
 
 from lxml import etree
 
-from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE
+from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE, THEME_APPEARANCE_PROPERTIES
 
 PROPERTY_RE = re.compile(r'([a-zA-Z-]+)\s*:\s*([^;]+)')
 # A "simple" selector for our purposes: an optional single tag name
@@ -202,7 +202,7 @@ def _guess_role(p: ClassProfile):
 
 DISPLAY_PROPERTIES = (
     "font-size", "font-weight", "font-style", "text-align",
-    "text-indent", "margin-top", "margin-bottom",
+    "text-indent", "margin-top", "margin-bottom", "color",
 )
 
 
@@ -241,12 +241,33 @@ DEFAULT_ROLE_NAMES = {
 }
 
 
+def _has_theme_fighting_properties(p) -> bool:
+    """True if this class declares at least one property from
+    ebook_fix.css.THEME_APPEARANCE_PROPERTIES -- a hardcoded color, a
+    fixed font-family/font-size, etc. Independent of likely_role: a
+    class guessed as "inline-span", "link", "body-wrapper", or even
+    "unknown" can still be the actual source of hardcoded black text a
+    person notices in a reading app, and often is (a top-level
+    body-wrapper class carrying a hardcoded color cascades to every
+    descendant that doesn't declare its own override)."""
+    return any(k.lower() in THEME_APPEARANCE_PROPERTIES for k in p.properties)
+
+
 def write_mapping_file(profiles: dict, path) -> None:
     """
     Write an editable TOML file: one [[class]] block per class that's
     both a standardize-able role (chapter-heading/body-text) and a
-    confidence level worth pre-filling (medium/high). Everything else
-    is listed as a comment for awareness, not auto-included.
+    confidence level worth pre-filling (medium/high) -- plus one more
+    block, role="theme-neutral", for any other class that still
+    declares a hardcoded color/font/size regardless of its guessed
+    role or confidence (see _has_theme_fighting_properties above).
+    Everything else is listed as a comment for awareness, not
+    auto-included.
+
+    A theme-neutral entry defaults new_name to the class's own name --
+    it's meant to strip theme-fighting properties in place, not rename
+    the class the way a real role mapping does. Delete the block (or
+    the whole file) if a person doesn't want that class touched.
 
     Read back by ebook_fix.modules.class_standardize.load_mapping_file
     -- either via `map-css --write-mapping` + a separate `repair
@@ -256,23 +277,25 @@ def write_mapping_file(profiles: dict, path) -> None:
     """
     ordered = sorted(profiles.values(), key=lambda p: -p.usage_count)
     mappable = [p for p in ordered if p.likely_role in MAPPABLE_ROLES and p.role_confidence in MAPPABLE_CONFIDENCE]
-    leftover = [p for p in ordered if p not in mappable]
+    theme_only = [p for p in ordered if p not in mappable and _has_theme_fighting_properties(p)]
+    leftover = [p for p in ordered if p not in mappable and p not in theme_only]
 
     lines = [
         "# ebook_fix class-standardization mapping",
         "#",
         "# Review every entry below. Delete a [[class]] block entirely",
         "# to leave that class untouched. Edit `new_name` to change what",
-        "# it gets renamed to, or `role` (\"chapter-heading\" / \"body-text\")",
-        "# if the guess looks wrong.",
+        "# it gets renamed to, or `role` (\"chapter-heading\" / \"body-text\"",
+        "# / \"theme-neutral\") if the guess looks wrong.",
         "#",
         "# Applied by: ebook-fixer repair <book> --class-mapping <this file>",
         "",
     ]
 
-    if not mappable:
+    if not mappable and not theme_only:
         lines += [
-            "# No classes met the confidence bar for auto-mapping (medium/high).",
+            "# No classes met the confidence bar for auto-mapping (medium/high),",
+            "# and none declared a hardcoded color/font/size either.",
             "# Add [[class]] blocks by hand below if you want to map something anyway:",
             "#",
             '# [[class]]',
@@ -293,8 +316,27 @@ def write_mapping_file(profiles: dict, path) -> None:
             "",
         ]
 
+    if theme_only:
+        lines.append(
+            "# --- hardcoded color/font/size found, but no chapter-heading/body-text "
+            "role to apply (theme-neutral: strips those properties, keeps everything "
+            "else this class declares, no rename) ---"
+        )
+        for p in theme_only:
+            dominant_tag, frac = _dominant_tag(p.tag_counts)
+            tag_note = f"<{dominant_tag}> {frac:.0%}" if dominant_tag else "-"
+            theme_props = ", ".join(sorted(k for k in p.properties if k.lower() in THEME_APPEARANCE_PROPERTIES))
+            lines += [
+                "[[class]]",
+                f'old_name = "{p.class_name}"',
+                f'role = "theme-neutral"  # guessed {p.likely_role} ({p.role_confidence} confidence), '
+                f'used {p.usage_count}x, mostly {tag_note}; declares {theme_props}',
+                f'new_name = "{p.class_name}"',
+                "",
+            ]
+
     if leftover:
-        lines.append("# --- left out (low confidence, or not chapter-heading/body-text) ---")
+        lines.append("# --- left out (low confidence, not chapter-heading/body-text, no hardcoded color/font/size either) ---")
         for p in leftover:
             dominant_tag, frac = _dominant_tag(p.tag_counts)
             tag_note = f"<{dominant_tag}> {frac:.0%}" if dominant_tag else "-"

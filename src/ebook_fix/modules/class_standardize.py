@@ -4,22 +4,36 @@ ebook_fix.modules.class_standardize
 Applies a confirmed class-role mapping (produced by `map-css
 --write-mapping`, then reviewed and edited by a person) to a book:
 renames the mapped classes everywhere they appear -- external CSS
-files, embedded <style> blocks, class="" attributes -- and replaces
-each renamed class's declared properties with a small standardized
-rule set for its role, so body text and chapter headings behave the
-same way across every book instead of carrying over whatever
-font-size/color/margin a conversion tool happened to bake in. The
-standardized rules deliberately leave font-family, color, and
-font-size undeclared so the reader's own theme controls them.
+files, embedded <style> blocks, class="" attributes -- and applies a
+per-role treatment to each renamed class's declared properties.
 
-Deliberately narrow scope:
+Two different treatments, by role:
+- "chapter-heading" / "body-text": FULLY REPLACES the class's rule
+  body with a small standardized rule set for that role (see
+  STANDARD_RULES below), so headings and body text behave the same
+  way across every book instead of carrying over whatever
+  font-size/color/margin a conversion tool happened to bake in.
+  Deliberately leaves font-family, color, and font-size undeclared so
+  the reader's own theme controls them.
+- "theme-neutral": a narrower, surgical treatment for everything else
+  that still needs its color/font/size cleaned up -- an inline <span>
+  used for emphasis, a link class, even the top-level body-wrapper
+  class conversion tools like calibre put directly on <body> (which
+  hardcoding a color on is worse than any single paragraph, since it
+  cascades to everything under it that doesn't declare its own
+  override). Keeps every one of the class's own declared properties
+  except the ones in THEME_FIGHTING_PROPERTIES (see ebook_fix.css) --
+  no forced rename, no forced rule replacement, just the theme-fighting
+  properties gone. Added because "chapter-heading"/"body-text" assume
+  block-level elements (they'd wrongly apply things like text-indent
+  and block margins to an inline span), and because plenty of
+  hardcoded color lives on classes with no real semantic role for this
+  tool to guess at all.
+
+Deliberately narrow scope beyond the per-role split above:
 - Only touches classes present in the mapping file. Anything not
   listed -- including "low confidence" or "unknown" classes the
   analysis flagged -- is left completely alone.
-- Fully REPLACES a mapped class's rule body with the standardized set
-  below. This is a standardize, not a merge: anything else the
-  original rule declared (letter-spacing, a custom font stack, etc.)
-  is dropped along with the properties this module exists to remove.
 - Chapter breaks are applied as page-break-after on the block right
   before each chapter-heading element, not page-break-before on the
   heading -- see ebook_fix.page_breaks for why, and the same logic
@@ -31,7 +45,9 @@ Deliberately narrow scope:
   other source of a stray page-break-before on a mapped heading).
 - Two mapped classes with the same new_name collapse into one class,
   intentionally -- that's how "these two are really the same thing"
-  gets expressed in the mapping file.
+  gets expressed in the mapping file. A theme-neutral entry normally
+  keeps new_name equal to old_name (no real rename intended), but
+  nothing stops it from being renamed too if that's ever useful.
 """
 
 from __future__ import annotations
@@ -43,12 +59,12 @@ from pathlib import Path, PurePosixPath
 
 from lxml import etree
 
-from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE
+from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE, THEME_FIGHTING_PROPERTIES
 from ebook_fix.class_map import SIMPLE_CLASS_SELECTOR_RE
 from ebook_fix.report import Report
 from ebook_fix.page_breaks import closest_preceding_block, mark_page_break_after
 
-VALID_ROLES = ("chapter-heading", "body-text")
+VALID_ROLES = ("chapter-heading", "body-text", "theme-neutral")
 
 # The properties a standardized class ends up with. Order here is the
 # order they're written back out in.
@@ -78,11 +94,11 @@ STANDARD_RULES = {
 # Stripped from a mapped class's rule (and any inline style="" on an
 # element carrying that class) even though they're not part of the
 # standardized set above -- these are specifically the properties that
-# fight a reader's own theme/font-size/night-mode settings.
-STRIP_PROPERTIES = {
-    "font-family", "color", "background", "background-color",
-    "font-size", "height", "max-height", "min-height", "line-height",
-}
+# fight a reader's own theme/font-size/night-mode settings. Shared with
+# class_map.py (see ebook_fix.css.THEME_FIGHTING_PROPERTIES) so a class
+# gets flagged for cleanup there using the exact same list this module
+# actually strips.
+STRIP_PROPERTIES = THEME_FIGHTING_PROPERTIES
 
 # Stripped specifically from a chapter-heading element's own inline
 # style (not from body-text elements). This module marks the chapter
@@ -207,10 +223,15 @@ class ClassStandardizeRepair:
                     if old_name in (el.get("class") or "").split():
                         count += 1
             if count:
+                verb = (
+                    "will have theme-fighting properties (color, font, size, etc.) stripped"
+                    if entry.role == "theme-neutral"
+                    else f"will be renamed and restyled to the standard {entry.role} rules"
+                )
                 report.add(
                     "*",
                     f".{old_name} -> .{entry.new_name} ({entry.role})",
-                    f"{count} element(s) will be renamed and restyled to the standard {entry.role} rules.",
+                    f"{count} element(s) {verb}.",
                 )
         return report
 
@@ -318,10 +339,15 @@ class ClassStandardizeRepair:
 
         for old_name, count in rename_counts.items():
             entry = self.by_old_name[old_name]
+            verb = (
+                "renamed with theme-fighting properties (color, font, size, etc.) stripped"
+                if entry.role == "theme-neutral"
+                else f"renamed and restyled to the standard {entry.role} rules"
+            )
             report.add(
                 "*",
                 f".{old_name} -> .{entry.new_name} ({entry.role})",
-                f"{count} element(s) renamed and restyled to the standard {entry.role} rules.",
+                f"{count} element(s) {verb}.",
             )
 
         return report
@@ -377,7 +403,22 @@ class ClassStandardizeRepair:
             output_rules = []
             for role, selectors in mapped_by_role.items():
                 dedup_selectors = list(dict.fromkeys(selectors))
-                output_rules.append(f"{', '.join(dedup_selectors)} {{ {_rule_text(role)} }}")
+                if role == "theme-neutral":
+                    # Surgical: keep everything this class already
+                    # declared except the theme-fighting properties --
+                    # no forced rule replacement like chapter-heading/
+                    # body-text get, since a theme-neutral class could
+                    # be an inline span, a link, a body wrapper, or
+                    # anything else with no single "standard" shape.
+                    rule_body = _strip_inline_style(body)
+                    if not rule_body:
+                        # Nothing left once the theme-fighting properties
+                        # are gone -- drop the (now-empty) rule entirely
+                        # rather than emit a pointless "{ }".
+                        continue
+                else:
+                    rule_body = _rule_text(role)
+                output_rules.append(f"{', '.join(dedup_selectors)} {{ {rule_body} }}")
             if unmapped_parts:
                 output_rules.append(f"{', '.join(unmapped_parts)} {{{body}}}")
 

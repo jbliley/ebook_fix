@@ -36,6 +36,33 @@ URL_RE = re.compile(r'url\(\s*[\'"]?([^\'")]+)[\'"]?\s*\)')
 
 SAMPLE_LIMIT = 30
 
+# Properties that fight a reader's own theme/night-mode/font settings when
+# a conversion tool bakes them into a class rule -- a hardcoded black text
+# color, a fixed serif font-family, a fixed pixel font-size, and the like.
+# Shared between class_map.py (to notice when a class needs this kind of
+# cleanup, regardless of what semantic role it's guessed as) and
+# class_standardize.py (to actually strip them). Kept here rather than in
+# either of those two so neither has to import from the other for it.
+THEME_FIGHTING_PROPERTIES = frozenset({
+    "font-family", "color", "background", "background-color",
+    "font-size", "height", "max-height", "min-height", "line-height",
+})
+
+# The subset of THEME_FIGHTING_PROPERTIES that's specifically about
+# appearance a reader's color scheme/font choice would visibly clash
+# with -- used by class_map.py to decide whether a class is worth
+# *suggesting* for theme-neutral cleanup at all. Deliberately narrower
+# than the full strip list above: line-height/height/max-height/
+# min-height are layout properties this project also strips once a
+# class is being cleaned up for some other reason, but a class with
+# only one of those and no color/font override isn't the kind of thing
+# a person notices as "this text looks wrong" -- surfacing every such
+# class would bury the real signal (an actual hardcoded color) in
+# mostly-harmless noise.
+THEME_APPEARANCE_PROPERTIES = frozenset({
+    "font-family", "color", "background", "background-color", "font-size",
+})
+
 # Repair modules (e.g. chapter_markup) that inject their own <style id="ebookfix-...">
 # blocks tag them with this prefix. Used to separate "CSS the source book shipped
 # with" from "CSS ebook_fix itself put there" when scanning inline/embedded styles.
