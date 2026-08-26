@@ -67,3 +67,71 @@ Every fix is on by default. To turn specific fixes off, generate a config file (
 This writes <code>ebook_fix.toml</code> in the current folder. Open it in any text editor and change <code>true</code> to <code>false</code> next to any fix you want to skip, then save.
 <p>&emsp;<b>Use it:</b> python cli.py analyze "C:/Books/ebook title.epub" --config ebook_fix.toml</p>
 If a file named <code>ebook_fix.toml</code> is sitting in the folder you run the command from, it's picked up automatically — you don't need to pass <code>--config</code> at all. Delete the file (or don't create one) to run with every fix enabled.
+
+<h3>Command Cheat Sheet</h3>
+Quick reference for every command and flag currently available. Run these from the <code>src</code> folder as <code>python cli.py &lt;command&gt; [options]</code>.
+
+<p><b>analyze</b> - Analyze an EPUB without modifying it.</p>
+<ul>
+<li><code>input</code> - Path to the EPUB file.</li>
+<li><code>--details</code> - Show the full line-by-line issue list instead of the category summary.</li>
+<li><code>--config FILE</code> - Path to a TOML config file controlling which fixes are enabled. Defaults to <code>ebook_fix.toml</code> if present, otherwise every fix runs.</li>
+<li><code>--no-container-repair</code> - Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem.</li>
+</ul>
+
+<p><b>repair</b> - Repair an EPUB.</p>
+<ul>
+<li><code>input</code> - Path to the EPUB file.</li>
+<li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_fixed.epub</code>.</li>
+<li><code>--dry-run</code> - Analyze repairs without writing a file.</li>
+<li><code>--details</code> - Show the full before/after list of every change instead of the category summary.</li>
+<li><code>--class-mapping FILE</code> - Apply a confirmed class-standardization mapping (from <code>map-css --write-mapping</code>, reviewed by hand) as part of this repair. Renames chapter-heading/body-text classes and standardizes their CSS.</li>
+<li><code>--verbose</code> - Verbose output.</li>
+<li><code>--config FILE</code> - Same as <code>analyze</code>.</li>
+<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
+<li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_fixed.epub</code>. You'll be asked to confirm before that happens.</li>
+</ul>
+
+<p><b>auto-fix</b> - One-command hands-off repair. Runs everything the normal repair does, plus high-confidence-only class standardization and book-wide text color removal, with no review step and no mapping file left behind.</p>
+<ul>
+<li><code>input</code> - Path to the EPUB file.</li>
+<li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_autofixed.epub</code>.</li>
+<li><code>--details</code> - Show the full before/after list of every change instead of the category summary.</li>
+<li><code>--verbose</code> - Verbose output.</li>
+<li><code>--config FILE</code> - Same as <code>analyze</code>.</li>
+<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
+<li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_autofixed.epub</code>. You'll be asked to confirm before that happens.</li>
+</ul>
+
+<p><b>validate</b> - Run the file-integrity check only, without analyzing or repairing.</p>
+<ul>
+<li><code>input</code> - Path to the EPUB file.</li>
+<li><code>--repair</code> - If the file fails validation, also try to repair its ZIP/EPUB container and report the result.</li>
+</ul>
+
+<p><b>map-css</b> - Show a best-guess semantic role for every CSS class used in the book (for example, "calibre3" likely means body-text), for review before renaming.</p>
+<ul>
+<li><code>input</code> - Path to the EPUB file.</li>
+<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
+<li><code>--write-mapping FILE</code> - Also write an editable TOML mapping of high/medium-confidence chapter-heading and body-text classes to FILE, for review ahead of a future standardize/rename repair pass.</li>
+</ul>
+
+<p><b>map-structure</b> - Show the detected chapter structure and each boundary's split-confidence, for review before any physical splitting.</p>
+<ul>
+<li><code>input</code> - Path to the EPUB file.</li>
+<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
+</ul>
+
+<p><b>split-structure</b> - Proof of concept: physically splits any file with 2+ detected chapter boundaries into standalone chapter files and rewrites any affected in-body cross-reference links. A mechanics test, not a finished conversion; the table of contents and nav documents aren't updated yet.</p>
+<ul>
+<li><code>input</code> - Path to the EPUB file.</li>
+<li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_split.epub</code>.</li>
+<li><code>--details</code> - Show the full before/after list of every cross-reference link rewritten, instead of the category summary.</li>
+<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
+<li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_split.epub</code>. You'll be asked to confirm before that happens.</li>
+</ul>
+
+<p><b>init-config</b> - Write a default config file you can edit to turn fixes on/off.</p>
+<ul>
+<li><code>-o, --output FILE</code> - Where to write the config file. Defaults to <code>ebook_fix.toml</code>.</li>
+</ul>
