@@ -38,6 +38,11 @@ After the analysis, the repair will automatically fix issues it finds. These fix
 Once the repair finishes, a Repair Report is printed listing only the fixes that were actually applied, grouped by module with a count for each issue type. Pass <code>--details</code> to see the full before/after list for every single change instead of just the counts.
 <p>&emsp;<b>Run repair with full detail: </b><code>python cli.py repair "C:/path/to/file/ebook title.epub" --details</code></p>
 
+<h3>Auto-Fix</h3>
+<p>For a single hands-off command, <code>auto-fix</code> runs everything the normal repair does, then also standardizes chapter-heading and body-text CSS classes (using only its highest-confidence guesses, applied immediately with no file left behind to review) and strips every hardcoded text color from the book so your ebook reader's own theme/night mode controls it instead.</p>
+<p>&emsp;<b>Run auto-fix: </b><code>python cli.py auto-fix "C:/path/to/file/ebook title.epub"</code></p>
+This is a trade of a little safety for convenience: unlike the reviewed class-mapping workflow below, nothing here is checked by a person first. If a book comes out of <code>auto-fix</code> looking wrong, the original file was never touched, so the normal <code>repair</code> command is still there to use instead.
+
 <h3>File Integrity</h3>
 <p>Before <code>analyze</code> or <code>repair</code> touch a file, they first confirm it's actually a well-formed EPUB: readable, starts with the ZIP signature, opens as a ZIP, has an intact central directory, contains a META-INF/container.xml, and can locate its OPF package document. If any of these fail, the command stops there and reports which check failed instead of trying to work with a broken file.</p>
 <p>When the integrity check fails, <code>analyze</code> and <code>repair</code> automatically try a conservative, best-effort repair of the file's ZIP/EPUB structure before giving up. What it can fix with confidence:</p>

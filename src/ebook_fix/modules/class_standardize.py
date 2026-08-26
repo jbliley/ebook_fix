@@ -250,13 +250,27 @@ class ClassStandardizeRepair:
 
         # 1. External CSS files
         contents = read_book_css(book)
+        new_files = getattr(book, "new_files", None) or {}
         for res in getattr(book, "css", []) or []:
-            text = contents.get(res.href)
+            zpath = str(base / res.href)
+            # read_book_css always re-reads the original archive, so a
+            # CSS file another repair module already rewrote into
+            # book.new_files this run would otherwise look untouched
+            # here and get regenerated from the ORIGINAL text -- wiping
+            # out that other module's change (e.g. a hardcoded color
+            # ColorStripRepair already removed from an unmapped
+            # selector this module passes through unchanged). Prefer
+            # the live override if one exists, same idea as working
+            # from a chapter's live document instead of re-parsing the
+            # source archive.
+            if zpath in new_files:
+                text = new_files[zpath].decode("utf-8", errors="replace")
+            else:
+                text = contents.get(res.href)
             if not text:
                 continue
             new_text, changed = self._rewrite_css_text(text)
             if changed:
-                zpath = str(base / res.href)
                 book.new_files[zpath] = new_text.encode("utf-8")
                 changed_anything = True
 

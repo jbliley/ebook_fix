@@ -100,6 +100,49 @@ def build_parser():
         help="Replace the output file if it already exists. Without -o/--output, this replaces the original file itself instead of writing <input>_fixed.epub -- you'll be asked to confirm before that happens."
     )
 
+    # Auto-fix
+    auto_fix = sub.add_parser(
+        "auto-fix",
+        help="One-command hands-off repair: normal repair plus high-confidence-only class standardization and book-wide text color removal, with no review step and no mapping file left behind."
+    )
+    auto_fix.add_argument(
+        "input",
+        help="Input EPUB"
+    )
+    auto_fix.add_argument(
+        "-o",
+        "--output",
+        help="Output EPUB (default: <input>_autofixed.epub)"
+    )
+    auto_fix.add_argument(
+        "--details",
+        action="store_true",
+        help="Show the full before/after list of every change instead of the category summary."
+    )
+    auto_fix.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Verbose output."
+    )
+    auto_fix.add_argument(
+        "--config",
+        help=(
+            "Path to a TOML config file controlling which fixes are "
+            f"enabled. Defaults to ./{DEFAULT_CONFIG_FILENAME} if present, "
+            "otherwise every fix runs."
+        )
+    )
+    auto_fix.add_argument(
+        "--no-container-repair",
+        action="store_true",
+        help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
+    )
+    auto_fix.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the output file if it already exists. Without -o/--output, this replaces the original file itself instead of writing <input>_autofixed.epub -- you'll be asked to confirm before that happens."
+    )
+
     # Validate
     validate = sub.add_parser(
         "validate",
@@ -289,6 +332,22 @@ def main():
             Path(output),
             dry_run=args.dry_run,
             class_mapping=getattr(args, "class_mapping", None),
+            overwrite=args.overwrite,
+            details=args.details,
+        )
+    elif args.command == "auto-fix":
+        output = args.output
+        if output is None:
+            if args.overwrite:
+                if not _confirm_replace_original(epub):
+                    print("Cancelled.")
+                    sys.exit(1)
+                output = epub
+            else:
+                output = epub.with_stem(epub.stem + "_autofixed")
+        engine.auto_fix(
+            epub,
+            Path(output),
             overwrite=args.overwrite,
             details=args.details,
         )

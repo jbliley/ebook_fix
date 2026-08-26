@@ -11,7 +11,13 @@ from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.serialize import save_report
-from ebook_fix.class_map import build_class_profiles, format_class_map, write_mapping_file
+from ebook_fix.class_map import (
+    build_class_profiles,
+    format_class_map,
+    write_mapping_file,
+    MAPPABLE_ROLES,
+    DEFAULT_ROLE_NAMES,
+)
 from ebook_fix.structure import analyze_structure, format_structure_report, iter_chapter_nodes, SplitConfidence
 from ebook_fix.splitter import apply_split, SplitMarker, SplitError
 from ebook_fix.crossref import find_links_into, rewrite_links, find_ncx_links_into, rewrite_ncx_links, generate_missing_ncx_entries
@@ -20,7 +26,8 @@ from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
-from ebook_fix.modules.class_standardize import ClassStandardizeRepair, load_mapping_file, MappingError
+from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMappingEntry, load_mapping_file, MappingError
+from ebook_fix.modules.color_strip import ColorStripRepair
 from ebook_fix.modules.gutenberg_repair import GutenbergRepair
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.ellipsis import normalize_ellipsis_text
@@ -991,6 +998,167 @@ class Engine:
         if not details:
             self.log("  (run with --details for the full before/after list)")
 
+    def _run_repair_passes(self, book, modules, analyzer, analysis_report, max_passes=5):
+        """Shared by `repair` and `auto_fix`: run the whole module
+        list, then check whether that pass changed anything a FRESH
+        analysis would now flag as a NEW issue -- not one already
+        recomputed live against the current text (see the
+        "source_text = issue.before if current_val == issue.before
+        else current_val" pattern in ellipsis_repair.py,
+        apostrophe_repair.py, and modules/whitespace.py, which already
+        closes the "another module edited this exact node first" gap
+        within a single pass). What a single pass genuinely can't see
+        is a problem that didn't exist until this pass's own edits
+        created it -- e.g. Paragraph Repair merging two paragraphs and
+        leaving a fresh trailing-space seam at the join, which is a
+        real text/tail slot that had nothing wrong with it when
+        analysis first ran. Re-analyzing and running the modules again
+        catches that, same as manually re-running repair on the output
+        would. Capped at max_passes so a genuine (if unexpected)
+        oscillation between two modules can't loop forever -- each
+        pass only continues if the previous one actually changed
+        something, so a book that's already clean, or that converges
+        in one or two passes like most do, never pays for more than it
+        needs.
+
+        Returns (reports_by_module, pass_num).
+        """
+        reports_by_module = {}
+        pass_num = 1
+        while True:
+            if pass_num > 1:
+                self.log(f"\n[Pass {pass_num}] Re-analyzing for anything the previous pass's own edits uncovered...")
+                analysis_report = analyzer.analyze(book)
+
+            changes_this_pass = 0
+            for module in modules:
+                self.log(f"Repairing: {module.name}")
+                repair_report = module.repair(book, analysis_report)
+                if repair_report is None:
+                    continue
+                changes_this_pass += repair_report.count
+                existing = reports_by_module.get(module.name)
+                if existing is None:
+                    reports_by_module[module.name] = repair_report
+                else:
+                    existing.issues.extend(repair_report.issues)
+
+            if changes_this_pass == 0:
+                break
+            if pass_num >= max_passes:
+                self.log(
+                    f"\nStopped after {pass_num} passes (still finding new issues each "
+                    "pass) -- run repair again on the output if anything looks unfinished."
+                )
+                break
+            pass_num += 1
+
+        return reports_by_module, pass_num
+
+    def _build_auto_class_mapping(self, profiles: dict) -> list[ClassMappingEntry]:
+        """Auto-fix's in-memory stand-in for the reviewed
+        map-css/--class-mapping workflow: the same chapter-heading/
+        body-text candidates write_mapping_file would pre-fill, but
+        restricted to "high" confidence only (write_mapping_file
+        includes "medium" too, since that path assumes a person reads
+        it before anything is applied) and returned directly as
+        ClassMappingEntry objects instead of a TOML file -- nothing is
+        written to disk, and nothing is left for a person to review,
+        by design (see engine.auto_fix). "theme-neutral" entries are
+        deliberately left out here: ColorStripRepair already strips
+        hardcoded text color from every class (mapped or not), so
+        there's nothing left for a theme-neutral entry to do that
+        wouldn't just be redundant with it.
+        """
+        ordered = sorted(profiles.values(), key=lambda p: -p.usage_count)
+        mappable = [
+            p for p in ordered
+            if p.likely_role in MAPPABLE_ROLES and p.role_confidence == "high"
+        ]
+        return [
+            ClassMappingEntry(
+                old_name=p.class_name,
+                role=p.likely_role,
+                new_name=DEFAULT_ROLE_NAMES[p.likely_role],
+            )
+            for p in mappable
+        ]
+
+    def auto_fix(self, epub, output, overwrite=False, details=False, max_passes=5):
+        """One-command, hands-off mode: runs the normal repair module
+        list, then on top of it --
+          - standardizes chapter-heading/body-text classes using only
+            "high" confidence guesses (see _build_auto_class_mapping),
+            applied immediately with no mapping file written to disk
+            and no review step -- the deliberately-less-safe trade
+            this mode makes in exchange for being one command; the
+            reviewed `map-css --write-mapping` + `repair
+            --class-mapping` path is still there for anyone who wants
+            to see the guesses first.
+          - strips every hardcoded text color, book-wide, regardless
+            of class or confidence (see ebook_fix.modules.color_strip)
+            so the reader's own theme/night-mode controls text color
+            instead.
+
+        If the result isn't right for a given book, nothing here is
+        exclusive -- the normal `repair` (optionally with a reviewed
+        `--class-mapping`) still works on the same input.
+        """
+        source, temp_path = self._resolve_source(epub)
+        if source is None:
+            return
+        try:
+            self.log("Opening EPUB...")
+            parser = EPUBParser()
+            book = parser.load(source)
+            self.log("")
+
+            self.log("Analyzing book structure...")
+            analyzer = EPUBAnalyzer()
+            analysis_report = analyzer.analyze(book)
+            cache_file = save_report(analysis_report, epub)
+            self.log(f"Saved analysis cache: {cache_file}")
+            self.log("")
+
+            modules = list(self.modules)
+
+            profiles = build_class_profiles(book)
+            auto_entries = self._build_auto_class_mapping(profiles)
+            if auto_entries:
+                names = ", ".join(f".{e.old_name}" for e in auto_entries)
+                self.log(f"Auto class mapping (high confidence only): {names}")
+                modules.append(ClassStandardizeRepair(auto_entries))
+            else:
+                self.log("Auto class mapping: no high-confidence chapter-heading/body-text classes found -- skipped.")
+
+            modules.append(ColorStripRepair())
+            self.log("")
+
+            if not self._check_output_path(output, overwrite):
+                return
+
+            if not modules:
+                self.log("No repair modules are enabled in the config. Nothing to do.")
+                return
+
+            reports_by_module, pass_num = self._run_repair_passes(
+                book, modules, analyzer, analysis_report, max_passes=max_passes
+            )
+
+            cache_file.unlink(missing_ok=True)
+
+            self.log("")
+            if pass_num > 1:
+                self.log(f"(completed in {pass_num} pass(es))\n")
+            self._print_repair_summary(list(reports_by_module.values()), details=details)
+
+            writer = EPUBWriter()
+            writer.save(book, output)
+            self.log(f"\nSaved: {output}")
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
     def repair(self, epub, output, dry_run=False, class_mapping=None, overwrite=False, details=False, max_passes=5):
         source, temp_path = self._resolve_source(epub)
         if source is None:
@@ -1040,57 +1208,9 @@ class Engine:
                 self.log("No repair modules are enabled in the config. Nothing to do.")
                 return
 
-            # Run the whole module list, then check whether that pass
-            # changed anything a FRESH analysis would now flag as a
-            # NEW issue -- not one already recomputed live against the
-            # current text (see the "source_text = issue.before if
-            # current_val == issue.before else current_val" pattern in
-            # ellipsis_repair.py, apostrophe_repair.py, and
-            # modules/whitespace.py, which already closes the "another
-            # module edited this exact node first" gap within a single
-            # pass). What a single pass genuinely can't see is a
-            # problem that didn't exist until this pass's own edits
-            # created it -- e.g. Paragraph Repair merging two
-            # paragraphs and leaving a fresh trailing-space seam at
-            # the join, which is a real text/tail slot that had
-            # nothing wrong with it when analysis first ran. Re-
-            # analyzing and running the modules again catches that,
-            # same as manually re-running repair on the output would.
-            # Capped at max_passes so a genuine (if unexpected)
-            # oscillation between two modules can't loop forever --
-            # each pass only continues if the previous one actually
-            # changed something, so a book that's already clean, or
-            # that converges in one or two passes like most do, never
-            # pays for more than it needs.
-            reports_by_module = {}
-            pass_num = 1
-            while True:
-                if pass_num > 1:
-                    self.log(f"\n[Pass {pass_num}] Re-analyzing for anything the previous pass's own edits uncovered...")
-                    analysis_report = analyzer.analyze(book)
-
-                changes_this_pass = 0
-                for module in modules:
-                    self.log(f"Repairing: {module.name}")
-                    repair_report = module.repair(book, analysis_report)
-                    if repair_report is None:
-                        continue
-                    changes_this_pass += repair_report.count
-                    existing = reports_by_module.get(module.name)
-                    if existing is None:
-                        reports_by_module[module.name] = repair_report
-                    else:
-                        existing.issues.extend(repair_report.issues)
-
-                if changes_this_pass == 0:
-                    break
-                if pass_num >= max_passes:
-                    self.log(
-                        f"\nStopped after {pass_num} passes (still finding new issues each "
-                        "pass) -- run repair again on the output if anything looks unfinished."
-                    )
-                    break
-                pass_num += 1
+            reports_by_module, pass_num = self._run_repair_passes(
+                book, modules, analyzer, analysis_report, max_passes=max_passes
+            )
 
             # The cache existed to hand this run's findings to the repair
             # modules above -- once they've all had their turn, it's just
