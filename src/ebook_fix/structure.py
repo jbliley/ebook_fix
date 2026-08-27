@@ -129,6 +129,18 @@ class BoundaryEvidence:
     # -- Requirement 5: structurally safe to cut at --
     structurally_clean: bool | None = None  # None = not yet checked
 
+    # Case 3 only (see chapters.analyze_case3_book_chapters and
+    # build_case3_structure below): True marks this evidence as coming
+    # from the weaker "no label word, no TOC" detection path. Books
+    # this evidence belongs to have already been sorted, per Jacob's
+    # three-case framework, into "nothing reliable enough to
+    # corroborate against" -- so this hard-caps confidence at
+    # NEEDS_REVIEW below regardless of anything else, rather than
+    # relying on corroboration simply never firing (which would be
+    # true today but silently stop being true if a future change ever
+    # ran TOC/anchor corroboration over case 3 evidence too).
+    case3: bool = False
+
     # Free-text notes explaining *why* confidence landed where it did
     # -- meant to surface directly in a review command/GUI, not just
     # for debugging.
@@ -145,6 +157,13 @@ class BoundaryEvidence:
         with them."""
         if not self.in_winning_sequence:
             return SplitConfidence.NONE
+        if self.case3:
+            # Never CORROBORATED, no matter what else is true -- see
+            # the case3 field's docstring above and the "Decided" note
+            # in docs/split_safety_bar.md (a book with no
+            # corroborating signal at all always stops at "reviewed,
+            # not split").
+            return SplitConfidence.NEEDS_REVIEW
         # Requirement 3 -- checked before corroboration, and it can
         # push a boundary to NEEDS_REVIEW even without corroboration.
         # A weak margin means the *book itself* is ambiguous about
@@ -271,6 +290,22 @@ def _evidence_for_chapter(candidate: Any, margin: float | None) -> BoundaryEvide
     )
 
 
+def _evidence_for_case3_chapter(candidate: Any, margin: float | None) -> BoundaryEvidence:
+    return BoundaryEvidence(
+        candidate=candidate,
+        in_winning_sequence=bool(getattr(candidate, "confirmed", False)),
+        sequence_score=getattr(candidate, "score", 0.0),
+        sequence_margin=margin,
+        case3=True,
+        notes=[
+            "Case 3 detection: no label word (\"Chapter\", \"Part\") and no "
+            "TOC exists in this book to corroborate against, so this can "
+            "never be more than \"needs review\" -- see Jacob's three-case "
+            "framework in docs/xhtml_recoder_plan.md."
+        ],
+    )
+
+
 def _evidence_for_part(candidate: Any) -> BoundaryEvidence:
     # Deliberately in_winning_sequence=False, always -- see note below.
     return BoundaryEvidence(
@@ -289,7 +324,7 @@ def _evidence_for_part(candidate: Any) -> BoundaryEvidence:
     )
 
 
-def build_structure(summary: BookChapterSummary) -> BookStructure:
+def build_structure(summary: BookChapterSummary, case3: bool = False) -> BookStructure:
     """Assemble a first-draft BookStructure from an already-computed
     BookChapterSummary (see chapters.py:analyze_book_chapters).
 
@@ -301,9 +336,18 @@ def build_structure(summary: BookChapterSummary) -> BookStructure:
     question, see xhtml_recoder_plan.md); it's just a placeholder so
     the tree doesn't silently start mid-book. There is deliberately no
     equivalent trailing back-matter placeholder yet either.
+
+    Pass case3=True when `summary` came from
+    chapters.analyze_case3_book_chapters instead of the normal
+    analyze_book_chapters -- this routes every chapter's evidence
+    through _evidence_for_case3_chapter instead, and skips Part/Book/
+    Volume handling entirely, since that concept is built on label
+    words that case 3 text has none of by definition (see
+    analyze_case3_structure below, which is the actual entry point
+    map-structure calls).
     """
     confirmed_chapters = list(summary.confirmed_boundaries)
-    parts = list(summary.parts)
+    parts = [] if case3 else list(summary.parts)
 
     if not confirmed_chapters and not parts:
         return BookStructure(nodes=[], sequence_margin=None, source_summary=summary)
@@ -346,7 +390,10 @@ def build_structure(summary: BookChapterSummary) -> BookStructure:
                 title=candidate.text,
                 start_href=candidate.href,
                 start_book_order=candidate.book_order,
-                evidence=_evidence_for_chapter(candidate, margin),
+                evidence=(
+                    _evidence_for_case3_chapter(candidate, margin) if case3
+                    else _evidence_for_chapter(candidate, margin)
+                ),
             )
             if current_part is not None:
                 current_part.children.append(node)
@@ -827,6 +874,31 @@ def analyze_structure(book: Any) -> BookStructure:
     tree = build_structure(summary)
     apply_toc_corroboration(book, tree)
     apply_anchor_corroboration(book, tree)
+    score_confidence(book, tree)
+    return tree
+
+
+def analyze_case3_structure(book: Any) -> BookStructure:
+    """Case 3 counterpart to analyze_structure above -- for a book
+    where the normal pipeline found no confirmed chapters at all (see
+    Jacob's three-case framework, case 3, in xhtml_recoder_plan.md).
+
+    Callers should check analyze_structure's result first and only
+    call this when it came back empty; running this on a book that
+    already detects cleanly the normal way would be pointless at best.
+
+    Skips TOC and anchor corroboration entirely -- case 3 is defined
+    by having no TOC to corroborate against in the first place, and
+    every resulting node's confidence is hard-capped at NEEDS_REVIEW
+    regardless (see BoundaryEvidence.case3) -- but still runs the
+    content-length and structural-cleanliness checks from 0g, since
+    those are useful signal for a person reviewing the result even
+    though they can't push anything to CORROBORATED here.
+    """
+    from .chapters import analyze_case3_book_chapters
+
+    summary = analyze_case3_book_chapters(book)
+    tree = build_structure(summary, case3=True)
     score_confidence(book, tree)
     return tree
 

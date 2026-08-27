@@ -6,6 +6,11 @@
 and 3c (generating new NCX entries for chapters with no entry of
 their own) are done -- see below.
 
+**2026-08-27 session:** First slice of case 3 (no chapter markers, no
+TOC) built -- detection only, not wired to any actual splitting yet.
+See "Case 3 detection -- first slice" below, after the three-case
+framework, for what's in and what's still open.
+
 **Priority reordering (2026-08-24):** Jacob's actual goal is two
 separate things, done in this order:
 1. Every detected chapter physically lives on its own XHTML page.
@@ -35,6 +40,64 @@ Priority is preserving a book's own original structure whenever real
 chapter headers and TOC entries already exist -- see Phase 3c below,
 which inherits a chapter's own detected title rather than inventing
 one.
+
+### Case 3 detection -- first slice (2026-08-27)
+
+Jacob chose the first signal to build: a bare number immediately
+followed by a title, with no label word in front of it ("1. The
+Horror in Clay.", as opposed to "Chapter 1"). Structural breaks
+(`<hr>`, page-break CSS) were explicitly deferred, not built.
+
+Jacob also decided case 3 splits always require manual review, even
+at high confidence -- never auto-applied regardless of how clean the
+sequence looks. This is enforced structurally, not just by
+convention: `BoundaryEvidence.case3` hard-caps `confidence` at
+`NEEDS_REVIEW` (never `CORROBORATED`), and on top of that,
+`split-structure` (the only command that currently acts on detected
+boundaries) never calls the case 3 pipeline at all today -- so there
+is currently no path from case 3 detection to an actual split. That
+wiring is intentionally not built yet; see "Still open" below.
+
+**Built:**
+- `chapters.py`: `_classify_case3` / `_score_case3_candidate` /
+  `extract_case3_candidates` / `analyze_case3_book_chapters`, entirely
+  separate from the case 1/2 code path (`extract_candidates` now
+  takes optional `classify_fn`/`score_fn` params so both paths share
+  one tree-walk instead of two copies of it). Two new `MarkerStyle`
+  values: `UNLABELED_NUMBERED_TITLE_ARABIC` /
+  `_ROMAN`.
+- `structure.py`: `BoundaryEvidence.case3` flag, `analyze_case3_structure`
+  (mirrors `analyze_structure` but skips TOC/anchor corroboration,
+  since case 3 is defined by having no TOC to corroborate against).
+- `engine.py`: `map-structure` now runs the case 3 pipeline as a
+  fallback, in its own clearly-labeled section, whenever the normal
+  pipeline finds nothing. `analyze`'s "Chapters Detected: None" line
+  now points people at `map-structure`.
+- Bug fix along the way: `_looks_titleish` (shared helper) was missing
+  several common prepositions ("from", "as", "into", "onto", "over",
+  "under", "but", "nor") from its list of words allowed to stay
+  lowercase in a title, which was silently failing real titles like
+  "The Madness from the Sea." Confirmed this only loosens matching
+  (never tightens it) and re-ran the full sample suite after the
+  change -- no existing book's detected chapter count or style
+  changed.
+- Verified against `examples/The Call of Cthulhu by H. P. Lovecraft.epub`,
+  the one sample book that has real unlabeled numbered sections and
+  previously came back "Chapters Detected: None". Full regression run
+  across all ten sample books (`analyze`, `map-structure`, and
+  `split-structure`) confirmed no change to any other book's chapter
+  detection, structure report, or split output.
+
+**Still open (not built this session):**
+- Structural-break signals (`<hr>`, page-break CSS) as a second case 3
+  detection path.
+- Actually wiring a reviewed case 3 sequence through to a real split --
+  today this is detection and review-surfacing only. Likely shape,
+  following the same pattern as `map-css` -> review -> `repair
+  --class-mapping`: a dedicated review/confirm step (not
+  `split-structure`, which has no confidence gate at all yet per its
+  own docstring) before anything case 3 finds is ever handed to
+  `splitter.py`.
 
 ## The problem
 

@@ -18,7 +18,10 @@ from ebook_fix.class_map import (
     MAPPABLE_ROLES,
     DEFAULT_ROLE_NAMES,
 )
-from ebook_fix.structure import analyze_structure, format_structure_report, iter_chapter_nodes, SplitConfidence
+from ebook_fix.structure import (
+    analyze_structure, analyze_case3_structure, format_structure_report,
+    iter_chapter_nodes, SplitConfidence,
+)
 from ebook_fix.splitter import apply_split, SplitMarker, SplitError
 from ebook_fix.crossref import find_links_into, rewrite_links, find_ncx_links_into, rewrite_ncx_links, generate_missing_ncx_entries
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
@@ -261,7 +264,7 @@ class Engine:
                     f"across {files_spanned} file(s)"
                 )
             else:
-                self.log("Chapters Detected: None")
+                self.log("Chapters Detected: None (run `map-structure` to check for weaker, unlabeled candidates)")
 
             if fm.boundaries_confirmed:
                 self.log(
@@ -836,6 +839,26 @@ class Engine:
             )
             tree = analyze_structure(book)
             self.log(format_structure_report(tree))
+
+            if not tree.nodes:
+                # Nothing detected the normal way -- see if case 3
+                # (no label word, no TOC) turns up anything weaker.
+                # Always shown as its own clearly-separate section, on
+                # its own review-only footing; see
+                # docs/xhtml_recoder_plan.md, Jacob's three-case
+                # framework.
+                case3_tree = analyze_case3_structure(book)
+                if case3_tree.nodes:
+                    self.log("")
+                    self.header("[Case 3: Unlabeled Numbered Breaks]")
+                    self.log(
+                        "No labeled chapter markers or table of contents exist in this book,\n"
+                        "so this looks for a weaker signal instead: a bare number immediately\n"
+                        "followed by a title, with nothing else backing it up. These can never\n"
+                        "reach \"corroborated\" and are never split automatically -- always for\n"
+                        "review, regardless of how confident the sequence looks.\n"
+                    )
+                    self.log(format_structure_report(case3_tree))
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)

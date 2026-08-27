@@ -69,6 +69,14 @@ ROMAN_NUMERAL_RE = re.compile(r"^[IVXLCDM]+$", re.IGNORECASE)
 ARABIC_RE = re.compile(r"^\d{1,4}$")
 ARABIC_HYPHEN_RE = re.compile(r"^[-\u2013\u2014]\s*(\d{1,4})\s*[-\u2013\u2014]$")
 
+# Case 3 only: a bare number immediately followed by a title, with no
+# label word in front of it ("1. The Horror in Clay.", "IV) The Return").
+# The separator is deliberately narrow (period, close-paren, or colon)
+# rather than any punctuation, so this doesn't fire on ordinary prose
+# that happens to start with a number and a dash or comma.
+CASE3_ARABIC_TITLE_RE = re.compile(r"^(\d{1,4})[.\):]\s+(.+)$")
+CASE3_ROMAN_TITLE_RE = re.compile(r"^([IVXLCDM]+)[.\):]\s+(.+)$", re.IGNORECASE)
+
 _ONES = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
     "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
@@ -98,6 +106,15 @@ class MarkerStyle(Enum):
     ARABIC_HYPHEN = "hyphen-wrapped numeral"
     SPELLED_CARDINAL = "spelled-out number"
     SPELLED_ORDINAL = "spelled-out ordinal"
+    # Case 3 only (see analyze_case3_book_chapters below) -- a number
+    # with no label word ("Chapter", "Part") immediately followed by a
+    # title, e.g. "1. The Horror in Clay." These are never produced by
+    # _classify/extract_candidates above; only _classify_case3 /
+    # extract_case3_candidates produce them, and only ever get used
+    # when the book has no labeled markers and no TOC to detect
+    # anything against otherwise.
+    UNLABELED_NUMBERED_TITLE_ARABIC = "unlabeled numbered title (arabic)"
+    UNLABELED_NUMBERED_TITLE_ROMAN = "unlabeled numbered title (roman)"
 
 
 @dataclass
@@ -266,7 +283,8 @@ def _looks_titleish(text: str) -> bool:
         return True
     minor_words = {
         "a", "an", "the", "of", "and", "or", "in", "on", "to",
-        "for", "at", "by", "with",
+        "for", "at", "by", "with", "from", "as", "into", "onto",
+        "over", "under", "but", "nor",
     }
     words = letters_only.split()
     for i, w in enumerate(words):
@@ -383,8 +401,22 @@ def _css_mentions_chapter(el) -> bool:
     return False
 
 
-def extract_candidates(href: str, tree) -> list:
-    """Scan one chapter's document tree for chapter-marker candidates."""
+def extract_candidates(href: str, tree, classify_fn=None, score_fn=None) -> list:
+    """Scan one chapter's document tree for chapter-marker candidates.
+
+    `classify_fn`/`score_fn` default to the module's normal _classify/
+    _score_candidate pair. extract_case3_candidates below is the only
+    other caller, and passes _classify_case3/_score_case3_candidate
+    instead -- same tree walk and same isolation/length rules, just a
+    much weaker text pattern, so case 3 detection can't accidentally
+    diverge from how case 1/2 candidates are found and re-introduce a
+    bug in one without the other.
+    """
+    if classify_fn is None:
+        classify_fn = _classify
+    if score_fn is None:
+        score_fn = _score_candidate
+
     candidates = []
     if tree is None:
         return candidates
@@ -410,7 +442,7 @@ def extract_candidates(href: str, tree) -> list:
             index += 1
             continue
 
-        classified = _classify(text)
+        classified = classify_fn(text)
         index += 1
         if classified is None:
             continue
@@ -430,10 +462,113 @@ def extract_candidates(href: str, tree) -> list:
             css_hint=_css_mentions_chapter(el),
             element=el,
         )
-        cand.score = _score_candidate(cand)
+        cand.score = score_fn(cand)
         candidates.append(cand)
 
     return candidates
+
+
+# ---------------------------------------------------------------------
+# Case 3 -- unlabeled numbered titles ("1. The Horror in Clay.")
+# ---------------------------------------------------------------------
+# Only meant to run when analyze_book_chapters above already came back
+# with no confirmed chapters at all -- see Jacob's three-case framework
+# in docs/xhtml_recoder_plan.md. Case 3 books have no label word
+# ("Chapter", "Part") and no TOC to corroborate against, so this is a
+# meaningfully weaker signal than the rest of this module and is kept
+# entirely separate rather than folded into _classify/_score_candidate:
+# a book that already detects cleanly through the normal path should
+# never have its result changed by this pattern existing.
+
+
+def _classify_case3(text: str) -> tuple[MarkerStyle, int, bool, str | None] | None:
+    """Try to read `text` as an unlabeled "number + title" marker.
+    Returns the same shape _classify does (style, number,
+    had_label_prefix, label_kind) so it can reuse extract_candidates'
+    tree walk and ChapterCandidate shape -- label_prefix is always
+    False and label_kind always None here, since by definition there's
+    no label word.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return None
+
+    m = CASE3_ARABIC_TITLE_RE.match(stripped)
+    if m:
+        title = m.group(2).strip()
+        if title and _looks_titleish(title):
+            return MarkerStyle.UNLABELED_NUMBERED_TITLE_ARABIC, int(m.group(1)), False, None
+
+    m = CASE3_ROMAN_TITLE_RE.match(stripped)
+    if m:
+        number = _roman_to_int(m.group(1))
+        title = m.group(2).strip()
+        if number is not None and title and _looks_titleish(title):
+            return MarkerStyle.UNLABELED_NUMBERED_TITLE_ROMAN, number, False, None
+
+    return None
+
+
+def _score_case3_candidate(c: ChapterCandidate) -> float:
+    """Deliberately lower-confidence than _score_candidate -- there's
+    no label word to lean on here, so this never earns the label-
+    prefix bonus, and a bare arabic number is treated as neutral
+    rather than penalized the way it is in _score_candidate, since the
+    titleish-title requirement in _classify_case3 already rules out
+    the ordinary-prose false positives that penalty exists to catch.
+    """
+    score = 0.0
+    if c.is_heading_tag:
+        score += 3
+    if c.css_hint:
+        score += 1.5
+    if c.style == MarkerStyle.UNLABELED_NUMBERED_TITLE_ROMAN:
+        score += 1.0
+    if len(c.text.split()) <= 6:
+        score += 0.5
+    return score
+
+
+def extract_case3_candidates(href: str, tree) -> list:
+    return extract_candidates(href, tree, classify_fn=_classify_case3, score_fn=_score_case3_candidate)
+
+
+def analyze_case3_book_chapters(book) -> BookChapterSummary:
+    """Case 3 counterpart to analyze_book_chapters above. Callers
+    should only reach for this after confirming the normal analysis
+    found nothing (summary.best_sequence is None) -- see
+    ebook_fix.structure.analyze_case3_structure, which is what
+    map-structure actually calls. There's no Book/Part/Volume handling
+    here: that concept is built entirely on label words, which case 3
+    text has none of by definition.
+    """
+    all_candidates = []
+    order = 0
+    for chapter in book.chapters:
+        href = getattr(chapter, "href", "")
+        tree = getattr(chapter, "document", None)
+        chapter_candidates = extract_case3_candidates(href, tree)
+        for c in chapter_candidates:
+            order += 1
+            c.book_order = order
+        all_candidates.extend(chapter_candidates)
+
+    all_candidates = merge_repeated_markers(all_candidates)
+
+    summary = BookChapterSummary(candidates=all_candidates)
+    if not all_candidates:
+        return summary
+
+    best, all_sequences = _find_best_sequence(all_candidates)
+    summary.best_sequence = best
+    summary.other_sequences = [s for s in all_sequences if s is not best]
+
+    if best is not None:
+        for c in best.candidates:
+            c.confirmed = True
+        summary.confirmed_boundaries = list(best.candidates)
+
+    return summary
 
 
 def _score_candidate(c: ChapterCandidate) -> float:
