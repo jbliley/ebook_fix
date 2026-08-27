@@ -70,6 +70,7 @@ class MatterLabel(Enum):
     COVER = "cover"
     TITLE_PAGE = "title page"
     COPYRIGHT = "copyright page"
+    PUBLISHER = "publisher info"
     DEDICATION = "dedication"
     EPIGRAPH = "epigraph"
     TABLE_OF_CONTENTS = "table of contents"
@@ -122,6 +123,18 @@ _DEDICATION_OPENER_RE = re.compile(r"^\s*(for|to)\s+\S", re.IGNORECASE)
 # A short line opening with an em/en dash or plain hyphen -- the
 # classic "-- Author Name" attribution line under an epigraph quote.
 _ATTRIBUTION_LINE_RE = re.compile(r"^[\u2014\u2013-]\s*\S")
+# Generic phrasing found on a publisher's imprint/colophon-ish page,
+# independent of any specific publisher's name (that check is
+# metadata-driven -- see _label_from_text's `metadata` argument).
+_PUBLISHER_PHRASE_RE = re.compile(
+    r"\bpublished by\b|\ban? imprint of\b|\ba division of\b",
+    re.IGNORECASE,
+)
+
+# Words too generic to count as a real metadata match on their own --
+# without this, a one-word book title like "Contact" or a common
+# single-word author surname would corroborate almost any short page.
+_TITLE_MATCH_MIN_WORD_LEN = 4
 
 # Checked against the spine entry's filename (case-insensitive
 # substring match). Order matters only in that the first hit wins;
@@ -132,6 +145,8 @@ HREF_HINTS = (
     ("titlepage", MatterLabel.TITLE_PAGE),
     ("title-page", MatterLabel.TITLE_PAGE),
     ("copyright", MatterLabel.COPYRIGHT),
+    ("publisher", MatterLabel.PUBLISHER),
+    ("imprint", MatterLabel.PUBLISHER),
     ("dedicat", MatterLabel.DEDICATION),
     ("epigraph", MatterLabel.EPIGRAPH),
     ("toc", MatterLabel.TABLE_OF_CONTENTS),
@@ -167,45 +182,107 @@ def _spine_ordered_chapters(book):
     return ordered
 
 
+_SKIP_TEXT_TAGS = {"style", "script"}
+
+
 def _chapter_text(chapter):
+    """Visible text only -- skips <style>/<script> content, which
+    lxml's itertext() otherwise includes as ordinary text nodes. Left
+    in, a CSS rule like "text-align: center" can accidentally satisfy
+    a metadata-word match (e.g. a book titled "...Op Center") with
+    nothing to do with the actual page content. Scoped to this module
+    only, since other modules' own "".join(tree.itertext()) calls are
+    a separate, pre-existing convention this isn't meant to change."""
     if chapter.document is None:
         return ""
-    return "".join(chapter.document.itertext())
+    from lxml import etree as _etree
+    parts = []
+    for el in chapter.document.iter():
+        if not isinstance(el.tag, str):
+            continue
+        # el.text is this element's own content -- skip it for
+        # style/script. el.tail is text that follows this element,
+        # belonging to whatever comes next in the document, so it's
+        # always kept regardless of what el itself is.
+        if _etree.QName(el).localname.lower() not in _SKIP_TEXT_TAGS and el.text:
+            parts.append(el.text)
+        if el.tail:
+            parts.append(el.tail)
+    return "".join(parts)
 
 
 def _label_from_href(href):
+    """Returns (label, exact) or None. `exact` means the filename's
+    stem (no extension, no path) IS the hint, e.g. "titlepage.xhtml"
+    -- as opposed to the hint just appearing somewhere inside a longer,
+    less deliberate filename. An exact match is much stronger evidence
+    a conversion tool named the file on purpose, so callers use it to
+    decide between "high" and "medium" confidence rather than treating
+    every href hint the same."""
     lower = href.lower()
+    stem = lower.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    stem = re.sub(r"[_-]", "", stem)
     for hint, label in HREF_HINTS:
         if hint in lower:
-            return label
+            return label, stem == hint
     return None
 
 
-def _label_from_text(text, word_count):
+def _label_from_text(text, word_count, metadata=None):
     if _COPYRIGHT_RE.search(text):
-        return MatterLabel.COPYRIGHT
+        return MatterLabel.COPYRIGHT, "high"
     if _TOC_RE.search(text[:200]):
-        return MatterLabel.TABLE_OF_CONTENTS
+        return MatterLabel.TABLE_OF_CONTENTS, "high"
     if _ACK_RE.search(text):
-        return MatterLabel.ACKNOWLEDGMENTS
+        return MatterLabel.ACKNOWLEDGMENTS, "high"
     if _AFTERWORD_RE.search(text):
-        return MatterLabel.AFTERWORD
+        return MatterLabel.AFTERWORD, "high"
     if _ABOUT_AUTHOR_RE.search(text):
-        return MatterLabel.ABOUT_AUTHOR
+        return MatterLabel.ABOUT_AUTHOR, "high"
     if _COLOPHON_RE.search(text):
-        return MatterLabel.COLOPHON
+        return MatterLabel.COLOPHON, "high"
+
+    publisher_name = (getattr(metadata, "publisher", "") or "").strip()
+    if len(publisher_name) >= 3 and publisher_name.lower() in text.lower():
+        # The book's own metadata names this publisher and the page
+        # names it too -- much stronger than the generic phrase check
+        # below, since it isn't just matching common boilerplate
+        # wording that could appear anywhere.
+        return MatterLabel.PUBLISHER, "high"
+    if _PUBLISHER_PHRASE_RE.search(text):
+        return MatterLabel.PUBLISHER, "medium"
+
     if _DEDICATION_WORD_RE.search(text):
-        return MatterLabel.DEDICATION
+        return MatterLabel.DEDICATION, "high"
 
     stripped = text.strip()
     if word_count <= 40 and _DEDICATION_OPENER_RE.match(stripped):
-        return MatterLabel.DEDICATION
+        return MatterLabel.DEDICATION, "high"
 
     lines = [line.strip() for line in stripped.splitlines() if line.strip()]
     if word_count <= 60 and lines and any(_ATTRIBUTION_LINE_RE.match(l) for l in lines[-2:]):
-        return MatterLabel.EPIGRAPH
+        return MatterLabel.EPIGRAPH, "high"
 
-    return None
+    # Title-page corroboration: a short page whose text contains both
+    # the book's own title and its author, straight from the book's
+    # own metadata rather than a filename guess or generic keyword.
+    # Short words are excluded from the match (see
+    # _TITLE_MATCH_MIN_WORD_LEN) so a one-word title/surname doesn't
+    # corroborate against unrelated short pages by coincidence.
+    if word_count <= 60 and metadata is not None:
+        title_words = [w for w in re.findall(r"[\w'-]+", metadata.title or "")
+                        if len(w) >= _TITLE_MATCH_MIN_WORD_LEN]
+        creator_words = [w for w in re.findall(r"[\w'-]+", metadata.creator or "")
+                          if len(w) >= _TITLE_MATCH_MIN_WORD_LEN]
+        lower_text = text.lower()
+        title_hit = bool(title_words) and any(w.lower() in lower_text for w in title_words)
+        creator_hit = bool(creator_words) and any(w.lower() in lower_text for w in creator_words)
+        if title_hit and creator_hit:
+            return MatterLabel.TITLE_PAGE, "high"
+        if title_hit or creator_hit:
+            return MatterLabel.TITLE_PAGE, "medium"
+
+    return None, None
 
 
 # ---------------------------------------------------------------------
@@ -253,16 +330,19 @@ def analyze_book_frontmatter(book, chapter_summary=None) -> BookFrontMatterSumma
             zone = MAIN_ZONE
 
         href_label = _label_from_href(chapter.href)
-        text_label = _label_from_text(text, word_count)
+        text_label, text_confidence = _label_from_text(text, word_count, metadata=book.metadata)
 
         if text_label is not None:
             label = text_label
-            confidence = "high"
+            confidence = text_confidence
             reason = f"page content matches the {label.value} pattern"
         elif href_label is not None:
-            label = href_label
-            confidence = "medium"
-            reason = f"filename hints at {label.value}"
+            label, exact = href_label
+            confidence = "high" if exact else "medium"
+            reason = (
+                f"filename is exactly a {label.value} page" if exact
+                else f"filename hints at {label.value}"
+            )
         elif zone == FRONT_ZONE:
             label = MatterLabel.FRONT_MATTER
             confidence = "medium" if word_count <= SHORT_PAGE_WORD_THRESHOLD else "low"

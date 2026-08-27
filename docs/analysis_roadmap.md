@@ -165,6 +165,68 @@ First item off this list, picked up right after this doc was written.
   analysis only for now, per the "picked up next" plan. TOC/nav
   consistency (above) is the natural next consumer of this data.
 
+## Done: confidence improvements for frontmatter labeling and CSS class-mapping (2026-08-27)
+
+Picked up as part of a broader "make the tool more automatic" push --
+Jacob named three areas: chapter detection, CSS mapping, and
+front/back matter labeling. This pass covers the second two; chapter
+detection confidence is scoped separately below, under "Next."
+
+**Front/back matter (`frontmatter.py`):**
+- New `PUBLISHER` label (publisher/imprint pages -- "published by",
+  "an imprint of", "a division of", or an exact match against the
+  book's own `metadata.publisher`), plus href hints for
+  "publisher"/"imprint" filenames.
+- Filename-hint confidence is no longer flatly "medium" -- an exact
+  filename match (`titlepage.xhtml`, stem == hint) is now "high";
+  a hint merely appearing inside a longer/irregular filename stays
+  "medium".
+- New title-page corroboration: a short page whose text contains
+  words from the book's own metadata title AND creator is "high"
+  confidence; either alone is "medium". Catches title pages a
+  conversion tool didn't name helpfully and gave no copyright-style
+  boilerplate either (previously fell through to a generic, low-value
+  "front matter" label).
+- Bug fix along the way: `_chapter_text` (this module's own text
+  extraction, not shared with other modules) was pulling in
+  `<style>`/`<script>` text via `itertext()`, which could
+  accidentally satisfy the new metadata-word match against ordinary
+  CSS property values (a book titled "...Op Center" false-matched
+  "text-align: center"). Now skips both tags' own text.
+- Verified across all ten sample books: no label regressed, several
+  upgraded from a generic zone-only label or a "medium" guess to a
+  specific, high-confidence one (e.g. `BrokenSentences.epub`'s
+  garbled-but-real title page, `Watermarks-SmallChapterNumbers.epub`'s
+  publisher/imprint page).
+
+**CSS class-mapping (`class_map.py`):**
+- New "dominant class" signal for body-text: a class covering at
+  least half of every `<p>` in the whole book (`DOMINANT_P_SHARE`) is
+  now "high" confidence regardless of raw usage count, replacing a
+  flat "20+ uses = medium" threshold that penalized short books with
+  an otherwise completely clear single body-text class.
+- chapter-heading promoted to "high" (from "medium") when a
+  paragraph-tag candidate is centered AND oversized AND bold all at
+  once, rather than any one of the three alone.
+- Verified against all ten sample books plus a full `repair` pass on
+  each: the obvious single body-text class in
+  `RunTogetherText.epub`/`BrokenSentences.epub`/etc. now reads "high"
+  while genuine minor variants (a 1-use `.calibre2`, `War and
+  Peace`'s `.footnote`/`.poem`) correctly stayed low/medium. No
+  existing high/medium guess changed, and `map-css --write-mapping`
+  output was re-checked to confirm the new "high" guesses flow
+  through into the generated mapping file correctly.
+
+**Noted but not fixed this pass:** while checking `WarPeace-GoodCopy.epub`
+for regressions, `map-structure`/frontmatter zoning showed its
+"FIRST EPILOGUE" section (which restarts chapter numbering at
+"CHAPTER I") landing in the back-matter zone, since it falls after
+`chapters.py`'s last confirmed chapter. That's real main content
+mis-zoned, not a frontmatter labeling bug -- it's a chapter-detection
+gap (multi-part books that restart numbering), and belongs with the
+chapter-detection confidence work below rather than being patched
+here.
+
 ## Done: NCX/nav label parsing, reuse, and TOC link validation
 
 Found while investigating a bug report (real-world book, `Deathwatch`

@@ -37,6 +37,11 @@ SIMPLE_CLASS_SELECTOR_RE = re.compile(r'^([a-zA-Z][a-zA-Z0-9]*)?\.([a-zA-Z_-][\w
 
 HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 
+# A class covering at least this share of every <p> in the whole book
+# is treated as "the" body-text class regardless of raw usage count --
+# see _guess_role's dominant_p_share check.
+DOMINANT_P_SHARE = 0.5
+
 FONT_SIZE_RE = re.compile(r'([\d.]+)\s*(em|rem|%|pt|px)?')
 
 
@@ -91,6 +96,8 @@ def build_class_profiles(book) -> dict:
     element in the book, cross-referenced with declared CSS properties."""
     style_props = _collect_class_properties(book)
     profiles: dict = {}
+    total_p_count = 0  # every <p> in the book, classed or not -- see
+    # _guess_role's "dominant body-text class" check below.
 
     for ch in getattr(book, "chapters", []) or []:
         tree = getattr(ch, "document", None)
@@ -103,10 +110,12 @@ def build_class_profiles(book) -> dict:
         for el in root.iter():
             if not isinstance(el.tag, str):
                 continue
+            tag = etree.QName(el).localname.lower()
+            if tag == "p":
+                total_p_count += 1
             cls_attr = el.get("class")
             if not cls_attr:
                 continue
-            tag = etree.QName(el).localname.lower()
             for cls in cls_attr.split():
                 p = profiles.setdefault(cls, ClassProfile(class_name=cls))
                 p.usage_count += 1
@@ -116,7 +125,7 @@ def build_class_profiles(book) -> dict:
 
     for cls, p in profiles.items():
         p.properties = style_props.get(cls, {})
-        p.likely_role, p.role_confidence = _guess_role(p)
+        p.likely_role, p.role_confidence = _guess_role(p, total_p_count)
 
     return profiles
 
@@ -147,15 +156,24 @@ def _looks_large(size_value: str) -> bool:
     return False
 
 
-def _guess_role(p: ClassProfile):
+def _guess_role(p: ClassProfile, total_p_count: int = 0):
     """Heuristic, not authoritative -- see module docstring. Order matters:
     more specific/confident checks run first so a class doesn't fall
-    through to a vaguer guess it also happens to match."""
+    through to a vaguer guess it also happens to match.
+
+    `total_p_count` is every <p> in the whole book, classed or not --
+    used to spot a "dominant" body-text class (see DOMINANT_P_SHARE
+    below), a stronger signal than a flat usage-count threshold: a
+    300-page book and a 20-page short story can each have one class
+    that's obviously THE body text, but the raw count needed to be
+    confident of that differs by an order of magnitude between them.
+    """
     total = sum(p.tag_counts.values()) or 1
     dominant_tag, dominant_frac = _dominant_tag(p.tag_counts)
     heading_frac = sum(c for t, c in p.tag_counts.items() if t in HEADING_TAGS) / total
     p_frac = p.tag_counts.get("p", 0) / total
     span_frac = p.tag_counts.get("span", 0) / total
+    dominant_p_share = (p.tag_counts.get("p", 0) / total_p_count) if total_p_count else 0.0
 
     props = {k: v.lower() for k, v in p.properties.items()}
     font_size = props.get("font-size", "")
@@ -181,8 +199,17 @@ def _guess_role(p: ClassProfile):
 
     if heading_frac >= 0.6:
         return "chapter-heading", "high"
+    if p_frac >= 0.5 and is_centered and is_large and is_bold:
+        # All three signals together (centered, oversized, bold) is a
+        # meaningfully stronger case than any one or two alone.
+        return "chapter-heading", "high"
     if p_frac >= 0.5 and is_centered and (is_large or is_bold):
         return "chapter-heading", "medium"
+    if dominant_p_share >= DOMINANT_P_SHARE and not is_large and not is_bold and not is_italic:
+        # Used on most of the book's actual paragraphs -- about as
+        # confident as this module gets that a class really is "the"
+        # body text, regardless of the book's overall length.
+        return "body-text", "high"
     if p_frac >= 0.6 and not is_large and not is_bold and not is_italic:
         return "body-text", ("medium" if p.usage_count >= 20 else "low")
     if is_italic and p_frac >= 0.3:
