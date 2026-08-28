@@ -65,6 +65,18 @@ CHAPTER_LABEL_WORDS = ("chapter", "section")
 PART_LABEL_WORDS = ("book", "part", "volume")
 LABEL_WORDS = CHAPTER_LABEL_WORDS + PART_LABEL_WORDS
 
+# Same idea as PART_LABEL_WORDS above, but for a label word that trails
+# an ordinal instead of leading it -- "FIRST EPILOGUE", "SECOND
+# EPILOGUE", rather than "BOOK ONE". War and Peace's own epilogue is
+# split exactly this way, and each epilogue starts its own chapter
+# numbering back at "CHAPTER I" the same way a new Book/Part/Volume
+# does. Without recognizing "First Epilogue"/"Second Epilogue" as a
+# part boundary too, that restart looks like broken numbering rather
+# than a new part starting, and the detector concludes the book ended
+# at the last chapter of the last Book instead of continuing into the
+# epilogue(s).
+SUFFIX_PART_LABEL_WORDS = ("epilogue", "prologue")
+
 ROMAN_NUMERAL_RE = re.compile(r"^[IVXLCDM]+$", re.IGNORECASE)
 ARABIC_RE = re.compile(r"^\d{1,4}$")
 ARABIC_HYPHEN_RE = re.compile(r"^[-\u2013\u2014]\s*(\d{1,4})\s*[-\u2013\u2014]$")
@@ -351,6 +363,23 @@ def _classify(text: str) -> tuple[MarkerStyle, int, bool, str | None] | None:
         style, number = result
         label_kind = "part" if first_word in PART_LABEL_WORDS else "chapter"
         return style, number, True, label_kind
+
+    # "First Epilogue" / "Second Epilogue" / bare "Epilogue" -- see
+    # SUFFIX_PART_LABEL_WORDS above. Only look at the first two words;
+    # anything after (a year range, a subtitle) is dropped the same way
+    # the label-first branch above drops a title after "Chapter Four:".
+    words = stripped.split()
+    if words:
+        w0 = words[0].strip(":.,;").lower()
+        w1 = words[1].strip(":.,;").lower() if len(words) > 1 else None
+        if w1 is not None and w1 in SUFFIX_PART_LABEL_WORDS:
+            number = _ORDINAL_ONES.get(w0) or _ORDINAL_TENS.get(w0)
+            if number is not None:
+                return MarkerStyle.SPELLED_ORDINAL, number, True, "part"
+        elif w0 in SUFFIX_PART_LABEL_WORDS:
+            # Bare "Epilogue"/"Prologue" with no ordinal -- treat as the
+            # first (and possibly only) one of its kind.
+            return MarkerStyle.SPELLED_ORDINAL, 1, True, "part"
 
     # No label word. First try treating the whole text as a number
     # ("IV", "4", "Four").

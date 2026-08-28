@@ -49,9 +49,13 @@ invalid forms like "IIII" are rejected.
 
 **What label words are recognized:** "Chapter" and "Section" mark an
 ordinary chapter. "Book," "Part," and "Volume" mark a bigger division
-that chapter numbering commonly restarts under (see below). Text can
-also qualify with no label word at all, if it's just a bare number by
-itself ("IV" sitting alone in a paragraph).
+that chapter numbering commonly restarts under (see below), and so do
+"Epilogue" and "Prologue" -- but the other way around, ordinal first
+("First Epilogue," "Second Epilogue") rather than label first ("Book
+One"). A bare "Epilogue" or "Prologue" with no ordinal in front also
+counts, as the first of its kind. Text can also qualify with no label
+word at all, if it's just a bare number by itself ("IV" sitting alone
+in a paragraph).
 
 **How a candidate's score is built.** Every candidate starts at zero
 and picks up or loses points based on how convincing each of its

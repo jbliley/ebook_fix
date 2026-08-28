@@ -6,6 +6,14 @@
 and 3c (generating new NCX entries for chapters with no entry of
 their own) are done -- see below.
 
+**2026-08-28 session:** Fixed a real detection bug Jacob found while
+testing: War and Peace's "First Epilogue" restarts chapter numbering
+at "Chapter I," and since "First Epilogue"/"Second Epilogue" weren't
+recognized as part boundaries the way "Book One"/"Book Two" already
+were, the restart looked like broken numbering and the detector
+concluded the book ended at the last chapter of the last Book. See
+"Bug fix -- Epilogue/Prologue part boundaries" below.
+
 **2026-08-27 session:** First slice of case 3 (no chapter markers, no
 TOC) built -- detection only, not wired to any actual splitting yet.
 See "Case 3 detection -- first slice" below, after the three-case
@@ -40,6 +48,73 @@ Priority is preserving a book's own original structure whenever real
 chapter headers and TOC entries already exist -- see Phase 3c below,
 which inherits a chapter's own detected title rather than inventing
 one.
+
+### Bug fix -- Epilogue/Prologue part boundaries (2026-08-28)
+
+Jacob found this by testing, not by reading code: running `map-structure`
+against War and Peace, detection looked clean for BOOK ONE through
+BOOK FIFTEEN, then just stopped -- no error, no warning, it looked
+like the book was over. It isn't; War and Peace ends with a "First
+Epilogue" and a "Second Epilogue," each of which restarts its own
+chapter numbering back at "CHAPTER I," exactly the way a new
+Book/Part/Volume already does.
+
+**Root cause:** `chapters.py`'s `_classify` already recognizes
+"Book"/"Part"/"Volume" as a part-boundary label word, but only when
+the label word leads ("BOOK ONE," "PART IV"). "FIRST EPILOGUE" and
+"SECOND EPILOGUE" put the ordinal first and the label word second --
+the reverse order -- so neither ever matched `PART_LABEL_WORDS` at
+all. Instead, "FIRST EPILOGUE: 1813 - 20" fell all the way through to
+the module's other, unrelated fallback for unlabeled headings like
+"FOURTH MACHINATION" (a spelled-out ordinal directly followed by more
+title-cased words, with no label word in front), and got classified as
+an ordinary chapter candidate instead of a part boundary. An ordinary
+chapter candidate never bumps `part_index`, so when "CHAPTER I" showed
+up right after it, `_find_best_sequence` saw the count drop from XX
+(the last chapter of Book Fifteen) straight to I with no part boundary
+between them to license a restart -- an invalid jump under the normal
+same-part sequencing rule -- and the winning run simply ended there.
+Both epilogues, and every real chapter inside them, were silently
+dropped from the confirmed sequence.
+
+**Fix:** new `SUFFIX_PART_LABEL_WORDS = ("epilogue", "prologue")` in
+`chapters.py`, plus a new branch in `_classify` checked right after the
+existing label-first branch: if the first word is a recognized ordinal
+and the second word (first two words only; anything after, like a year
+range or subtitle, is dropped the same way the label-first branch
+already drops a trailing title) is "epilogue" or "prologue", classify
+it as a part boundary the same as "Book"/"Part"/"Volume." A bare
+"EPILOGUE" or "PROLOGUE" with no ordinal in front is also recognized,
+treated as the first (and possibly only) one of its kind.
+
+Verified against all ten sample books, before/after diffed exactly:
+- `WarPeace-GoodCopy.epub`: both epilogues now show up as `(part)`
+  boundaries, and every chapter inside each (I through XVI in the
+  First Epilogue, I through XII in the Second) is now corroborated by
+  its own TOC entry and anchor, all the way to the book's real ending
+  -- previously invisible past Book Fifteen entirely.
+- `RunTogetherText.epub` picked up one incidental improvement: a bare
+  "PROLOGUE" heading before its first real chapter, previously
+  unclassified and invisible, now shows up as its own `(part)`
+  boundary too. The confirmed chapter sequence itself (FIRST MACHINATION
+  onward) is byte-identical to before.
+- The other eight sample books: zero change, confirmed by diffing full
+  `map-structure` output before and after.
+- Full regression pass afterward (`analyze`, `repair`, `split-structure`
+  across all ten books): no crashes, `split-structure` output on both
+  affected books byte-identical to before the fix (this only changes
+  what `_classify` reports, not the splitter itself), and body-text
+  word counts after `repair` unchanged from the pre-fix baseline on
+  every book.
+
+**Not done, on purpose:** Part/Book/Volume markers (including this new
+Epilogue/Prologue case) still aren't run through any sequence-level
+check of their own -- see `chapter_detection_signals.md`'s "What's
+notably absent" section, a pre-existing gap this fix doesn't touch.
+Also out of scope: other structural words that might someday need the
+same ordinal-trailing treatment ("First Interlude," "Second Appendix")
+-- added only when a real book actually needs it, per this project's
+scoped-fix preference, not speculatively.
 
 ### Case 3 detection -- first slice (2026-08-27)
 
