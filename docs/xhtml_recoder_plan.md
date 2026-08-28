@@ -6,13 +6,13 @@
 and 3c (generating new NCX entries for chapters with no entry of
 their own) are done -- see below.
 
-**2026-08-28 session:** Fixed a real detection bug Jacob found while
-testing: War and Peace's "First Epilogue" restarts chapter numbering
-at "Chapter I," and since "First Epilogue"/"Second Epilogue" weren't
-recognized as part boundaries the way "Book One"/"Book Two" already
-were, the restart looked like broken numbering and the detector
-concluded the book ended at the last chapter of the last Book. See
-"Bug fix -- Epilogue/Prologue part boundaries" below.
+**2026-08-28 session:** Two things closed today. First, fixed a real
+detection bug Jacob found while testing (War and Peace's "First
+Epilogue" restart) -- see "Bug fix -- Epilogue/Prologue part
+boundaries" below. Second, closed a documented confidence gap: Part/
+Book/Volume markers now actually get validated against their own
+same-kind neighbors instead of being trusted unconditionally -- see
+"Part/Book/Volume sequence validation" below.
 
 **2026-08-27 session:** First slice of case 3 (no chapter markers, no
 TOC) built -- detection only, not wired to any actual splitting yet.
@@ -115,6 +115,86 @@ Also out of scope: other structural words that might someday need the
 same ordinal-trailing treatment ("First Interlude," "Second Appendix")
 -- added only when a real book actually needs it, per this project's
 scoped-fix preference, not speculatively.
+
+### Part/Book/Volume sequence validation (2026-08-28)
+
+Jacob's follow-up question after the Epilogue fix above: what else
+could raise confidence across the detection/mapping modules? Of the
+options surfaced, this was the one he chose to tackle first.
+`chapter_detection_signals.md`'s "What's notably absent" section had
+flagged it back in the Phase 0a audit: a chapter marker has to survive
+a whole scoring/sequence contest to be trusted, but a detected Part/
+Book/Volume marker was trusted the instant it was found, with no check
+that Parts themselves count up sensibly. A Part boundary was actually
+*less* well-grounded than a chapter boundary despite sitting a level
+above it structurally -- a single garbled OCR line that happened to
+start with "Book" would have been accepted outright.
+
+**Fix:** new `_find_best_part_sequence` in `chapters.py`, run over
+`part_candidates` right where `_assign_part_indices` already runs, in
+`analyze_book_chapters`. Same increasing-run idea as chapters' own
+`_find_best_sequence`, adapted for one structural difference: a book
+can have more than one genuinely independent numbering track running
+at once -- "BOOK ONE" through "BOOK FIFTEEN" *and* an unrelated "FIRST
+EPILOGUE"/"SECOND EPILOGUE" track that starts back at 1 -- and these
+must never be forced to count up against each other. New
+`_part_division_word` helper groups candidates by which structural
+word actually introduced them ("book" vs "volume" vs "epilogue", etc.)
+before the increasing-run search runs within each group, so the two
+tracks in a book like War and Peace validate independently rather than
+looking like a broken 15 -> 1 sequence.
+
+Unlike chapter sequences, a group of exactly one candidate (a single
+"Prologue" with no numbered sibling) is trusted on its own label score
+alone rather than discarded for falling short of `MIN_SEQUENCE_LENGTH`
+-- that floor exists specifically because two bare unlabeled numbers
+counting up is easy coincidence, which doesn't apply to an explicitly
+labeled structural marker with nothing else of its kind to check
+against. A group of two or more still has to actually count up
+correctly; an outlier that breaks the count is excluded the same way
+chapters.py already excludes one from a chapter run. Confirmed
+candidates are marked `.confirmed = True`, same convention as
+confirmed chapters, and `structure.py`'s `_evidence_for_part` now
+reads that flag into real evidence (`in_winning_sequence`) instead of
+hard-coding `False` -- a validated Part boundary now reports
+"sequence only" confidence, same baseline a chapter gets before any
+TOC/anchor corroboration; an unvalidated one still reports "none."
+
+Verified with two hand-built cases before touching any real book: a
+"Book One, Book Two, [garbled] Book Nine, Book Three, Book Four"
+sequence correctly excludes only the Book Nine outlier and keeps 1-2-
+3-4; a "Book Fourteen, Book Fifteen, First Epilogue, Second Epilogue"
+sequence correctly validates both axes independently rather than
+treating 15 -> 1 as a broken count. Then verified against all ten
+sample books, before/after diffed exactly against last session's
+epilogue-fix baseline: only the two books with any detected Part
+markers changed at all. `WarPeace-GoodCopy.epub`'s 15 Books and both
+Epilogues now all report "sequence only" instead of the previous
+unconditional "none," with an updated note explaining the validation
+that ran; `RunTogetherText.epub`'s lone "Prologue" (see the Epilogue
+fix above) went from "none" to "sequence only" the same way, correctly
+treated as a trusted lone marker. No other book, and no chapter-level
+line in either of the two changed books, differed at all. Full
+regression afterward (`analyze`, `repair`, `split-structure` across
+all ten books): no crashes, word counts after `repair` byte-for-byte
+matched the pre-fix baseline on every book (repair's own output is
+otherwise untouched by this, only `dcterms:modified`'s timestamp
+differs run to run as always), and `split-structure` output is
+unaffected too, since splitting only ever acts on confirmed chapters,
+never on Part nodes.
+
+**Not done, on purpose:** an invalid/unvalidated Part marker still
+counts toward `part_index` (i.e. it still permits a chapter-numbering
+restart right after it) -- deliberately left alone rather than
+changing that too in the same pass, since it's a separate question
+(does a marker get to be *trusted as a structural boundary itself*
+vs. does it get to *license a restart in the level below it*) and
+touching it risks disturbing chapter-restart detection that already
+works correctly today. Also not done: extending TOC/anchor
+corroboration (today `apply_toc_corroboration`/`apply_anchor_corroboration`
+only walk `CHAPTER` nodes via `_walk_chapters`) to also cover `PART`
+nodes -- War and Peace's own NCX has a real "BOOK ONE" entry sitting
+right there, unused for this. Worth a future session on its own.
 
 ### Case 3 detection -- first slice (2026-08-27)
 

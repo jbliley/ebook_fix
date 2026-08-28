@@ -808,6 +808,110 @@ def _find_best_sequence(candidates: list) -> ChapterSequence | None:
 
 
 # ---------------------------------------------------------------------
+# Part/Book/Volume sequence validation
+# ---------------------------------------------------------------------
+#
+# Everything above validates chapter candidates against each other.
+# Part/Book/Volume-level candidates never went through any equivalent
+# check -- a detected "Book Three" was trusted the instant it was
+# found, no differently than if it had been part of a believable
+# counting-up run. That's backwards: a Part boundary sits a level
+# above a chapter boundary structurally, but until now had a *weaker*
+# bar to clear than a chapter did (none at all). This closes that gap.
+
+def _part_division_word(text: str) -> str:
+    """Which structural label word (if any) is actually behind a part
+    candidate's text -- "book", "part", "volume", "epilogue", or
+    "prologue". Used purely as a grouping key for sequence validation
+    below, so "BOOK ONE".."BOOK FIFTEEN" and an unrelated "FIRST
+    EPILOGUE"/"SECOND EPILOGUE" numbering track in the same book are
+    never forced to count up against each other -- each structural
+    word gets its own independent sequence.
+
+    Re-derives this from the candidate's own text rather than
+    threading a new field through _classify/ChapterCandidate, since
+    only this one, later, narrowly-scoped check needs it.
+    """
+    words = text.strip().split()
+    if not words:
+        return ""
+    first = words[0].strip(":.,;").lower()
+    if first in PART_LABEL_WORDS:
+        return first
+    if len(words) > 1:
+        second = words[1].strip(":.,;").lower()
+        if second in SUFFIX_PART_LABEL_WORDS:
+            return second
+    if first in SUFFIX_PART_LABEL_WORDS:
+        return first
+    return ""
+
+
+def _find_best_part_sequence(part_candidates: list) -> list:
+    """
+    Validates that Part/Book/Volume-level candidates actually count up
+    sensibly against their own same-kind neighbors, the way chapters
+    already have to. Returns the subset of `part_candidates` that
+    passed -- callers mark exactly this subset `.confirmed = True`;
+    anything left out stays untrusted (e.g. a garbled OCR line that
+    happened to start with "Book" but doesn't fit anywhere in the
+    count).
+
+    Grouped first by `_part_division_word` (so "Book" and "Epilogue"
+    numbering never compete against each other) and then, within a
+    division word, by number style, same as chapter sequencing.
+    Deliberately no equivalent of chapters.py's PART_RESTART_MAX_NUMBER
+    carve-out -- Parts are the top of the hierarchy here, so there's no
+    still-higher grouping for them to legitimately restart under.
+
+    Unlike chapter sequences, a group of only one candidate (a book
+    with a single "Prologue" and nothing else of its kind) is trusted
+    on its own label score alone rather than discarded -- there's
+    nothing to validate a *sequence* against, and MIN_SEQUENCE_LENGTH's
+    reasoning ("two numbers counting up is too easy to be coincidence")
+    doesn't apply to a single, explicitly labeled marker the way it
+    does to a bare unlabeled number. A group of two or more still has
+    to actually count up correctly to be trusted; an outlier that
+    breaks the count is excluded the same way chapters.py excludes one.
+    """
+    groups: dict = {}
+    for c in part_candidates:
+        groups.setdefault((_part_division_word(c.text), c.style), []).append(c)
+
+    validated: list = []
+    for group in groups.values():
+        group = sorted(group, key=lambda c: c.book_order)
+        n = len(group)
+        if n == 1:
+            validated.extend(group)
+            continue
+
+        dp = [(group[i].score, 1, -1) for i in range(n)]
+        for i in range(n):
+            for j in range(i):
+                if group[j].number is None or group[i].number is None:
+                    continue
+                gap = group[i].number - group[j].number
+                if not (1 <= gap <= MAX_SEQUENCE_GAP):
+                    continue
+                candidate_score = dp[j][0] + group[i].score
+                candidate_len = dp[j][1] + 1
+                if (candidate_score, candidate_len) > (dp[i][0], dp[i][1]):
+                    dp[i] = (candidate_score, candidate_len, j)
+
+        end_idx = max(range(n), key=lambda i: (dp[i][0], dp[i][1]))
+        chain = []
+        idx = end_idx
+        while idx != -1:
+            chain.append(group[idx])
+            idx = dp[idx][2]
+        chain.reverse()
+        validated.extend(chain)
+
+    return validated
+
+
+# ---------------------------------------------------------------------
 # Book-level entry point
 # ---------------------------------------------------------------------
 
@@ -846,6 +950,9 @@ def analyze_book_chapters(book) -> BookChapterSummary:
     part_candidates = [c for c in all_candidates if c.label_kind == "part"]
     chapter_candidates = [c for c in all_candidates if c.label_kind != "part"]
     _assign_part_indices(chapter_candidates, part_candidates)
+
+    for c in _find_best_part_sequence(part_candidates):
+        c.confirmed = True
 
     summary = BookChapterSummary(
         candidates=all_candidates,

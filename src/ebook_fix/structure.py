@@ -307,20 +307,30 @@ def _evidence_for_case3_chapter(candidate: Any, margin: float | None) -> Boundar
 
 
 def _evidence_for_part(candidate: Any) -> BoundaryEvidence:
-    # Deliberately in_winning_sequence=False, always -- see note below.
+    # Requirement 1 equivalent for Part/Book/Volume markers: validated
+    # by chapters.py's _find_best_part_sequence (does this marker count
+    # up sensibly against its own same-kind neighbors, e.g. "Book
+    # Three" after "Book Two"?). See that function's docstring for how
+    # a lone marker with no neighbor to check is handled.
+    validated = getattr(candidate, "confirmed", False)
+    if validated:
+        notes = [
+            "Validated: counts up consistently with its own "
+            "Book/Part/Volume-level neighbors (see chapters.py's "
+            "_find_best_part_sequence)."
+        ]
+    else:
+        notes = [
+            "Not validated: doesn't count up consistently with its "
+            "own Book/Part/Volume-level neighbors (see chapters.py's "
+            "_find_best_part_sequence) -- not trusted as a structural "
+            "boundary until reviewed."
+        ]
     return BoundaryEvidence(
         candidate=candidate,
-        in_winning_sequence=False,
+        in_winning_sequence=validated,
         sequence_score=getattr(candidate, "score", 0.0),
-        notes=[
-            "Part/Book/Volume markers aren't run through chapters.py's "
-            "sequence search today (_find_best_sequence only sees "
-            "chapter_candidates, not part_candidates) -- so unlike a "
-            "chapter boundary, a part boundary currently has no "
-            "sequence-level check that detected parts actually count "
-            "up sensibly. Treated as unconfirmed until that gap is "
-            "addressed."
-        ],
+        notes=notes,
     )
 
 

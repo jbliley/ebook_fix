@@ -141,6 +141,15 @@ the decision before it's acted on.
   that the Parts themselves count up sensibly. This means a Part
   boundary today is actually less well-grounded than a chapter
   boundary, not more, despite structurally sitting a level above it.
+  **Closed 2026-08-28** -- see `xhtml_recoder_plan.md`'s "Part/Book/
+  Volume sequence validation" entry. `chapters.py`'s new
+  `_find_best_part_sequence` now runs the same increasing-run check
+  against Part candidates, grouped by which structural word introduced
+  them so independent numbering tracks (e.g. "Book"s and "Epilogue"s
+  in the same book) validate separately. Still true, deliberately:
+  Part-level corroboration (a matching TOC entry, an existing anchor)
+  isn't checked yet, only sequence membership -- see that entry's
+  "Not done, on purpose" note.
 - **No minimum-content gate.** A very short "chapter" (a one-line
   interlude, a misidentified scene divider) can be part of a confirmed
   run today with nothing checking that it actually contains a
