@@ -31,6 +31,7 @@ from typing import Any
 from lxml import etree
 
 from .models import TocEntry
+from .text_range import text_from, text_range, text_to_end_of_doc, text_before
 
 # ---------------------------------------------------------------------
 # Thresholds used by the confidence scoring in Phase 0g (see the
@@ -655,50 +656,19 @@ def _words(text: str) -> int:
 
 
 def _text_from(element) -> list:
-    """Every text chunk from `element` (inclusive of its own content)
-    through the end of its document, as lxml "smart string" objects,
-    in true document reading order.
-
-    This is `.//text()` (descendant text) unioned with `following::
-    text()` (everything after this element closes) -- lxml/libxml2
-    keep `|` unions in document order, so this correctly includes
-    things a naive iter()-based walk misses: an *ancestor's* tail text
-    that falls after `element` in reading order but is only ever
-    visited, in a plain pre-order walk, when that ancestor itself is
-    reached (which happens before `element`, not after).
-    """
-    return element.xpath(".//text() | following::text()")
+    return text_from(element)
 
 
 def _text_range(start_element, end_element) -> str:
-    """Text strictly from `start_element` (inclusive) up to
-    `end_element` (exclusive), for two elements in the same document.
-
-    Since `_text_from(end_element)` is always a document-order suffix
-    of `_text_from(start_element)` (end comes later), the range is
-    just the length difference between the two -- no need to compare
-    individual nodes for identity/equality, which smart strings don't
-    make reliable anyway.
-    """
-    at_or_after_start = _text_from(start_element)
-    at_or_after_end = _text_from(end_element) if end_element is not None else []
-    n = len(at_or_after_start) - len(at_or_after_end)
-    return "".join(str(t) for t in at_or_after_start[:n])
+    return text_range(start_element, end_element)
 
 
 def _text_to_end_of_doc(element) -> str:
-    return "".join(str(t) for t in _text_from(element))
+    return text_to_end_of_doc(element)
 
 
 def _text_before(doc_root, end_element) -> str:
-    """Everything in `doc_root`'s document before `end_element`
-    (exclusive) -- the same suffix-length trick as `_text_range`, just
-    anchored at the start of the document instead of at another
-    element."""
-    full = doc_root.xpath(".//text()")
-    at_or_after_end = _text_from(end_element)
-    n = len(full) - len(at_or_after_end)
-    return "".join(str(t) for t in full[:n])
+    return text_before(doc_root, end_element)
 
 
 def _content_word_count(book: Any, start_href: str, start_element,
@@ -711,10 +681,10 @@ def _content_word_count(book: Any, start_href: str, start_element,
 
     Walks `book.chapters` in its existing iteration order to cover any
     files that lie fully between `start_href` and `end_href`. That's
-    the same ordering chapters.py's book_order numbering already
-    relies on (see the documented manifest-vs-spine-order gap in
-    docs/analysis_roadmap.md) -- this doesn't fix that gap, just stays
-    consistent with it rather than inventing a second ordering.
+    the same spine (reading) order `parser.py` already loads
+    `book.chapters` in, and the same ordering chapters.py's book_order
+    numbering already relies on -- this stays consistent with that
+    rather than inventing a second ordering.
     """
     chapters = list(getattr(book, "chapters", []) or [])
     href_index = {c.href: i for i, c in enumerate(chapters)}
@@ -882,13 +852,11 @@ def apply_structural_cleanliness_check(tree: BookStructure) -> BookStructure:
 # chapter's span + back matter add up to the book's actual total word
 # count, with nothing silently missing (or double-counted) in between?
 # A gap here means something is wrong with the underlying analysis
-# itself -- most plausibly book.chapters' manifest-order iteration
-# (see the documented spine-vs-manifest-order gap in
-# docs/analysis_roadmap.md) not matching the book's true reading
-# order, so a chapter span's cross-file walk skips or duplicates a
-# file it shouldn't -- not a problem with any one boundary's own
-# evidence, which is why this is a book-wide check rather than another
-# per-node field.
+# itself -- a duplicate or mismatched href somewhere in book.chapters,
+# a chapter whose document failed to parse, or some other quiet
+# inconsistency this tool wasn't built to expect -- not a problem with
+# any one boundary's own evidence, which is why this is a book-wide
+# check rather than another per-node field.
 
 
 def _book_total_word_count(book: Any) -> int:

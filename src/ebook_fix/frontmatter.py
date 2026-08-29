@@ -160,11 +160,12 @@ HREF_HINTS = (
 
 
 def _spine_ordered_chapters(book):
-    """book.chapters loads in manifest order, not spine order (see
-    docs/analysis_roadmap.md -- fixing that at the parser level is a
-    bigger, separate change). Classification here cares about reading
-    order specifically, so it builds its own spine-ordered list
-    locally rather than trusting book.chapters' existing order."""
+    """`book.chapters` already loads in spine (reading) order directly
+    from `parser.py` -- this just re-derives the same order locally as
+    a defensive belt-and-suspenders measure (and to explicitly surface
+    any manifest-only entry the spine doesn't read, tacked onto the
+    end), since classification here specifically depends on reading
+    order being right and would rather not silently assume it."""
     by_id = {c.id: c for c in book.chapters}
     ordered = []
     seen = set()

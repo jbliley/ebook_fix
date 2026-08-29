@@ -325,11 +325,11 @@ summed once). A mismatch sets a new `BookStructure.coverage_ok = False`
 and blocks *every* boundary in the book from being split-eligible
 (`has_any_split_eligible_boundary` now checks this first) rather than
 flagging only the node nearest the gap -- a coverage mismatch is a
-finding about the book's underlying *analysis* (most plausibly the
-documented manifest-vs-spine-order gap biting on a real book, or a
-duplicate/mismatched href somewhere), not about one boundary's own
-evidence, so nothing in the book should be trusted to split until it's
-investigated.
+finding about the book's underlying *analysis* (a duplicate or
+mismatched href somewhere in `book.chapters`, a chapter whose document
+failed to parse, or some other quiet inconsistency), not about one
+boundary's own evidence, so nothing in the book should be trusted to
+split until it's investigated.
 
 New `BookStructure` fields: `coverage_ok` (`None` until checked, or
 until there are no confirmed chapters to check coverage of at all),
@@ -356,16 +356,13 @@ right under the existing sequence-margin line.
   `map-css`, `repair`, `auto-fix`, and `split-structure`: no crashes.
 
 **Not done, on purpose:** this verifies *total* coverage, not that
-each zone's content is geographically correct -- a manifest-order bug
-that *misplaces* a whole file into the wrong zone (e.g. sweeping an
-orphaned middle file into back matter because its manifest index
-happens to fall after the last confirmed chapter's) would currently
-balance to zero and pass, since nothing is actually lost or
+each zone's content is geographically correct -- a bug that
+*misplaces* a whole file into the wrong zone (e.g. sweeping an
+orphaned middle file into back matter it doesn't belong in) would
+currently balance to zero and pass, since nothing is actually lost or
 duplicated in aggregate, only misattributed. Requirement 6 as written
 is specifically about dropped/duplicated content, which this catches;
-correct zone placement is really the same open manifest-vs-spine-order
-question flagged elsewhere in this doc and in
-`xhtml_recoder_plan.md`, not a new gap this pass introduced. Also not
+correct zone placement would need its own, separate check. Also not
 done: `split_chapters`/`apply_split` (the `split-structure` command)
 doesn't consume `has_any_split_eligible_boundary` yet -- it's
 documented as explicitly out of scope until Phase 5 builds real

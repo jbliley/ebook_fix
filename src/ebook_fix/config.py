@@ -92,6 +92,21 @@ class ApostropheRepairConfig:
 
 
 @dataclass(slots=True)
+class SceneBreakRepairConfig:
+    enabled: bool = True
+    # Replace a genuine mid-chapter <hr> (real content on both sides
+    # before hitting the next chapter boundary or file edge) with a
+    # centered "* * *" -- the conventional ebook rendering of a scene
+    # divider, since a literal horizontal rule reads as a leftover
+    # web-page artifact to most readers.
+    replace_mid_chapter: bool = True
+    # Remove an <hr> that sits at a chapter edge outright -- it's
+    # redundant with a boundary that's already marked some other way
+    # (a heading, a page break), not a real scene break.
+    remove_chapter_edge: bool = True
+
+
+@dataclass(slots=True)
 class Config:
     epub3_upgrade: EPUB3UpgradeConfig = field(default_factory=EPUB3UpgradeConfig)
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
@@ -101,6 +116,7 @@ class Config:
     gutenberg_repair: GutenbergRepairConfig = field(default_factory=GutenbergRepairConfig)
     ellipsis_repair: EllipsisRepairConfig = field(default_factory=EllipsisRepairConfig)
     apostrophe_repair: ApostropheRepairConfig = field(default_factory=ApostropheRepairConfig)
+    scene_break_repair: SceneBreakRepairConfig = field(default_factory=SceneBreakRepairConfig)
 
 
 # ---------------------------------------------------------------------
@@ -144,6 +160,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.gutenberg_repair, modules, "gutenberg_repair")
     _apply_module_toggle(config.ellipsis_repair, modules, "ellipsis_repair")
     _apply_module_toggle(config.apostrophe_repair, modules, "apostrophe_repair")
+    _apply_module_toggle(config.scene_break_repair, modules, "scene_break_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
