@@ -830,6 +830,120 @@ EPUB container role) points at it.
   failures -- this module is read-only, so no change was expected or
   found in any repaired output.
 
+## Done: scene-break normalization ("* * *" for mid-chapter `<hr>`s) (2026-08-29)
+
+Fourth item off the same "raise confidence" session, but a different
+kind of item than the first three -- not a confidence/detection
+improvement, a new repair. Queued a while back after Jacob noticed a
+real, common conversion artifact: many EPUBs (especially older
+Gutenberg-style conversions from a print layout) use a plain `<hr>`
+for two very different things that look identical in the markup --
+a deliberate mid-chapter pause the author or a print edition marked
+with a divider, and a purely decorative separator sitting right next
+to a chapter boundary that's already marked some other way. The first
+should render as a centered "* * *" (the conventional ebook rendering
+of a scene break); the second is just a redundant stray rule and
+should be removed outright.
+
+**New analysis module, `scene_breaks.py`:** for every `<hr>` in the
+book, checks whether there's real text on both sides before hitting
+the nearest chapter boundary (or, if the file has no chapter marker
+governing that side, the file's own start/end). Real content on both
+sides -> mid-chapter, a genuine scene break. Nothing but blank space
+on either side -> chapter-edge, redundant with a boundary that's
+already there. Deliberately scoped to a single file at a time -- a
+marker in a *different* file than the `<hr>` doesn't change the
+calculus, since crossing a file boundary is already itself a fresh
+transition.
+
+**New shared module, `text_range.py`:** the four "text between two
+points in a document" helpers this needed already existed, verbatim,
+inside `structure.py` (built earlier for chapter word-span checks).
+Pulled out into their own module rather than reimplemented a second
+time -- same reasoning `page_breaks.py`'s own docstring gives for why
+it exists as a shared module in the first place. Zero behavior change
+confirmed by diffing `map-structure` output across all ten books
+before/after the extraction.
+
+**Two real correctness bugs found and fixed by testing against the
+sample books, not by inspection alone:**
+- A first draft of the "before" check used `structure.py`'s existing
+  `text_range` helper directly, which is *inclusive* of its start
+  element's own text -- correct for that function's original job
+  (a chapter's own heading text legitimately counts toward that
+  chapter's word count) but wrong here: it meant an `<hr>` sitting
+  immediately after a chapter heading always looked like it had "real
+  content before it" (the heading's own label, e.g. "Chapter One"),
+  misclassifying it as mid-chapter. Fixed with a new
+  `text_range_strictly_after` in `text_range.py`, which excludes the
+  start element's own text and only counts what comes after it
+  closes.
+- Testing against `WarPeace-GoodCopy.epub` surfaced a decorative
+  `<hr>` on the title page (between the author byline and a
+  "Contents" heading) that had real text on both sides by the literal
+  rule above, but obviously isn't a narrative scene break -- fixed by
+  skipping any file `frontmatter.py` classifies as front or back
+  matter entirely, the same zone data `map-css`'s cross-referencing
+  work (above) already leans on. Falls back to checking every file
+  when zones can't be confirmed at all.
+- Testing against `The Call of Cthulhu` surfaced a second real gap:
+  its three internal sections ("1. The Horror in Clay.", etc.) are
+  plain styled paragraphs the normal chapter analysis doesn't
+  recognize (a case-3 book, see the three-case framework in
+  `xhtml_recoder_plan.md`), so all three of that book's genuine
+  section-edge `<hr>`s were being called ordinary mid-chapter scene
+  breaks -- there was no local marker to check position against.
+  Fixed by falling back to `chapters.py`'s own case-3 detection for
+  the marker check specifically, when the normal analysis confirmed
+  nothing. A much lower-stakes use of that signal than trusting it
+  enough to physically split a file (which case-3 candidates are
+  never allowed to do) -- a wrong scene-break classification is a
+  soft cosmetic miss, not a file cut in the wrong place.
+
+**New repair module, `modules/scene_break_repair.py`:** replaces a
+mid-chapter `<hr>` with `<p style="text-align: center;">* * *</p>` in
+the same position (tail text preserved); removes a chapter-edge `<hr>`
+outright, reusing the same tail-preserving removal convention already
+established in `gutenberg_repair.py`. New `SceneBreakRepairConfig`
+(`replace_mid_chapter`, `remove_chapter_edge`, both default on),
+registered in the pipeline right after Chapter Markup Repair, before
+anything text-level -- it only ever touches `<hr>` elements, never
+text/tail nodes, and its classification depends on the same chapter-
+boundary awareness Chapter Markup's own placement does.
+
+**Verified:**
+- 8 hand-built unit tests covering: `<hr>` right after/right before a
+  heading, genuinely mid-chapter, at a bare file's start/end with no
+  marker at all, mid-file with no marker, three `<hr>`s in one file
+  (edge/mid/edge), and a heading followed by a whitespace-only
+  paragraph before the `<hr>` (still counts as an edge, not content).
+- All ten sample books: seven have no `<hr>` at all; three have real
+  findings -- `GutenbergText-ChapterSplit.epub` (8, all mid-chapter),
+  `The Call of Cthulhu` (16: 13 mid-chapter, 3 correctly-excluded
+  chapter-edge), `WarPeace-GoodCopy.epub` (0, after the title-page
+  false positive above was fixed).
+- Ran `repair` on Cthulhu end to end: confirmed zero `<hr>` elements
+  remain in the output, exactly 13 "* * *" markers inserted (matching
+  the 13 mid-chapter findings), and the 3 chapter-edge `<hr>`s are
+  gone with no replacement, by directly inspecting the unzipped
+  output markup.
+- Confirmed idempotent: re-running `repair` on that already-repaired
+  output finds nothing left to fix (no `<hr>` left to reclassify).
+- Full ten-book regression across `analyze`, `map-structure`,
+  `map-css`, `repair`, `auto-fix`, and `split-structure`: no crashes.
+  `map-structure`'s whole-book coverage check (above) still reports
+  OK on the scene-break-repaired output.
+
+**Not done, on purpose:** a book with `<hr>` used for something other
+than a scene break entirely (a few very old conversions use it as a
+generic "new page" marker even *within* what's really one continuous
+scene) would still get the "* * *" treatment if it happens to have
+real content on both sides -- this module can't distinguish authorial
+intent, only position relative to chapter structure, which is as far
+as `split_safety_bar.md`'s own philosophy of scoping to real, observed
+patterns should reasonably go without a real book actually showing
+that failure mode.
+
 ## Done: Font embedding gaps
 
 Half of this already existed without being surfaced as its own

@@ -34,6 +34,7 @@ from ebook_fix.modules.color_strip import ColorStripRepair
 from ebook_fix.modules.gutenberg_repair import GutenbergRepair
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.ellipsis import normalize_ellipsis_text
+from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair, resolve_target_apostrophe_char
 from ebook_fix.apostrophes import normalize_apostrophes_text
 
@@ -63,6 +64,12 @@ class Engine:
             modules.append(ParagraphRepair(self.config.paragraph_repair))
         if getattr(self.config, "chapter_markup", None) and getattr(self.config.chapter_markup, "enabled", True):
             modules.append(ChapterMarkupRepair(self.config.chapter_markup))
+        # Runs right after Chapter Markup, before anything text-level:
+        # this only ever touches <hr> elements (never text/tail nodes),
+        # and its classification depends on chapter boundary awareness
+        # the same way Chapter Markup's own placement does.
+        if getattr(self.config, "scene_break_repair", None) and getattr(self.config.scene_break_repair, "enabled", True):
+            modules.append(SceneBreakRepair(self.config.scene_break_repair))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
         # Runs before Whitespace Normalizer: both modules can end up
@@ -727,6 +734,26 @@ class Engine:
                         for issue in chapter_summary.issues:
                             result = normalize_apostrophes_text(issue.before, apostrophe_char=target_char)
                             self.log(f"      - {issue.category}: {issue.before!r} -> {result.text!r}")
+
+            # Scene Break Issues
+            sb = analysis_report.scene_breaks
+            if sb.total_issue_count:
+                self.log("\n[Scene Breaks]")
+                if sb.total_mid_chapter_count:
+                    self.log(f"  • Mid-chapter <hr> found (would become \"* * *\"): {sb.total_mid_chapter_count}")
+                if sb.total_chapter_edge_count:
+                    self.log(f"  • Chapter-edge <hr> found (redundant, would be removed): {sb.total_chapter_edge_count}")
+
+                if details:
+                    for chapter_summary in sb.chapters:
+                        if not chapter_summary.issues:
+                            continue
+                        self.log(f"    {chapter_summary.href}:")
+                        for issue in chapter_summary.issues:
+                            if issue.classification == "mid-chapter":
+                                self.log("      - Mid-chapter <hr> -> \"* * *\"")
+                            else:
+                                self.log("      - Chapter-edge <hr> -> removed")
 
             # Possessive Candidates -- FLAG ONLY, never auto-repaired.
             # See ebook_fix.apostrophes module docstring for why: a

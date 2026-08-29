@@ -20,6 +20,7 @@ from ebook_fix.packaging import BookPackagingSummary, analyze_book_packaging
 from ebook_fix.paragraphs import BookParagraphSummary, analyze_book_paragraphs
 from ebook_fix.whitespace import BookWhitespaceSummary, analyze_book_whitespace
 from ebook_fix.ellipsis import BookEllipsisSummary, analyze_book_ellipsis
+from ebook_fix.scene_breaks import BookSceneBreakSummary, analyze_book_scene_breaks
 from ebook_fix.apostrophes import (
     BookApostropheSummary, analyze_book_apostrophes,
     BookPossessiveSummary, analyze_book_possessives,
@@ -112,6 +113,7 @@ class AnalysisReport:
     paragraphs:BookParagraphSummary=field(default_factory=BookParagraphSummary)
     whitespace:BookWhitespaceSummary=field(default_factory=BookWhitespaceSummary)
     ellipsis:BookEllipsisSummary=field(default_factory=BookEllipsisSummary)
+    scene_breaks:BookSceneBreakSummary=field(default_factory=BookSceneBreakSummary)
     apostrophes:BookApostropheSummary=field(default_factory=BookApostropheSummary)
     # Flag-only, manual-review possessive candidates -- see
     # ebook_fix.apostrophes module docstring for why these are kept
@@ -232,6 +234,7 @@ class EPUBAnalyzer:
         r.paragraphs=analyze_book_paragraphs(book)
         r.whitespace=analyze_book_whitespace(book)
         r.ellipsis=analyze_book_ellipsis(book)
+        r.scene_breaks=analyze_book_scene_breaks(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
         r.apostrophes=analyze_book_apostrophes(book)
         r.possessives=analyze_book_possessives(book)
         r.toc=analyze_book_toc(book,chapter_reports=r.chapter_reports)

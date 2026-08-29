@@ -170,6 +170,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.gutenberg_repair, "gutenberg_repair", data.get("gutenberg_repair", {}))
     _apply_section(config.ellipsis_repair, "ellipsis_repair", data.get("ellipsis_repair", {}))
     _apply_section(config.apostrophe_repair, "apostrophe_repair", data.get("apostrophe_repair", {}))
+    _apply_section(config.scene_break_repair, "scene_break_repair", data.get("scene_break_repair", {}))
 
     if config.ellipsis_repair.target_style not in ("unicode", "ascii"):
         raise ValueError(
@@ -233,6 +234,7 @@ whitespace_repair = true
 gutenberg_repair = true
 ellipsis_repair = true
 apostrophe_repair = true
+scene_break_repair = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -385,6 +387,24 @@ enabled = true
 # contraction matches the rest of the book. "straight" or "curly"
 # force that character regardless of what the book already has.
 target_style = "auto"
+
+# ---------------------------------------------------------------------
+# Scene Break Normalizer
+# ---------------------------------------------------------------------
+[scene_break_repair]
+
+# Replace a genuine mid-chapter <hr> (real content on both sides
+# before hitting the next chapter boundary) with a centered "* * *" --
+# the conventional ebook rendering of a scene divider. A literal
+# horizontal rule reads as a leftover web-page artifact to most
+# readers.
+enabled = true
+replace_mid_chapter = true
+
+# Remove an <hr> that sits at a chapter edge outright -- redundant
+# with a boundary that's already marked some other way (a heading, a
+# page break), not a real scene break.
+remove_chapter_edge = true
 """
 
 
