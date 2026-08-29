@@ -254,8 +254,26 @@ class BookStructure:
     # needing to re-run the analysis.
     source_summary: Any = None
 
+    # Requirement 6: whole-book content coverage (see
+    # apply_coverage_check below). None until that check has run;
+    # True/False after. Unlike sequence_margin above, this genuinely
+    # has no meaningful per-node home -- it's a fact about the whole
+    # book's accounting, not about any one boundary -- so it lives
+    # here instead of being duplicated onto every node.
+    coverage_ok: bool | None = None
+    coverage_gap_words: int = 0
+    coverage_notes: list = field(default_factory=list)
+
     @property
     def has_any_split_eligible_boundary(self) -> bool:
+        # Requirement 6 is a book-wide gate: a coverage mismatch means
+        # something is wrong with the *analysis*, not with one
+        # specific boundary (see apply_coverage_check), so it blocks
+        # every boundary in the book rather than only the node nearest
+        # the gap.
+        if self.coverage_ok is False:
+            return False
+
         def _walk(nodes: list[StructureNode]) -> bool:
             for n in nodes:
                 if n.split_eligible:
@@ -855,17 +873,142 @@ def apply_structural_cleanliness_check(tree: BookStructure) -> BookStructure:
     return tree
 
 
+# ---------------------------------------------------------------------
+# Requirement 6 -- whole-book content coverage
+# ---------------------------------------------------------------------
+#
+# Everything above checks one boundary at a time. This checks a
+# different thing entirely: does front matter + every confirmed
+# chapter's span + back matter add up to the book's actual total word
+# count, with nothing silently missing (or double-counted) in between?
+# A gap here means something is wrong with the underlying analysis
+# itself -- most plausibly book.chapters' manifest-order iteration
+# (see the documented spine-vs-manifest-order gap in
+# docs/analysis_roadmap.md) not matching the book's true reading
+# order, so a chapter span's cross-file walk skips or duplicates a
+# file it shouldn't -- not a problem with any one boundary's own
+# evidence, which is why this is a book-wide check rather than another
+# per-node field.
+
+
+def _book_total_word_count(book: Any) -> int:
+    """The book's actual total: every file in `book.chapters` (the
+    same order/list _content_word_count already relies on), whole
+    document text summed once. Deliberately the same measure
+    _content_word_count already uses for whole files that sit strictly
+    between two chapter markers, so this total and the sum of
+    front/chapter/back spans below are apples-to-apples."""
+    total = 0
+    for c in getattr(book, "chapters", []) or []:
+        if c.document is not None:
+            total += _words("".join(c.document.itertext()))
+    return total
+
+
+def _leading_word_count(book: Any, end_href: str, end_element) -> int:
+    """Front matter's word count: everything before `end_element`
+    (exclusive) -- the first confirmed chapter's own boundary. Same
+    shape as _content_word_count, just anchored at the true start of
+    the book instead of at another chapter's start element."""
+    chapters = list(getattr(book, "chapters", []) or [])
+    by_href = {c.href: c for c in chapters}
+    href_index = {c.href: i for i, c in enumerate(chapters)}
+    end_chapter = by_href.get(end_href)
+    end_idx = href_index.get(end_href)
+    if end_chapter is None or end_chapter.document is None or end_idx is None:
+        return 0
+    text_parts = []
+    for c in chapters[:end_idx]:
+        if c.document is not None:
+            text_parts.append("".join(c.document.itertext()))
+    text_parts.append(_text_before(end_chapter.document, end_element))
+    return _words("".join(text_parts))
+
+
+def _back_matter_word_count(book: Any, last_chapter_href: str) -> int:
+    """Back matter's word count: whole files strictly after the last
+    confirmed chapter's own file -- matching frontmatter.py's own
+    BACK_ZONE definition exactly. Deliberately does not try to extend
+    into the last chapter's own file beyond its marker; that's already
+    covered by that chapter's own span (see apply_content_length_check's
+    scoping note about the last confirmed chapter)."""
+    chapters = list(getattr(book, "chapters", []) or [])
+    href_index = {c.href: i for i, c in enumerate(chapters)}
+    idx = href_index.get(last_chapter_href)
+    if idx is None:
+        return 0
+    total = 0
+    for c in chapters[idx + 1:]:
+        if c.document is not None:
+            total += _words("".join(c.document.itertext()))
+    return total
+
+
+def apply_coverage_check(book: Any, tree: BookStructure) -> BookStructure:
+    """Fills in BookStructure.coverage_ok/coverage_gap_words/coverage_notes
+    (split_safety_bar.md requirement 6). Sums front matter + every
+    confirmed chapter's span (the same spans apply_content_length_check
+    already computes, reused rather than re-derived) + back matter, and
+    compares that against _book_total_word_count. No-op (coverage_ok
+    left None) if there are no confirmed chapters at all -- nothing to
+    check coverage of yet.
+
+    A mismatch sets coverage_ok = False and blocks every boundary in
+    the book from being split-eligible (see
+    BookStructure.has_any_split_eligible_boundary) rather than
+    flagging only the node nearest the gap -- this is a book-wide
+    finding about the analysis itself, not one boundary's evidence.
+    """
+    chapter_nodes = list(_walk_chapters(tree.nodes))
+    confirmed = [
+        n for n in chapter_nodes
+        if n.evidence is not None and n.evidence.candidate is not None
+    ]
+    if not confirmed:
+        return tree
+
+    total = _book_total_word_count(book)
+
+    first = confirmed[0]
+    accounted = _leading_word_count(book, first.start_href, first.evidence.candidate.element)
+
+    for i, node in enumerate(confirmed):
+        next_node = confirmed[i + 1] if i + 1 < len(confirmed) else None
+        end_href = next_node.start_href if next_node is not None else None
+        end_element = next_node.evidence.candidate.element if next_node is not None else None
+        accounted += _content_word_count(
+            book, node.start_href, node.evidence.candidate.element, end_href, end_element
+        )
+
+    accounted += _back_matter_word_count(book, confirmed[-1].start_href)
+
+    gap = total - accounted
+    tree.coverage_ok = (gap == 0)
+    tree.coverage_gap_words = gap
+    if gap != 0:
+        tree.coverage_notes.append(
+            f"Whole-book coverage check failed: {total} word(s) in the book, but only "
+            f"{accounted} word(s) accounted for across front matter, confirmed chapters, "
+            f"and back matter ({'missing' if gap > 0 else 'double-counted'} {abs(gap)} "
+            f"word(s)). Every boundary in this book is being treated as not split-eligible "
+            f"until this is investigated -- see docs/split_safety_bar.md, requirement 6."
+        )
+    return tree
+
+
 def score_confidence(book: Any, tree: BookStructure,
                       min_words: int = MIN_CHAPTER_WORDS) -> BookStructure:
     """0g's entry point: runs the two remaining per-boundary checks
-    (minimum content, structural cleanliness). Requirement 3 (sequence
-    margin) doesn't need a separate pass -- it's already read live off
-    `sequence_margin` by the `confidence` property above. After this
-    runs, `confidence` on every node is the fully combined signal;
-    nothing downstream should need to re-derive it.
+    (minimum content, structural cleanliness), plus the whole-book
+    coverage check. Requirement 3 (sequence margin) doesn't need a
+    separate pass -- it's already read live off `sequence_margin` by
+    the `confidence` property above. After this runs, `confidence` on
+    every node and `coverage_ok` on the tree are the fully combined
+    signal; nothing downstream should need to re-derive them.
     """
     apply_content_length_check(book, tree, min_words=min_words)
     apply_structural_cleanliness_check(tree)
+    apply_coverage_check(book, tree)
     return tree
 
 
@@ -938,6 +1081,13 @@ def format_structure_report(tree: BookStructure) -> str:
     else:
         flag = "" if tree.sequence_margin >= MIN_SEQUENCE_MARGIN else "  <-- below the review threshold"
         lines.append(f"Sequence margin over runner-up: {tree.sequence_margin:.1f}{flag}")
+
+    if tree.coverage_ok is False:
+        lines.append(f"Whole-book coverage: FAILED ({tree.coverage_gap_words:+d} word(s) unaccounted for)")
+        for note in tree.coverage_notes:
+            lines.append(f"    note: {note}")
+    elif tree.coverage_ok is True:
+        lines.append("Whole-book coverage: OK (every word accounted for)")
     lines.append("")
 
     def _describe(node: StructureNode, indent: int) -> None:

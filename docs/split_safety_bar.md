@@ -75,6 +75,12 @@ all-or-nothing decision for the whole book.
    net, but it belongs here too, as a pre-check before splitting is
    even attempted, not just a post-check after.)
 
+   **Done (2026-08-29):** see `structure.py`'s `apply_coverage_check`
+   and the write-up in `docs/analysis_roadmap.md`. A mismatch blocks
+   every boundary in the book from being split-eligible, not just the
+   one nearest the gap -- see that write-up's "not done" note for what
+   this does and doesn't catch.
+
 ## What happens when a book doesn't clear the bar
 
 Two different situations, and they should be handled differently:

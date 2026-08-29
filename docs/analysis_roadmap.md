@@ -307,6 +307,71 @@ candidate extraction already excludes `div`s and most real-world
 books that use a distinct class for the heading put it directly on
 the heading-ish tag itself. Worth revisiting if a real book needs it.
 
+## Done: whole-book content coverage check (2026-08-29)
+
+Third item picked off the same "raise confidence" menu from the
+`map-css` cross-referencing work above -- this closes
+`split_safety_bar.md`'s requirement 6, the one proposal item that
+called for a book-wide check rather than a per-boundary one: "before
+every boundary, the book's total content has to be accounted for --
+nothing silently dropped between confirmed boundaries."
+
+**What it checks (`structure.py`'s new `apply_coverage_check`):** sums
+front matter + every confirmed chapter's span (reusing
+`apply_content_length_check`'s own `_content_word_count` walk rather
+than re-deriving it) + back matter, and compares that total against
+the book's actual total word count (every file in `book.chapters`,
+summed once). A mismatch sets a new `BookStructure.coverage_ok = False`
+and blocks *every* boundary in the book from being split-eligible
+(`has_any_split_eligible_boundary` now checks this first) rather than
+flagging only the node nearest the gap -- a coverage mismatch is a
+finding about the book's underlying *analysis* (most plausibly the
+documented manifest-vs-spine-order gap biting on a real book, or a
+duplicate/mismatched href somewhere), not about one boundary's own
+evidence, so nothing in the book should be trusted to split until it's
+investigated.
+
+New `BookStructure` fields: `coverage_ok` (`None` until checked, or
+until there are no confirmed chapters to check coverage of at all),
+`coverage_gap_words`, `coverage_notes`. Surfaced in
+`format_structure_report`'s output (the `map-structure` command)
+right under the existing sequence-margin line.
+
+**Verified:**
+- All ten sample books: `coverage_ok` reads `True` ("every word
+  accounted for"), confirmed by diffing full `map-structure` output
+  before/after -- exactly one new line added per book, nothing else
+  changed.
+- Two synthetic failure cases built by hand, since no sample book
+  currently has a real gap to exercise this against: an href mismatch
+  between a confirmed chapter's own href and `book.chapters`'s href
+  for that file (the kind of thing a fragment identifier left
+  unstripped, or an encoding difference, could cause) and a duplicate
+  href in `book.chapters` (two entries claiming the same file, one
+  shadowing the other's content in every href-keyed lookup). Both were
+  caught correctly -- `coverage_ok` went `False` with an accurate word
+  count and gap size, and `has_any_split_eligible_boundary` correctly
+  went `False` too.
+- Full ten-book regression across `analyze`, `map-structure`,
+  `map-css`, `repair`, `auto-fix`, and `split-structure`: no crashes.
+
+**Not done, on purpose:** this verifies *total* coverage, not that
+each zone's content is geographically correct -- a manifest-order bug
+that *misplaces* a whole file into the wrong zone (e.g. sweeping an
+orphaned middle file into back matter because its manifest index
+happens to fall after the last confirmed chapter's) would currently
+balance to zero and pass, since nothing is actually lost or
+duplicated in aggregate, only misattributed. Requirement 6 as written
+is specifically about dropped/duplicated content, which this catches;
+correct zone placement is really the same open manifest-vs-spine-order
+question flagged elsewhere in this doc and in
+`xhtml_recoder_plan.md`, not a new gap this pass introduced. Also not
+done: `split_chapters`/`apply_split` (the `split-structure` command)
+doesn't consume `has_any_split_eligible_boundary` yet -- it's
+documented as explicitly out of scope until Phase 5 builds real
+split-safety-bar gating, so this pass only makes the signal available
+and correct, ready for whenever that gate is built.
+
 ## Done: NCX/nav label parsing, reuse, and TOC link validation
 
 Found while investigating a bug report (real-world book, `Deathwatch`
