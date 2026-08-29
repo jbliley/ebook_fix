@@ -1145,7 +1145,11 @@ class Engine:
 
             modules = list(self.modules)
 
-            profiles = build_class_profiles(book)
+            profiles = build_class_profiles(
+                book,
+                chapter_summary=analysis_report.chapters,
+                frontmatter_summary=analysis_report.frontmatter,
+            )
             auto_entries = self._build_auto_class_mapping(profiles)
             if auto_entries:
                 names = ", ".join(f".{e.old_name}" for e in auto_entries)
@@ -1204,7 +1208,11 @@ class Engine:
                 mapping_path = Path(class_mapping)
                 if not mapping_path.exists():
                     self.log(f"'{class_mapping}' doesn't exist yet -- generating it from this book's CSS...")
-                    profiles = build_class_profiles(book)
+                    profiles = build_class_profiles(
+                        book,
+                        chapter_summary=analysis_report.chapters,
+                        frontmatter_summary=analysis_report.frontmatter,
+                    )
                     write_mapping_file(profiles, mapping_path)
                     self.log(f"Wrote editable mapping to: {mapping_path}")
                     self.log(

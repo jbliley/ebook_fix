@@ -227,6 +227,86 @@ gap (multi-part books that restart numbering), and belongs with the
 chapter-detection confidence work below rather than being patched
 here.
 
+## Done: map-css cross-referenced with chapters.py/frontmatter.py (2026-08-28)
+
+Follow-up to the Part/Book/Volume sequence validation work in
+`xhtml_recoder_plan.md` the same day -- Jacob asked what else could
+raise confidence across the detection/mapping modules, picked this
+one next. Until now, `class_map.py`'s role-guessing ran completely
+blind to two other analyses this same tool already runs -- it guessed
+"chapter-heading" or "body-text" purely from a class's tag/style
+footprint, never checking whether chapters.py or frontmatter.py had
+already settled the same question from independent evidence.
+
+**`build_class_profiles` now takes `chapter_summary`/`frontmatter_summary`**
+(optional, matching `analyze_book_frontmatter`'s own existing
+lazy-compute-if-not-given convention) and uses them for two checks:
+
+- **Chapter-heading corroboration.** New `ClassProfile.confirmed_chapter_marker_count`/
+  `chapter_marker_coverage`: how many of chapters.py's own confirmed
+  chapter-start markers a class's elements directly coincide with. A
+  class covering at least `CHAPTER_MARKER_COVERAGE_THRESHOLD` (60%) of
+  the book's confirmed chapters is promoted straight to "chapter-heading"
+  (high confidence), checked in `_guess_role` ahead of every tag/style
+  heuristic, since it's strictly stronger evidence -- it comes from a
+  sequence chapters.py already validated, not a guess about how a
+  heading is likely to be styled. Guarded by dominant_p_share (below)
+  so a class that's already the book's dominant body-text class isn't
+  promoted just because a handful of its many uses happen to land on a
+  chapter's opening paragraph.
+- **Body-text share restricted to main-content zone.** New
+  `ClassProfile.main_zone_p_count`, and `_guess_role`'s `dominant_p_share`
+  check (a class covering at least half of every `<p>` in the book,
+  see `DOMINANT_P_SHARE`) is now computed only over pages
+  frontmatter.py classified as main content, not the whole book --
+  so a front/back-matter page styled differently from the real body
+  text (title page, copyright page, acknowledgments) can't dilute or
+  skew which class reads as "the" body-text class. Falls back to the
+  whole book automatically when frontmatter.py couldn't confirm any
+  zones at all (nothing reliable to exclude).
+
+engine.py's `auto-fix` and `repair --class-mapping` paths (both of
+which already run the full analyzer first) now pass their existing
+`analysis_report.chapters`/`.frontmatter` straight through instead of
+letting `build_class_profiles` redundantly recompute either -- one
+analysis pass, shared, per this project's core philosophy. The
+standalone `map-css` command still has no analyzer pass to reuse, so
+it keeps calling `build_class_profiles(book)` with nothing extra to
+pass; the new lazy-compute fallback covers it.
+
+**Verified against all ten sample books** (diffed exactly against
+each command's own prior-session baseline):
+- `map-css`: two real, previously-impossible corrections.
+  `RunTogetherText.epub`'s chapter titles turned out to be wrapped in
+  `<span class="calibre3">` rather than any heading tag -- a common
+  lossy-conversion artifact no tag/style heuristic could ever have
+  caught, since spans never trigger the heading checks. 100% chapter-marker
+  coverage promoted it correctly from "inline-span" (low) straight to
+  "chapter-heading" (high). Six other books picked up a supplementary
+  "chapter markers: matches N of..." note on their already-correct
+  chapter-heading guess, pure confirmation with no guess change.
+  `ChaptersMisaligned.epub` surfaced one interesting edge case worth
+  a person's eye later: its dominant body-text class also happens to
+  coincide with 92% of confirmed chapter markers (chapters there may
+  just be plain paragraphs with no distinct heading class of their
+  own) -- correctly *not* promoted, since dominant_p_share caught it,
+  but worth a look if that book comes up again.
+  `CrossReferences-Synthetic.epub` has no classed elements at all, so
+  nothing to check either way.
+- `auto-fix`: no crashes on any book; word counts after repair
+  byte-for-byte matched the pre-change baseline on every book (a
+  class rename doesn't touch text content), and `RunTogetherText.epub`'s
+  newly-corrected `.calibre3` class flowed through the whole pipeline
+  correctly -- renamed to `chapter-header` throughout, text intact.
+
+**Not done, on purpose:** only a class's *own* elements are checked
+against chapters.py's confirmed markers (direct identity match) --
+a wrapping element one level up (e.g. `<div class="chapter">` around
+an unclassed heading) isn't walked for this, since chapters.py's own
+candidate extraction already excludes `div`s and most real-world
+books that use a distinct class for the heading put it directly on
+the heading-ish tag itself. Worth revisiting if a real book needs it.
+
 ## Done: NCX/nav label parsing, reuse, and TOC link validation
 
 Found while investigating a bug report (real-world book, `Deathwatch`
