@@ -16,10 +16,14 @@ chapter markup. It:
    can easily have far more chapters than physical XHTML files (a
    calibre-style split puts many chapters in one file, addressed by
    id="..." fragments), and collapsing to one nav entry per file would
-   throw away everything but a handful of top-level entries. Only a
-   book with no TOC at all falls back to one entry per spine file,
-   labeled from each chapter's own <title> (or first heading, or
-   filename) -- see _build_spine_ol below.
+   throw away everything but a handful of top-level entries. A book
+   with no TOC at all but a detected chapter structure (see
+   ebook_fix.toc_generate) gets a nav built from that structure
+   instead -- still one entry per detected chapter/Part, not per
+   spine file. Only a book with neither an existing TOC nor anything
+   detected falls back to one entry per spine file, labeled from each
+   chapter's own <title> (or first heading, or filename) -- see
+   ebook_fix.toc_generate.build_spine_fallback_entries.
 
 The existing NCX, if present, is left exactly as-is and still
 referenced by <spine toc="ncx">, so EPUB2-only readers keep working.
@@ -36,6 +40,11 @@ from lxml import etree
 from ebook_fix import epub_version
 from ebook_fix.models import ManifestItem
 from ebook_fix.report import Report
+from ebook_fix.toc_generate import (
+    build_toc_entries,
+    build_spine_fallback_entries,
+    build_nav_bytes,
+)
 
 OPF_NS = "http://www.idpf.org/2007/opf"
 XHTML_NS = "http://www.w3.org/1999/xhtml"
@@ -109,7 +118,7 @@ class EPUB3UpgradeRepair:
 
         opf.set("version", target_version)
         self._ensure_modified_meta(opf)
-        self._add_nav_document(book, opf)
+        nav_source = self._add_nav_document(book, opf)
 
         book.version = target_version
         book.opf_modified = True
@@ -121,13 +130,14 @@ class EPUB3UpgradeRepair:
             f"Package version {detected_version!r} upgraded to EPUB {target_version}.",
         )
         if not had_nav:
-            report.add(
-                "content.opf",
-                "Navigation document added",
-                "Generated an EPUB 3 nav.xhtml from the book's existing TOC."
-                if getattr(book, "toc", None)
-                else "Generated an EPUB 3 nav.xhtml from the spine reading order (no existing TOC found).",
-            )
+            detail = {
+                "toc": "Generated an EPUB 3 nav.xhtml from the book's existing TOC.",
+                "structure": "Generated an EPUB 3 nav.xhtml from the book's detected chapter structure "
+                             "(no existing TOC found).",
+                "spine": "Generated an EPUB 3 nav.xhtml from the spine reading order "
+                         "(no existing TOC or detected chapter structure found).",
+            }[nav_source]
+            report.add("content.opf", "Navigation document added", detail)
         return report
 
     # -----------------------------------------------------
@@ -163,14 +173,18 @@ class EPUB3UpgradeRepair:
         )
 
     def _add_nav_document(self, book, opf):
+        """Adds the required EPUB3 nav document and returns which kind
+        of content it was built from ("toc", "structure", or "spine" --
+        see the module docstring), or None if the book already had a
+        nav document and nothing was added."""
         manifest = opf.find(f"{{{OPF_NS}}}manifest")
         if manifest is None:
-            return
+            return None
 
         # Already has a nav doc -- don't add a second one.
         for item in manifest.findall(f"{{{OPF_NS}}}item"):
             if "nav" in (item.get("properties") or "").split():
-                return
+                return None
 
         existing_hrefs = {item.get("href") for item in manifest.findall(f"{{{OPF_NS}}}item")}
         existing_ids = {item.get("id") for item in manifest.findall(f"{{{OPF_NS}}}item")}
@@ -188,8 +202,16 @@ class EPUB3UpgradeRepair:
             ManifestItem(id=item_id, href=href, media_type=NAV_MEDIA_TYPE, properties="nav")
         )
 
+        toc_entries = getattr(book, "toc", None) or []
+        if toc_entries:
+            entries, source = toc_entries, "toc"
+        else:
+            generated = build_toc_entries(book)
+            entries, source = (generated, "structure") if generated else (build_spine_fallback_entries(book), "spine")
+
         base = PurePosixPath(book.package_path).parent
-        book.new_files[str(base / href)] = self._build_nav_bytes(book)
+        book.new_files[str(base / href)] = build_nav_bytes(book, entries)
+        return source
 
     def _unique(self, existing, first, template):
         if first not in existing:
@@ -198,94 +220,3 @@ class EPUB3UpgradeRepair:
         while template.format(n=n) in existing:
             n += 1
         return template.format(n=n)
-
-    def _build_nav_bytes(self, book):
-        E = f"{{{XHTML_NS}}}"
-        html = etree.Element(E + "html", nsmap={None: XHTML_NS, "epub": EPUB_OPS_NS})
-        head = etree.SubElement(html, E + "head")
-        title_el = etree.SubElement(head, E + "title")
-        title_el.text = getattr(book.metadata, "title", "") or "Table of Contents"
-
-        body = etree.SubElement(html, E + "body")
-        nav = etree.SubElement(body, E + "nav")
-        nav.set(f"{{{EPUB_OPS_NS}}}type", "toc")
-        nav.set("id", "toc")
-        heading = etree.SubElement(nav, E + "h1")
-        heading.text = "Table of Contents"
-
-        toc_entries = getattr(book, "toc", None) or []
-        if toc_entries:
-            ol = self._build_toc_ol(E, toc_entries)
-        else:
-            ol = self._build_spine_ol(E, book)
-        nav.append(ol)
-
-        return etree.tostring(
-            html,
-            xml_declaration=True,
-            encoding="utf-8",
-            doctype="<!DOCTYPE html>",
-        )
-
-    def _build_toc_ol(self, E, entries):
-        """Mirrors the book's own TOC (book.toc, a TocEntry tree from
-        the NCX or an existing nav document -- see parser.py) into
-        EPUB 3 nav markup: one <li> per TOC entry, nested <ol>s for
-        children, in the same order and depth as the source. This is
-        what keeps a book with far more chapters than physical XHTML
-        files (a calibre-style split puts many chapters in one file,
-        addressed by #fragment) from losing everything but a handful
-        of top-level entries -- see the module docstring."""
-        ol = etree.Element(E + "ol")
-        for entry in entries:
-            li = etree.SubElement(ol, E + "li")
-            if entry.href:
-                a = etree.SubElement(li, E + "a")
-                a.set("href", entry.href)
-                a.text = entry.label or entry.href
-            else:
-                # EPUB 3 nav requires a <span>, not a bare <li> text,
-                # for an entry with nothing to link to (rare -- a
-                # heading-only navPoint with no content src).
-                span = etree.SubElement(li, E + "span")
-                span.text = entry.label or ""
-            if entry.children:
-                li.append(self._build_toc_ol(E, entry.children))
-        return ol
-
-    def _build_spine_ol(self, E, book):
-        """Fallback for a book with no TOC at all (no NCX, no existing
-        nav document): one <li> per spine file, labeled from that
-        chapter's own <title> (falling back to its first heading, then
-        its filename). Coarser than a real TOC, but there's no finer
-        structure to draw on."""
-        ol = etree.Element(E + "ol")
-        by_id = {item.id: item for item in book.manifest}
-        chapters_by_id = {c.id: c for c in book.chapters}
-        for idref in book.spine:
-            item = by_id.get(idref)
-            if item is None or item.media_type != "application/xhtml+xml":
-                continue
-            label = self._chapter_label(chapters_by_id.get(idref)) or item.href
-            li = etree.SubElement(ol, E + "li")
-            a = etree.SubElement(li, E + "a")
-            a.set("href", item.href)
-            a.text = label
-        return ol
-
-    def _chapter_label(self, chapter):
-        if chapter is None or chapter.document is None:
-            return None
-        doc = chapter.document
-        head_title = doc.find(".//{*}head/{*}title")
-        if head_title is not None:
-            text = (head_title.text or "").strip()
-            if text:
-                return text
-        for level in range(1, 7):
-            heading = doc.find(f".//{{*}}h{level}")
-            if heading is not None:
-                text = "".join(heading.itertext()).strip()
-                if text:
-                    return text
-        return None

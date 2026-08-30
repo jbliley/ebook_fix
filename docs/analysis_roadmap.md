@@ -991,32 +991,141 @@ the actual planning (background on the MOBI format, a rough phased
 sketch starting with analysis-only support, open questions); this
 entry stays here only as a pointer so it isn't lost.
 
-## Next: TOC generation when missing
+## Done: TOC generation when missing (2026-08-30)
 
-The one goal from the original three-part plan not yet built: if a
-book has no NCX and no nav document at all (`toc_source == ""`),
-eventually generate one from `chapters.py`'s confirmed chapter
-sequence instead of leaving the book without navigation.
+The one goal from the original three-part plan that stayed unscoped
+until now: a book with no NCX and no nav document with any real TOC
+entries at all (`toc_source == ""`) used to just stay that way through
+every existing TOC-related module -- `toc.py` only ever validates a
+TOC that already exists, and `crossref.py`'s
+`generate_missing_ncx_entries` only ever extends an NCX that's already
+there. Neither helps a book with nothing at all.
 
-Not scoped in detail yet. Known considerations for whenever this is
-picked up:
-- `epub3_upgrade.py`'s `_add_nav_document()` already builds a nav.xhtml
-  from the spine whenever a book is upgraded to EPUB3 -- but only when
-  `needs_upgrade` is true. An EPUB3 book that's simply missing its nav
-  document (invalid per spec, but a possible real-world find) wouldn't
-  currently trigger it. Worth deciding whether "generate when missing"
-  is its own repair step, or a small extension of that existing one.
-- EPUB2 books needing an NCX generated (as opposed to EPUB3's nav)
-  aren't handled by anything yet either.
-- `analyze_book_toc()`'s `chapters_missing_from_toc` list (new, see
-  "Done" above) is already halfway to being the input list a
-  generator would need -- it's the same "main content chapters with
-  no TOC entry" answer either way.
-- Depends on chapter detection actually having confirmed a sequence
-  (`chapters.py`'s `best_sequence`) -- if it hasn't, there's nothing
-  reliable to build labels from, so this would need its own fallback
-  (probably just numbering chapters "Chapter N" off spine position) or
-  a decision to skip generation entirely in that case.
+**New shared module, `toc_generate.py`:** builds a nested TocEntry
+tree straight from `structure.py`'s own `build_structure()` output --
+the same confirmed Part/chapter tree `map-structure` already displays
+-- rather than inventing a separate detection pass. Deliberately fed
+by `chapters.py`'s normal (case 1/2) `analyze_book_chapters()` only,
+never case-3 detection: per the three-case framework, case 3's
+detection is intentionally weak and always routed to manual review,
+so handing it an authoritative-looking generated TOC would overstate
+how sure this actually is. A case-3 book (or one with nothing
+confirmed at all) gets an empty entry list here and is left
+completely untouched.
+
+Most books this runs against haven't been physically split, so most
+entries need a `#fragment` anchor into a file that still holds several
+chapters, not just a whole-file href. Two sources for that anchor id,
+checked in order: reuse the id `modules/chapter_markup.py` already
+stamped on its `<div epub:type="chapter">` wrapper around that
+boundary, if Chapter Markup already ran this pass; otherwise assign a
+fresh one directly on the boundary's own nearest block-level element
+(a Part boundary always takes this path -- Chapter Markup never wraps
+those). Either way `chapter.modified` gets set so the writer
+re-serializes that file.
+
+This same module also now holds the nav.xhtml and toc.ncx *rendering*
+functions (`build_nav_bytes`, `build_ncx_document`) and the "one entry
+per spine file" fallback (`build_spine_fallback_entries`) -- pulled
+out of `modules/epub3_upgrade.py`, which used to have its own private
+copies of the nav-building logic. `epub3_upgrade.py`'s own
+nav-document fallback (built whenever a book being upgraded to EPUB3
+has no existing TOC) now tries the structure-based entries above
+*before* falling back to one entry per spine file, so a book that
+happens to need a version upgrade at the same time still gets a real,
+per-chapter nav instead of the old coarse one.
+
+**New repair module, `modules/toc_generation.py`:** the piece that
+actually notices a book with no navigation at all and fixes it,
+independent of whether it also needs a version upgrade this run.
+Two independent additions, either or both depending on what's
+missing:
+- `toc.ncx`, for any book (EPUB2 or EPUB3) that doesn't have a real
+  one -- older EPUB2-only readers have no other option, and a modern
+  reader that gets one anyway is unaffected.
+- `nav.xhtml`, only if the book is (already, or was just upgraded to
+  be) EPUB3 and has no manifest item with `properties="nav"` yet.
+  `epub3_upgrade.py`'s own `repair()` already adds one, but only as a
+  side effect of bumping the version -- a book that was already EPUB3
+  all along and simply never had a nav document falls through that
+  module's own checks entirely, since nothing there needed upgrading.
+  This module is what actually catches that case.
+
+Registered right after Chapter Markup Repair (for the id-reuse
+dependency above) and, by pipeline order, after EPUB3 Upgrade Repair
+too, since whether a nav document is still needed depends on
+`book.version`/`book.nav_item` as they stand *after* any upgrade this
+run already performed.
+
+**A real correctness bug found by testing against the sample books,
+not by inspection alone:** the original trigger for generating
+`toc.ncx` checked `book.ncx_document is None`, which missed a book
+that ships an NCX *file* that parses fine but whose `<navMap>` is
+completely empty (`GutenbergText-ChapterSplit.epub` -- an old
+calibre-generated shell with zero navPoints). `book.toc_source` (set
+once at parse time from actual entry count, never updated afterward)
+already treats that the same as "no NCX," so the generation trigger
+needed to as well -- fixed by checking the live navMap's own navPoint
+count instead of document presence. That fix in turn meant the "add
+an NCX" step had to reuse that existing (empty) manifest entry's own
+href/id rather than bolting on a second, competing NCX file alongside
+the untouched original.
+
+**Verified:**
+- Full ten-book regression across `analyze` and `repair`: no crashes,
+  every output file strictly well-formed XML (no `recover=True`
+  leniency).
+- Manifest integrity checked directly: no duplicate manifest ids, at
+  most one NCX manifest item and one nav item per book, every manifest
+  href actually present in the zip.
+- Every generated NCX's `<content src="...">` target resolves to a
+  real file, and every `#fragment` resolves to a real element id in
+  that file -- checked across all ten books. (Two pre-existing, unrelated
+  broken NCX targets surfaced this way in `The Call of Cthulhu` and
+  `WarPeace-GoodCopy` -- both already broken in the original,
+  unmodified book files, confirmed by checking the source archives
+  directly.)
+- Word-count parity against a clean baseline clone's `repair` output
+  (not the raw un-repaired input, which several other modules already
+  legitimately change) across all ten books: nine are exact matches
+  (none of them qualified for generation -- all nine already ship a
+  real TOC, so `toc_generation` correctly left them untouched);
+  `GutenbergText-ChapterSplit.epub`'s only difference is in
+  `nav.xhtml`'s own link text (24 words in the old one-entry-per-file
+  fallback vs. 44 in the new one-entry-per-chapter build) -- every
+  actual story-content file matches exactly.
+- Confirmed idempotent across a multi-pass repair run and across a
+  from-scratch re-run on already-repaired output: once generated, a
+  fresh parse of the repaired file reports a real `toc_source`, and
+  `toc_generation` correctly reports zero issues on it.
+- Config toggle tested directly: `[toc_generation] enabled = false`
+  suppresses both additions; disabling `epub3_upgrade` while leaving
+  `toc_generation` on confirms a book that stays EPUB2 gets a real
+  `toc.ncx` but correctly no `nav.xhtml`.
+
+**Not done, on purpose:** `epub3_upgrade.py`'s own nav-document build
+runs before Chapter Markup in the pipeline (it has to -- the version
+bump needs to happen first), so when both fire in the same run, its
+nav.xhtml ends up using freshly-assigned `toc-anchor-N` ids rather
+than reusing Chapter Markup's own `chapter-N` wrapper ids the way
+`toc_generation.py`'s later NCX build does. Both are fully valid and
+correctly linked -- it's a cosmetic inconsistency between the two
+generated files, not a functional bug -- but unifying the two would
+mean either reordering the pipeline (bigger change, more risk to
+everything else that depends on EPUB3 Upgrade running first) or
+teaching `epub3_upgrade.py` to defer its nav *content* until later
+while still registering the manifest item immediately. Left as a
+known follow-up rather than solved speculatively.
+
+## Next: Case 3 -- wiring detection to an actual split
+
+Detection exists (see "Case 3 detection -- first slice" in
+`xhtml_recoder_plan.md`), but there's no reviewed path from a Case 3
+finding into `splitter.py` yet, and a second detection signal for
+Case 3 (structural breaks -- `<hr>`, page-break CSS -- as opposed to
+the bare-numbered-heading signal already built) hasn't been built
+either. Not scoped in detail yet.
+
 
 ## Open questions
 - Whether NCX-label parsing lands as its own module or folds into

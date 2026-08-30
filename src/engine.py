@@ -27,6 +27,7 @@ from ebook_fix.crossref import find_links_into, rewrite_links, find_ncx_links_in
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
+from ebook_fix.modules.toc_generation import TocGenerationRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMappingEntry, load_mapping_file, MappingError
@@ -64,6 +65,13 @@ class Engine:
             modules.append(ParagraphRepair(self.config.paragraph_repair))
         if getattr(self.config, "chapter_markup", None) and getattr(self.config.chapter_markup, "enabled", True):
             modules.append(ChapterMarkupRepair(self.config.chapter_markup))
+        # Runs right after Chapter Markup so it can reuse the id
+        # Chapter Markup already assigned to each confirmed chapter's
+        # wrapper div, and after EPUB3 Upgrade so book.version/
+        # book.nav_item already reflect whatever that module did this
+        # pass -- see modules/toc_generation.py's module docstring.
+        if getattr(self.config, "toc_generation", None) and getattr(self.config.toc_generation, "enabled", True):
+            modules.append(TocGenerationRepair(self.config.toc_generation))
         # Runs right after Chapter Markup, before anything text-level:
         # this only ever touches <hr> elements (never text/tail nodes),
         # and its classification depends on chapter boundary awareness

@@ -133,6 +133,22 @@ class EPUBWriter:
                         dest.writestr(name, self._serialize(chapter))
                         written.add(name)
 
+                    # A brand-new NCX (a book that had none at all --
+                    # see modules/toc_generation.py) has no entry in
+                    # the source archive's own names, so the earlier
+                    # "ncx_modified and name == ncx_full_path" branch
+                    # in the main loop above never gets a chance to
+                    # run for it. Same idiom as the "genuinely new"
+                    # modified-chapter handling just above.
+                    if (
+                        ncx_modified
+                        and ncx_full_path is not None
+                        and ncx_full_path not in names
+                        and ncx_full_path not in removed_files
+                    ):
+                        dest.writestr(ncx_full_path, self._serialize_ncx(book.ncx_document))
+                        written.add(ncx_full_path)
+
                     for name, data in new_files.items():
                         if name in removed_files or name in written:
                             continue

@@ -49,6 +49,11 @@ class ChapterMarkupConfig:
 
 
 @dataclass(slots=True)
+class TocGenerationConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class WhitespaceRepairConfig:
     enabled: bool = True
     fix_leading_indent: bool = True
@@ -111,6 +116,7 @@ class Config:
     epub3_upgrade: EPUB3UpgradeConfig = field(default_factory=EPUB3UpgradeConfig)
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
     chapter_markup: ChapterMarkupConfig = field(default_factory=ChapterMarkupConfig)
+    toc_generation: TocGenerationConfig = field(default_factory=TocGenerationConfig)
     image_repair: ImageRepairConfig = field(default_factory=ImageRepairConfig)
     whitespace_repair: WhitespaceRepairConfig = field(default_factory=WhitespaceRepairConfig)
     gutenberg_repair: GutenbergRepairConfig = field(default_factory=GutenbergRepairConfig)
@@ -155,6 +161,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.epub3_upgrade, modules, "epub3_upgrade")
     _apply_module_toggle(config.paragraph_repair, modules, "paragraph_repair")
     _apply_module_toggle(config.chapter_markup, modules, "chapter_markup")
+    _apply_module_toggle(config.toc_generation, modules, "toc_generation")
     _apply_module_toggle(config.image_repair, modules, "image_repair")
     _apply_module_toggle(config.whitespace_repair, modules, "whitespace_repair")
     _apply_module_toggle(config.gutenberg_repair, modules, "gutenberg_repair")
@@ -165,6 +172,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
     _apply_section(config.chapter_markup, "chapter_markup", data.get("chapter_markup", {}))
+    _apply_section(config.toc_generation, "toc_generation", data.get("toc_generation", {}))
     _apply_section(config.image_repair, "image_repair", data.get("image_repair", {}))
     _apply_section(config.whitespace_repair, "whitespace_repair", data.get("whitespace_repair", {}))
     _apply_section(config.gutenberg_repair, "gutenberg_repair", data.get("gutenberg_repair", {}))
@@ -229,6 +237,7 @@ DEFAULT_CONFIG_TEXT = """\
 epub3_upgrade = true
 paragraph_repair = true
 chapter_markup = true
+toc_generation = true
 image_repair = true
 whitespace_repair = true
 gutenberg_repair = true
@@ -272,6 +281,19 @@ fix_mid_sentence_splits = true
 # analysis output) in its own <section epub:type="chapter">, with a
 # page break before it. Only chapters the detector is confident about
 # get split; weak/ambiguous candidates are left alone.
+enabled = true
+
+# ---------------------------------------------------------------------
+# TOC Generation
+# ---------------------------------------------------------------------
+[toc_generation]
+
+# For a book with no NCX and no EPUB3 nav document with any TOC
+# entries at all, generate one from the book's detected chapter
+# structure: a toc.ncx always, plus a nav.xhtml too if the book is
+# EPUB3 and doesn't have one yet. A book with even a sparse or broken
+# existing TOC is left alone -- this only ever fires when there's
+# genuinely nothing there to begin with.
 enabled = true
 
 # ---------------------------------------------------------------------

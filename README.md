@@ -122,7 +122,7 @@ Quick reference for every command and flag currently available. Run these from t
 <li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
 </ul>
 
-<p><b>split-structure</b> - Proof of concept: physically splits any file with 2+ detected chapter boundaries into standalone chapter files and rewrites any affected in-body cross-reference links. A mechanics test, not a finished conversion; the table of contents and nav documents aren't updated yet.</p>
+<p><b>split-structure</b> - Proof of concept: physically splits any file with 2+ detected chapter boundaries into standalone chapter files, rewrites any affected in-body cross-reference links, and updates the NCX (rewriting existing entries that pointed into the old file, adding new ones for pieces that had none). A mechanics test, not a finished conversion.</p>
 <ul>
 <li><code>input</code> - Path to the EPUB file.</li>
 <li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_split.epub</code>.</li>
