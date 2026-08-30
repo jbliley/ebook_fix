@@ -1103,19 +1103,25 @@ the untouched original.
   `toc_generation` on confirms a book that stays EPUB2 gets a real
   `toc.ncx` but correctly no `nav.xhtml`.
 
-**Not done, on purpose:** `epub3_upgrade.py`'s own nav-document build
-runs before Chapter Markup in the pipeline (it has to -- the version
-bump needs to happen first), so when both fire in the same run, its
-nav.xhtml ends up using freshly-assigned `toc-anchor-N` ids rather
-than reusing Chapter Markup's own `chapter-N` wrapper ids the way
-`toc_generation.py`'s later NCX build does. Both are fully valid and
-correctly linked -- it's a cosmetic inconsistency between the two
-generated files, not a functional bug -- but unifying the two would
-mean either reordering the pipeline (bigger change, more risk to
-everything else that depends on EPUB3 Upgrade running first) or
-teaching `epub3_upgrade.py` to defer its nav *content* until later
-while still registering the manifest item immediately. Left as a
-known follow-up rather than solved speculatively.
+**Follow-up, resolved (2026-08-30):** `epub3_upgrade.py`'s own
+nav-document build used to run before Chapter Markup in the pipeline,
+so when both fired in the same run its nav.xhtml ended up with
+freshly-assigned `toc-anchor-N` ids instead of reusing Chapter
+Markup's own `chapter-N` wrapper ids the way `toc_generation.py`'s
+NCX build already did -- both were fully valid and correctly linked,
+just cosmetically inconsistent with each other. Fixed by moving
+`EPUB3UpgradeRepair` later in the pipeline (see `engine.py`'s
+`_build_modules()`), to right after Chapter Markup instead of first --
+checked beforehand that nothing else in the pipeline reads
+`book.version` or otherwise depends on the manifest/OPF already being
+at EPUB3 before that point, so nothing else needed to change.
+`nav.xhtml` and `toc.ncx` now consistently reuse the exact same
+`chapter-N` ids for a given book, confirmed by diffing the anchor ids
+in both files directly. Full ten-book regression re-run afterward: no
+crashes, no change in manifest/NCX integrity, and word-count parity
+against the pre-reorder output (excluding `nav.xhtml` itself, which is
+expected to change now that it's built from the reused ids) is exact
+across all ten books.
 
 ## Next: Case 3 -- wiring detection to an actual split
 

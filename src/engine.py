@@ -51,20 +51,27 @@ class Engine:
 
     def _build_modules(self):
         modules = []
-        # Runs first: every other module should see the upgraded
-        # (EPUB3, nav-document-having) structure, not the original.
-        if getattr(self.config, "epub3_upgrade", None) and getattr(self.config.epub3_upgrade, "enabled", True):
-            modules.append(EPUB3UpgradeRepair(self.config.epub3_upgrade))
-        # Runs early, right after the EPUB3 upgrade (so any nav
-        # document it cleans up already exists) and before every
-        # content-editing module below, so those don't waste effort
-        # processing text that's about to be deleted anyway.
+        # Runs early, before every content-editing module below, so
+        # those don't waste effort processing text that's about to be
+        # deleted anyway.
         if getattr(self.config, "gutenberg_repair", None) and getattr(self.config.gutenberg_repair, "enabled", True):
             modules.append(GutenbergRepair(self.config.gutenberg_repair))
         if getattr(self.config, "paragraph_repair", None) and getattr(self.config.paragraph_repair, "enabled", True):
             modules.append(ParagraphRepair(self.config.paragraph_repair))
         if getattr(self.config, "chapter_markup", None) and getattr(self.config.chapter_markup, "enabled", True):
             modules.append(ChapterMarkupRepair(self.config.chapter_markup))
+        # Runs after Gutenberg/Paragraph/Chapter Markup rather than
+        # first, even though it used to run first: this module's own
+        # nav-document generation (see modules/epub3_upgrade.py) reuses
+        # the same ebook_fix.toc_generate builder Chapter Markup's
+        # wrapper ids feed into, and needs those ids to already exist
+        # to reuse them instead of assigning a second, redundant id
+        # right next to them. Nothing else in the pipeline reads
+        # book.version or depends on the manifest/OPF already being at
+        # EPUB3 before this point, so nothing else is affected by the
+        # later position.
+        if getattr(self.config, "epub3_upgrade", None) and getattr(self.config.epub3_upgrade, "enabled", True):
+            modules.append(EPUB3UpgradeRepair(self.config.epub3_upgrade))
         # Runs right after Chapter Markup so it can reuse the id
         # Chapter Markup already assigned to each confirmed chapter's
         # wrapper div, and after EPUB3 Upgrade so book.version/

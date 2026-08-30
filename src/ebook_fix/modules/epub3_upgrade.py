@@ -28,8 +28,15 @@ chapter markup. It:
 The existing NCX, if present, is left exactly as-is and still
 referenced by <spine toc="ncx">, so EPUB2-only readers keep working.
 
-Runs first in the repair pipeline (see engine.py) so every other
-module operates on the upgraded structure.
+Runs after Gutenberg Repair, Paragraph Repair, and Chapter Markup
+Repair in the pipeline (see engine.py) rather than first, even though
+it used to run first: nothing else in the pipeline reads book.version
+or otherwise depends on the manifest/OPF already being at EPUB3 before
+it runs, and generating a nav document from the book's detected
+structure (see point 3 above) needs Chapter Markup to have already
+wrapped each confirmed chapter, so its id can be reused instead of
+stamping a second, redundant one right next to it -- see
+ebook_fix.toc_generate's module docstring for the id-reuse mechanics.
 """
 
 from __future__ import annotations
