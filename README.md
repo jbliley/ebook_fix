@@ -3,6 +3,19 @@ An automated tool that will be able to detect and fix both common and uncommon i
 
 The ultimate goal of this project is to allow any type of eBook file to be analyzed and fixed without the need of running it through AI, as they are often too large of a job for free usage. This idea is stemming from the many free eBook files online that are poorly converted from early PDF files, or those that were printed directly from HTML files from 20+ years ago. As this project is in its infancy, it can only analyze and repair .epub files so far.
 
+<h3>Installation</h3>
+<p>There are two ways to run ebook_fix, use whichever is easier for your setup.</p>
+<p><b>Option 1: Install it as a command (recommended)</b></p>
+<p>From the project's root folder, run this once:</p>
+<p>&emsp;<code>pip install -e .</code></p>
+<p>After that, use the <code>ebook-fix</code> command from any folder, on any book:</p>
+<p>&emsp;<code>ebook-fix analyze "C:/path/to/file/ebook title.epub"</code></p>
+<p>If Windows can't find the <code>ebook-fix</code> command right after installing, pip will print a warning during install with a folder path in it (something like <code>...Python\Scripts</code>). Add that folder to your PATH (search "Environment Variables" in Windows Settings) and reopen your terminal, and the command will work.</p>
+<p><b>Option 2: Run it without installing anything</b></p>
+<p>Every command also works by running the file directly from the <code>src</code> folder, with no install step and no PATH setup needed:</p>
+<p>&emsp;<code>python cli.py analyze "C:/path/to/file/ebook title.epub"</code></p>
+<p>Every command shown in this README works either way. Wherever you see <code>python cli.py</code> below, you can substitute <code>ebook-fix</code> once it's installed, or keep using <code>python cli.py</code> from the <code>src</code> folder if you'd rather skip installing.</p>
+
 <h3>Planned Software Capabilities</h3>
 <ul>
 <li>Analyze complete text and structure of eBook file</li>
