@@ -56,6 +56,14 @@ Once the repair finishes, a Repair Report is printed listing only the fixes that
 <p>&emsp;<b>Run auto-fix: </b><code>python cli.py auto-fix "C:/path/to/file/ebook title.epub"</code></p>
 This is a trade of a little safety for convenience: unlike the reviewed class-mapping workflow below, nothing here is checked by a person first. If a book comes out of <code>auto-fix</code> looking wrong, the original file was never touched, so the normal <code>repair</code> command is still there to use instead.
 
+<h3>Series Metadata</h3>
+<p>Since a book's own content never reliably says what series it belongs to, this is the one piece of metadata you set by hand rather than something analysis detects on its own. Once set, it's written using both calibre's convention and EPUB3's official one, so it shows up correctly whether the book is opened in calibre, an e-reader, or anything else that reads either standard.</p>
+<p>&emsp;<b>Set a series: </b><code>python cli.py series "C:/path/to/file/ebook title.epub" --name "Mountain Man" --index 4</code></p>
+<p>Position can be a decimal like <code>3.5</code>, for a bonus or novella entry between two numbered books. Leave <code>--index</code> off entirely if the book only needs a series name and no number.</p>
+<p>If you leave off <code>--name</code> and/or <code>--index</code>, the command asks for whatever's missing right there in the console instead of erroring out, so you don't need to remember the exact flags:</p>
+<p>&emsp;<b>Set a series interactively: </b><code>python cli.py series "C:/path/to/file/ebook title.epub"</code></p>
+<p>Running this again on a book that already has series info updates it in place rather than adding a duplicate, so it's safe to correct a typo or bump the number later. Once <code>analyze</code> sees a book with series metadata already on it, it shows the series name and position under Book Metadata, purely for reference; that display doesn't need this command to have been run first, only for the metadata to already be there.</p>
+
 <h3>File Integrity</h3>
 <p>Before <code>analyze</code> or <code>repair</code> touch a file, they first confirm it's actually a well-formed EPUB: readable, starts with the ZIP signature, opens as a ZIP, has an intact central directory, contains a META-INF/container.xml, and can locate its OPF package document. If any of these fail, the command stops there and reports which check failed instead of trying to work with a broken file.</p>
 <p>When the integrity check fails, <code>analyze</code> and <code>repair</code> automatically try a conservative, best-effort repair of the file's ZIP/EPUB structure before giving up. What it can fix with confidence:</p>
@@ -115,6 +123,16 @@ Quick reference for every command and flag currently available. Run these from t
 <li><code>--config FILE</code> - Same as <code>analyze</code>.</li>
 <li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
 <li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_autofixed.epub</code>. You'll be asked to confirm before that happens.</li>
+</ul>
+
+<p><b>series</b> - Set (or update) a book's series name and position, written using both calibre's and EPUB3's conventions.</p>
+<ul>
+<li><code>input</code> - Path to the EPUB file.</li>
+<li><code>--name NAME</code> - Series name. If omitted, you're prompted for it.</li>
+<li><code>--index NUMBER</code> - Position within the series. Accepts decimals like <code>3.5</code> for a bonus/novella entry. If omitted, you're prompted for it.</li>
+<li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_series.epub</code>.</li>
+<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
+<li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_series.epub</code>. You'll be asked to confirm before that happens.</li>
 </ul>
 
 <p><b>validate</b> - Run the file-integrity check only, without analyzing or repairing.</p>

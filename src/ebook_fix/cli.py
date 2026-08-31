@@ -228,6 +228,40 @@ def build_parser():
         help="Replace the output file if it already exists. Without -o/--output, this replaces the original file itself instead of writing <input>_split.epub -- you'll be asked to confirm before that happens."
     )
 
+    # Series metadata
+    series = sub.add_parser(
+        "series",
+        help="Set (or update) a book's series name and position, written using both calibre's and EPUB3's conventions so most reading apps recognize it."
+    )
+    series.add_argument(
+        "input",
+        help="Input EPUB"
+    )
+    series.add_argument(
+        "--name",
+        help="Series name. If omitted, you'll be prompted for it."
+    )
+    series.add_argument(
+        "--index",
+        type=float,
+        help="Position within the series, e.g. 3 or 3.5 for a bonus/novella entry. If omitted, you'll be prompted for it."
+    )
+    series.add_argument(
+        "-o",
+        "--output",
+        help="Output EPUB (default: <input>_series.epub)"
+    )
+    series.add_argument(
+        "--no-container-repair",
+        action="store_true",
+        help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
+    )
+    series.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the output file if it already exists. Without -o/--output, this replaces the original file itself instead of writing <input>_series.epub -- you'll be asked to confirm before that happens."
+    )
+
     # Init-config
     init_config = sub.add_parser(
         "init-config",
@@ -340,6 +374,40 @@ def main():
             case3_boundaries=getattr(args, "case3_boundaries", None),
             overwrite=args.overwrite,
             details=args.details,
+        )
+    elif args.command == "series":
+        name = args.name
+        if name is None:
+            name = input("Series name: ").strip()
+        if not name:
+            print("ERROR: Series name can't be empty.")
+            sys.exit(1)
+
+        index = args.index
+        if index is None:
+            raw_index = input("Position in series (e.g. 3 or 3.5, leave blank for none): ").strip()
+            if raw_index:
+                try:
+                    index = float(raw_index)
+                except ValueError:
+                    print(f"ERROR: '{raw_index}' isn't a valid number.")
+                    sys.exit(1)
+
+        output = args.output
+        if output is None:
+            if args.overwrite:
+                if not _confirm_replace_original(epub):
+                    print("Cancelled.")
+                    sys.exit(1)
+                output = epub
+            else:
+                output = epub.with_stem(epub.stem + "_series")
+        engine.set_series(
+            epub,
+            Path(output),
+            name=name,
+            index=index,
+            overwrite=args.overwrite,
         )
     elif args.command == "auto-fix":
         output = args.output

@@ -1,6 +1,8 @@
 # Series Metadata -- Planning Doc
 
-**Status:** Not started. This is a planning doc only -- no code yet.
+**Status:** Phase 1 done (2026-08-31). Manual series metadata writer
+shipped as a new `series` CLI command. Phase 2 (automatic detection)
+and Phase 3 (GUI) are still just the sketch below, not started.
 **Started:** at Jacob's request, while thinking through what he wants
 this project to eventually cover, ahead of any GUI version existing.
 
@@ -101,16 +103,50 @@ than duplicating it, if one's already there).
   on Phase 1 -- the CLI flag is a real, usable interface on its own
   in the meantime.
 
-## Open questions to resolve when this is picked up
-- Write calibre-only, EPUB3-collection-only, or both (leaning both,
-  not decided).
-- Exact CLI shape for Phase 1 (flags on the existing `repair` command,
-  or a new dedicated command, given this isn't really a "fix an
-  issue" repair in the same sense as the rest of that command).
-- Whether a book that already has series metadata gets it reported
-  anywhere in `analyze` output, even before any writing capability
-  exists -- a cheap, useful signal to add early and separately from
-  the write side, worth considering as a small standalone first step.
+## Done: Phase 1 -- manual series metadata writer (2026-08-31)
+
+Built as a new `series` command (`series.py` for the read/write
+logic, `Engine.set_series` in `engine.py`, wired into `cli.py`), not
+a flag on `repair` -- resolves the open question below in favor of a
+dedicated command, since setting series info is a hand-supplied fact
+rather than a detected issue being fixed.
+
+- `series.py`: `read()` and `write()` against `book.opf_document`,
+  writing **both** calibre's `calibre:series`/`calibre:series_index`
+  meta pair and EPUB3's `belongs-to-collection` block (resolves the
+  other open question below in favor of both, same posture as
+  `cover.py`). `write()` is idempotent -- updates existing tags in
+  place, confirmed by running it twice on the same book and diffing
+  the OPF. `index` is a `float`, so `3.5` works for bonus/novella
+  entries; `format_index()` renders whole numbers without a trailing
+  `.0`.
+- `ebook-fix series "book.epub" --name "..." --index 3` runs
+  immediately if both are given; leaving either off prompts for it
+  interactively in `cli.py` rather than erroring, since Jacob's
+  typing this by hand rather than scripting it.
+- `analyze` now shows existing series info read-only under Book
+  Metadata (the small standalone win called out below), via a new
+  `series`/`series_index` pair on `BookSummary` populated from
+  `series.read(book)` in `analyzer.py`. This works independently of
+  the `series` command ever having been run -- it just reports
+  whatever's already on the book.
+- Tested: full 10-book regression via `analyze` (no crashes, no
+  unrelated changes), a `series` run followed immediately by
+  `repair` on the same book to confirm the new meta tags don't
+  interfere with the rest of the pipeline, and an idempotency check
+  (name/index updated by re-running, no duplicate tags).
+- README updated with a new "Series Metadata" section and a
+  `series` entry in the Command Cheat Sheet.
+
+## On the horizon: bulk series numbering
+
+Jacob asked about this, not urgent. Because Phase 1's write logic
+(`series.write(book, name, index)`) only cares about one name/index
+pair per book, adding bulk support later shouldn't need any rework
+here -- it'd mean a new small entry point (something like a CSV or
+config file mapping EPUB filenames to name/index pairs) that loops
+over a folder and calls the same `write()` once per book. Worth
+revisiting once there's an actual multi-book batch to run it against.
 
 ## Continuity note
 Same as the other planning docs: this file is the source of truth for

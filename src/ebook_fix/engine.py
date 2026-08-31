@@ -39,6 +39,7 @@ from ebook_fix.ellipsis import normalize_ellipsis_text
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair, resolve_target_apostrophe_char
 from ebook_fix.apostrophes import normalize_apostrophes_text
+from ebook_fix import series as series_metadata
 
 console = Console()
 
@@ -247,6 +248,13 @@ class Engine:
                 self.log(f"Subjects/Genre: {', '.join(s.subjects)}")
             if s.description:
                 self.log(f"Description: {s.description}")
+            if s.series:
+                if s.series_index is not None:
+                    idx = s.series_index
+                    idx_display = str(int(idx)) if idx == int(idx) else str(idx)
+                    self.log(f"Series: {s.series} (Book {idx_display})")
+                else:
+                    self.log(f"Series: {s.series}")
 
             self.log("")
             self.header("[File Contents]")
@@ -824,6 +832,51 @@ class Engine:
             # does once its modules have had their turn.
             cache_file.unlink(missing_ok=True)
 
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+    def set_series(self, epub, output, name, index=None, overwrite=False):
+        """Writes (or updates) series metadata on a book -- a
+        hand-supplied fact, not something analysis detects, so this
+        always runs from an explicit name/index rather than reading
+        the analysis cache. See ebook_fix.series for how both the
+        calibre and EPUB3 conventions get written, and
+        docs/series_metadata_plan.md for the background.
+        """
+        source, temp_path = self._resolve_source(epub)
+        if source is None:
+            return
+        try:
+            self.log("Opening EPUB...")
+            parser = EPUBParser()
+            book = parser.load(source)
+            self.log("")
+
+            existing = series_metadata.read(book)
+
+            if not self._check_output_path(output, overwrite):
+                return
+
+            series_metadata.write(book, name=name, index=index)
+
+            self.header("[Series Metadata]")
+            old_name = existing.name or "(none)"
+            old_index = (
+                series_metadata.format_index(existing.index)
+                if existing.index is not None else "(none)"
+            )
+            new_index = (
+                series_metadata.format_index(index)
+                if index is not None else "(none)"
+            )
+            self.log(f"Name:  {old_name} -> {name}")
+            self.log(f"Index: {old_index} -> {new_index}")
+            self.log("")
+
+            writer = EPUBWriter()
+            writer.save(book, output)
+            self.log(f"Saved: {output}")
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)

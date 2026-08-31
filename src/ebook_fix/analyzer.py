@@ -33,6 +33,7 @@ from ebook_fix.gutenberg import BookGutenbergSummary, analyze_book_gutenberg
 from ebook_fix.cover import BookCoverSummary, analyze_book_cover
 from ebook_fix.span_soup import BookSpanSoupSummary, analyze_book_span_soup
 from ebook_fix import epub_version
+from ebook_fix import series as series_metadata
 
 # A chapter is flagged as "thin" if it has no paragraphs at all, or if its
 # total word count falls below this threshold. Front/back-matter pages
@@ -74,6 +75,8 @@ class BookSummary:
     rights:str=""
     description:str=""
     subjects:list=field(default_factory=list)
+    series:str=""
+    series_index:float|None=None
     epub_version:str=""
     epub_needs_upgrade:bool=False
     epub_target_version:str=""
@@ -214,6 +217,9 @@ class EPUBAnalyzer:
         r.summary.rights=getattr(meta,"rights","") if meta else ""
         r.summary.description=getattr(meta,"description","") if meta else ""
         r.summary.subjects=list(getattr(meta,"subject",[]) or []) if meta else []
+        series_info=series_metadata.read(book)
+        r.summary.series=series_info.name
+        r.summary.series_index=series_info.index
         version_info=epub_version.detect(book)
         r.summary.epub_version=version_info.detected_version
         r.summary.epub_needs_upgrade=version_info.needs_upgrade
