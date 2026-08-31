@@ -86,6 +86,7 @@ Quick reference for every command and flag currently available. Run these from t
 <li><code>--dry-run</code> - Analyze repairs without writing a file.</li>
 <li><code>--details</code> - Show the full before/after list of every change instead of the category summary.</li>
 <li><code>--class-mapping FILE</code> - Apply a confirmed class-standardization mapping (from <code>map-css --write-mapping</code>, reviewed by hand) as part of this repair. Renames chapter-heading/body-text classes and standardizes their CSS.</li>
+<li><code>--case3-boundaries FILE</code> - Review and apply Case 3 chapter boundaries (books with no chapter-heading words and no existing table of contents). If <code>FILE</code> doesn't exist yet, detects every candidate boundary and writes it there for review, without touching the book. Delete a boundary you don't trust and re-run the same command to physically split on whatever's left.</li>
 <li><code>--verbose</code> - Verbose output.</li>
 <li><code>--config FILE</code> - Same as <code>analyze</code>.</li>
 <li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>

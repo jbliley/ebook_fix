@@ -1123,14 +1123,28 @@ against the pre-reorder output (excluding `nav.xhtml` itself, which is
 expected to change now that it's built from the reused ids) is exact
 across all ten books.
 
-## Next: Case 3 -- wiring detection to an actual split
+## Done: Case 3 -- wiring detection to an actual split (2026-08-31)
 
-Detection exists (see "Case 3 detection -- first slice" in
-`xhtml_recoder_plan.md`), but there's no reviewed path from a Case 3
-finding into `splitter.py` yet, and a second detection signal for
-Case 3 (structural breaks -- `<hr>`, page-break CSS -- as opposed to
-the bare-numbered-heading signal already built) hasn't been built
-either. Not scoped in detail yet.
+Built as `repair --case3-boundaries FILE`, the same two-step, opt-out
+review convention as `repair --class-mapping` -- see "Case 3 -- wiring
+detection to an actual split" in `xhtml_recoder_plan.md` for the full
+write-up. A second detection signal for Case 3 (structural breaks --
+`<hr>`, page-break CSS -- as opposed to the bare-numbered-heading
+signal already built) is still not built; that's a separate, later
+item, not entangled with this one.
+
+## Next: Case 3 -- structural-break detection, or anthology/omnibus support
+
+Two independent, unscoped items queued from the Case 3 work above,
+neither currently a priority:
+- A second Case 3 detection signal (`<hr>`, page-break CSS) alongside
+  the bare-numbered-title signal already built.
+- Anthology/omnibus EPUBs bundling multiple separate works into one
+  file, each restarting its own numbering -- Case 3 has no label word
+  to anchor a restart on the way the normal pipeline's Part-sequence
+  handling already does for case 1/2, so this would need its own
+  detection strategy. Flagged by Jacob as worth covering eventually,
+  not urgent.
 
 
 ## Open questions

@@ -24,6 +24,7 @@ from ebook_fix.structure import (
 )
 from ebook_fix.splitter import apply_split, SplitMarker, SplitError
 from ebook_fix.crossref import find_links_into, rewrite_links, find_ncx_links_into, rewrite_ncx_links, generate_missing_ncx_entries
+from ebook_fix.case3_map import write_case3_boundaries_file, load_case3_boundaries_file, Case3MappingError
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -905,6 +906,74 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
+    def _split_and_rewire(self, book, markers_by_href, details=False, log_each_split=True):
+        """Physically splits every href in markers_by_href using its
+        own SplitMarker list (ebook_fix.splitter), then rewires
+        everything that touches: in-body cross-reference links, NCX
+        entries pointing into the old file, and a fresh NCX entry for
+        any resulting chapter that didn't have one already -- even
+        when the whole split had no existing NCX coverage to extend
+        (anchored by the book's own reading order in that case).
+
+        Shared by split_chapters (Phase 1's mechanics-test command,
+        sourcing markers from every SEQUENCE_ONLY+ boundary the normal
+        detection found) and repair's --case3-boundaries path
+        (sourcing markers from a person-reviewed boundaries file
+        instead) -- the splitting and rewiring mechanics themselves
+        don't care which detection path a marker came from.
+
+        An href whose markers raise SplitError (see splitter.py) is
+        logged and skipped rather than failing the whole run -- one
+        bad boundary in one file shouldn't block every other file that
+        split cleanly.
+
+        Returns (split_count, [crossref_report, ncx_report,
+        entry_report]) -- an empty list for the reports if
+        split_count is 0, since there's nothing to rewire.
+        """
+        split_count = 0
+        split_hrefs = set()
+        current_href_origin = {}
+        href_by_id_by_origin = {}
+        new_hrefs_by_origin = {}
+        for href, markers in markers_by_href.items():
+            chapter = next((c for c in book.chapters if c.href == href), None)
+            if chapter is None:
+                continue
+            try:
+                result = apply_split(book, chapter, markers)
+            except SplitError as exc:
+                self.log(f"Skipped {href}: {exc}")
+                continue
+            split_count += 1
+            split_hrefs.add(href)
+            current_href_origin[href] = href
+            for new_href in result.new_hrefs:
+                current_href_origin[new_href] = href
+            href_by_id_by_origin[href] = result.href_by_id
+            new_hrefs_by_origin[href] = result.new_hrefs
+            all_hrefs = [href] + result.new_hrefs
+            if log_each_split:
+                self.log(
+                    f"Split {href}: {len(markers)} chapters -> "
+                    f"{len(all_hrefs)} files "
+                    f"({result.original_word_count} words, integrity check "
+                    f"{'passed' if result.word_counts_match else 'FAILED'})"
+                )
+
+        if split_count == 0:
+            return 0, []
+
+        refs = find_links_into(book, split_hrefs, current_href_origin)
+        crossref_report = rewrite_links(refs, href_by_id_by_origin)
+
+        ncx_refs = find_ncx_links_into(book, split_hrefs)
+        ncx_report = rewrite_ncx_links(book, ncx_refs, href_by_id_by_origin)
+
+        entry_report = generate_missing_ncx_entries(book, split_hrefs, new_hrefs_by_origin)
+
+        return split_count, [crossref_report, ncx_report, entry_report]
+
     def split_chapters(self, epub, output, overwrite=False, details=False):
         """Phase 1 of the XHTML Recoder plan (see
         docs/xhtml_recoder_plan.md): a hands-on way to try the
@@ -912,7 +981,9 @@ class Engine:
         Also runs Phase 2's in-body cross-reference rewriting,
         Phase 3b's NCX entry rewriting, and Phase 3c's NCX entry
         generation (all in ebook_fix.crossref) immediately afterward,
-        once per run across every file split.
+        once per run across every file split -- see _split_and_rewire
+        above, which does the actual work and is shared with repair's
+        --case3-boundaries path.
 
         NOT gated by the full split-safety-bar corroboration
         requirement yet (see docs/split_safety_bar.md) -- proper
@@ -968,18 +1039,11 @@ class Engine:
             for node in eligible:
                 by_href.setdefault(node.start_href, []).append(node)
 
-            split_count = 0
-            split_hrefs = set()
-            current_href_origin = {}
-            href_by_id_by_origin = {}
-            new_hrefs_by_origin = {}
+            markers_by_href = {}
             for href, nodes in by_href.items():
                 if len(nodes) < 2:
                     continue
-                chapter = next((c for c in book.chapters if c.href == href), None)
-                if chapter is None:
-                    continue
-                markers = [
+                markers_by_href[href] = [
                     SplitMarker(
                         element=node.evidence.candidate.element,
                         title=node.title,
@@ -987,43 +1051,21 @@ class Engine:
                     )
                     for node in nodes
                 ]
-                try:
-                    result = apply_split(book, chapter, markers)
-                except SplitError as exc:
-                    self.log(f"Skipped {href}: {exc}")
-                    continue
-                split_count += 1
-                split_hrefs.add(href)
-                current_href_origin[href] = href
-                for new_href in result.new_hrefs:
-                    current_href_origin[new_href] = href
-                href_by_id_by_origin[href] = result.href_by_id
-                new_hrefs_by_origin[href] = result.new_hrefs
-                all_hrefs = [href] + result.new_hrefs
-                self.log(
-                    f"Split {href}: {len(markers)} chapters -> "
-                    f"{len(all_hrefs)} files "
-                    f"({result.original_word_count} words, integrity check "
-                    f"{'passed' if result.word_counts_match else 'FAILED'})"
-                )
 
+            split_count, reports = self._split_and_rewire(book, markers_by_href, details=details)
             if split_count == 0:
                 self.log("No file in this book has 2+ chapter boundaries to split.")
                 return
+            crossref_report, ncx_report, entry_report = reports
 
-            refs = find_links_into(book, split_hrefs, current_href_origin)
-            crossref_report = rewrite_links(refs, href_by_id_by_origin)
             self.log("")
             self.header("[Cross-Reference Rewriter]")
             crossref_report.print(details=details, verb="fixed")
 
-            ncx_refs = find_ncx_links_into(book, split_hrefs)
-            ncx_report = rewrite_ncx_links(book, ncx_refs, href_by_id_by_origin)
             self.log("")
             self.header("[NCX Rewriter]")
             ncx_report.print(details=details, verb="fixed")
 
-            entry_report = generate_missing_ncx_entries(book, split_hrefs, new_hrefs_by_origin)
             self.log("")
             self.header("[NCX Entry Generator]")
             entry_report.print(details=details, verb="added")
@@ -1228,7 +1270,103 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
-    def repair(self, epub, output, dry_run=False, class_mapping=None, overwrite=False, details=False, max_passes=5):
+    def _apply_case3_boundaries(self, book, case3_boundaries, details=False):
+        """The --case3-boundaries half of repair(): same two-step,
+        opt-out convention as --class-mapping (see
+        ebook_fix.case3_map's module docstring for why Case 3 needs
+        this rather than ever splitting automatically). Returns True
+        if repair() should continue on into its normal module
+        pipeline afterward, False if it already logged something
+        final and repair() should stop here.
+        """
+        normal_tree = analyze_structure(book)
+        if normal_tree.nodes:
+            self.log(
+                f"'{case3_boundaries}' was given, but this book's normal chapter "
+                "detection already found confirmed chapters -- Case 3 handling is "
+                "only for a book where that comes back completely empty. Nothing "
+                "to do here for Case 3; try `split-structure` instead if you want "
+                "to test splitting on this book's normal detection.\n"
+            )
+            return True
+
+        case3_tree = analyze_case3_structure(book)
+        case3_nodes = list(iter_chapter_nodes(case3_tree))
+
+        boundaries_path = Path(case3_boundaries)
+        if not boundaries_path.exists():
+            book_title = getattr(book.metadata, "title", "") or Path(case3_boundaries).stem
+            write_case3_boundaries_file(book_title, case3_nodes, boundaries_path)
+            if case3_nodes:
+                self.log(
+                    f"'{case3_boundaries}' doesn't exist yet -- wrote {len(case3_nodes)} "
+                    "detected Case 3 boundary(ies) to it."
+                )
+                self.log(
+                    "\nReview every boundary before applying it -- delete a boundary's "
+                    "block entirely to reject it (an unlabeled numbered section header "
+                    "can just as easily be something else). Once it looks right, re-run "
+                    "this same repair command to apply it.\n"
+                )
+            else:
+                self.log(
+                    f"No Case 3 boundaries were detected in this book either -- wrote an "
+                    f"empty '{case3_boundaries}' for reference. Nothing to split.\n"
+                )
+            return False
+
+        try:
+            reviewed = load_case3_boundaries_file(case3_boundaries)
+        except Case3MappingError as exc:
+            self.log(f"ERROR: {exc}")
+            return False
+
+        by_position = {(n.start_href, n.start_book_order): n for n in case3_nodes}
+        markers_by_href = {}
+        skipped = 0
+        for b in reviewed:
+            node = by_position.get((b.href, b.book_order))
+            candidate = node.evidence.candidate if node is not None and node.evidence is not None else None
+            if (
+                node is None
+                or candidate is None
+                or str(getattr(candidate, "number", "") or "") != b.number
+                or node.title != b.text
+            ):
+                self.log(
+                    f"Skipped a reviewed boundary in {b.href!r} ({b.text!r}) that no longer "
+                    f"matches what's detected there now -- the book may have changed since "
+                    f"'{case3_boundaries}' was generated. Re-run with a fresh boundaries file "
+                    "if this book was meant to change."
+                )
+                skipped += 1
+                continue
+            markers_by_href.setdefault(b.href, []).append(
+                SplitMarker(element=candidate.element, title=node.title, number=candidate.number)
+            )
+
+        if not markers_by_href:
+            self.log(f"Note: '{case3_boundaries}' has no boundaries left to split on -- nothing to do for Case 3.\n")
+            return True
+
+        total = sum(len(m) for m in markers_by_href.values())
+        self.log(f"Applying {total} reviewed Case 3 boundary(ies) across {len(markers_by_href)} file(s)...")
+        split_count, reports = self._split_and_rewire(book, markers_by_href, details=details)
+        if split_count:
+            crossref_report, ncx_report, entry_report = reports
+            self.log("")
+            self.header("[Cross-Reference Rewriter]")
+            crossref_report.print(details=details, verb="fixed")
+            self.log("")
+            self.header("[NCX Rewriter]")
+            ncx_report.print(details=details, verb="fixed")
+            self.log("")
+            self.header("[NCX Entry Generator]")
+            entry_report.print(details=details, verb="added")
+        self.log("")
+        return True
+
+    def repair(self, epub, output, dry_run=False, class_mapping=None, case3_boundaries=None, overwrite=False, details=False, max_passes=5):
         source, temp_path = self._resolve_source(epub)
         if source is None:
             return
@@ -1273,6 +1411,17 @@ class Engine:
                     self.log(f"Note: '{class_mapping}' has no class entries -- nothing to standardize.")
                 else:
                     modules.append(ClassStandardizeRepair(entries))
+
+            if case3_boundaries:
+                if not self._apply_case3_boundaries(book, case3_boundaries, details=details):
+                    return
+                # The split above (if anything actually got split) changed
+                # book.chapters/manifest/spine -- re-analyze so the module
+                # pipeline below sees the post-split book on its first
+                # pass, not the one from before the split happened
+                # (_run_repair_passes only re-analyzes starting at pass 2 --
+                # see its own docstring).
+                analysis_report = analyzer.analyze(book)
 
             if not dry_run and not self._check_output_path(output, overwrite):
                 return

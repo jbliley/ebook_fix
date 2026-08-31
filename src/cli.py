@@ -77,6 +77,11 @@ def build_parser():
         help="Apply a confirmed class-standardization mapping (from `map-css --write-mapping`, reviewed by hand) as part of this repair -- renames chapter-heading/body-text classes and standardizes their CSS."
     )
     repair.add_argument(
+        "--case3-boundaries",
+        metavar="FILE",
+        help="Review and apply Case 3 chapter boundaries (books with no chapter-heading words and no existing TOC -- see docs/xhtml_recoder_plan.md). If FILE doesn't exist yet, detects and writes every candidate boundary to it for review and stops without touching the book. Re-run with the same FILE, after editing it, to physically split on whatever boundaries are still listed."
+    )
+    repair.add_argument(
         "--verbose",
         action="store_true",
         help="Verbose output."
@@ -332,6 +337,7 @@ def main():
             Path(output),
             dry_run=args.dry_run,
             class_mapping=getattr(args, "class_mapping", None),
+            case3_boundaries=getattr(args, "case3_boundaries", None),
             overwrite=args.overwrite,
             details=args.details,
         )

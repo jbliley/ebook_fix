@@ -254,6 +254,103 @@ wiring is intentionally not built yet; see "Still open" below.
   own docstring) before anything case 3 finds is ever handed to
   `splitter.py`.
 
+### Case 3 -- wiring detection to an actual split (2026-08-31)
+
+Built exactly the shape sketched above: `repair --case3-boundaries
+FILE`, following the same two-step, opt-out convention as `repair
+--class-mapping` rather than `split-structure`'s own ungated
+behavior -- deliberately, since Jacob's rule for case 3 is stronger
+and permanent (always require sign-off per boundary, never auto-split
+regardless of confidence), not a stopgap waiting on a future general
+gating phase the way `split-structure`'s own lack of a review step is.
+
+**New module, `case3_map.py`:** `write_case3_boundaries_file` /
+`load_case3_boundaries_file`, mirroring `class_map.py`'s TOML
+read/write conventions closely -- same "delete a block to reject it"
+opt-out UX, same header-comment style. A boundary's identity on
+reload is (file, `_book_order`) -- `chapters.py`'s own deterministic
+position numbering, stable across re-runs as long as the book hasn't
+changed in between -- with the detected number/text written in for a
+person to read, then double-checked as a sanity cross-check on
+reload: if a boundary's position still exists but the text there no
+longer matches what's recorded, that boundary is skipped with a
+warning (the book changed since the file was generated) rather than
+either failing the whole run or silently splitting at the wrong spot.
+Jacob confirmed skip-with-a-warning is the right call here, not an
+error.
+
+**`engine.py`:** the actual splitting mechanics (`apply_split`, then
+cross-reference rewriting, NCX rewriting, and NCX entry generation --
+all already built, see Phases 2/3b/3c above) got pulled out of
+`split_chapters` into a new shared `_split_and_rewire` helper, since
+both `split_chapters` and the new case 3 path need the identical
+mechanics and only differ in where their `SplitMarker`s come from.
+`split_chapters` itself is behavior-identical after the extraction --
+confirmed by running it before and after and diffing the output.
+
+The new `_apply_case3_boundaries` method implements the two-step flow:
+no file yet -> detect (guarded on the book's *normal* detection
+having come back completely empty first, matching
+`map-structure`'s own existing case 3 fallback trigger -- a book
+that already has confirmed chapters the normal way gets a plain
+explanation instead of ever running case 3 detection on it), write,
+stop. File present -> load, re-detect fresh, match, warn-and-skip
+anything that doesn't line up anymore, then split whatever's left
+-- deliberately with **no minimum boundary count per file** (unlike
+`split_chapters`'s own 2+ requirement): once a boundary survives your
+own review, ebook_fix trusts it outright rather than second-guessing
+it with an extra automatic floor. Keep just one boundary in a file
+and that file splits into two pieces on it. `repair()` re-analyzes the
+book after any actual split happens, before the normal module
+pipeline runs on it, so a freshly split-off chapter still gets
+whitespace/ellipsis/chapter-markup treatment like every other chapter
+in the same pass.
+
+**A real bug found by testing, not by inspection:** the first version
+of the confirmation messages printed to the console referenced the
+literal `[[boundary]]` TOML syntax -- Rich's console markup parser
+silently mangled the double brackets into `[]`, since it interprets
+square brackets as style tags. The file's own header comment (written
+directly to disk, never passed through Rich) keeps the literal syntax
+fine; only the console-printed guidance needed rewording.
+
+**Verified against `examples/The Call of Cthulhu by H. P. Lovecraft.epub`,**
+the project's one case 3 sample book, end to end:
+- Generation: found all 3 real boundaries, wrote a clean file, didn't
+  touch the book.
+- Full apply (all 3 kept): split into 4 pieces, rewired the one
+  in-body footnote link that pointed into the original file, generated
+  3 new NCX entries with correct labels, everything still valid XML
+  afterward, and the later pipeline (Chapter Markup, TOC Generation,
+  etc.) correctly picked up all the new files in the same run.
+- Partial approval: hand-deleted one boundary from the file, re-ran,
+  confirmed it split into 3 pieces instead of 4 -- the edit was fully
+  respected, no hidden floor overriding it.
+- Tampered boundary (simulating "book changed since generation"):
+  edited one boundary's recorded text so it no longer matches, re-ran,
+  confirmed that boundary was skipped with a warning while the other
+  two still applied correctly.
+- Guard message: ran `--case3-boundaries` against `WarPeace-GoodCopy.epub`
+  (real confirmed chapters via normal detection) -- got the
+  explanatory message, no file written, and repair continued normally
+  into its usual module pipeline rather than stopping.
+- Full ten-book regression re-run afterward (plain `repair`, no case 3
+  flag, plus `split-structure` on its own): no crashes, and word-count
+  parity against the pre-refactor baseline is exact across every book
+  -- confirms the `_split_and_rewire` extraction didn't change either
+  command's existing behavior.
+
+**Not addressed, flagged for later at Jacob's request:** an anthology
+or omnibus EPUB bundling multiple separate works into one file, each
+restarting its own chapter numbering. Case 3 has no label word
+("Book", "Volume", "Part") to anchor a restart on the way the normal
+pipeline's own Part-sequence handling already does for case 1/2 --
+so an anthology of multiple unlabeled-numbered works would likely
+just read as one long, confusing sequence rather than being split
+into separate works. Not currently a priority (Jacob doesn't care for
+this style of book personally) but noted as a real gap worth its own
+scoping pass if it comes up against a real file.
+
 ## The problem
 
 CSS page breaks (`page-break-after` etc., see `page_breaks.py`) are a
