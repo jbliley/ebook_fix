@@ -128,6 +128,19 @@ class MarkerStyle(Enum):
     UNLABELED_NUMBERED_TITLE_ARABIC = "unlabeled numbered title (arabic)"
     UNLABELED_NUMBERED_TITLE_ROMAN = "unlabeled numbered title (roman)"
 
+    # Case 3, second path (see case3_structural.py) -- tried only after
+    # BOTH the normal analysis above and the unlabeled-numbered-title
+    # path just above have already come back empty. No number and no
+    # title at all here, just a structural divider (a bare <hr>, or an
+    # element carrying a forced page-break) sitting between two
+    # stretches of real content. case3_structural.py assigns these a
+    # fabricated, purely positional `number` (1, 2, 3... in book order)
+    # so they can still ride _find_best_sequence's existing scoring
+    # machinery below rather than needing a second one built just for
+    # this.
+    UNLABELED_STRUCTURAL_HR = "structural divider (<hr>)"
+    UNLABELED_STRUCTURAL_PAGE_BREAK = "structural page-break marker"
+
 
 @dataclass
 class ChapterCandidate:

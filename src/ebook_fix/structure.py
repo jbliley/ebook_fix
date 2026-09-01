@@ -1015,10 +1015,28 @@ def analyze_case3_structure(book: Any) -> BookStructure:
     content-length and structural-cleanliness checks from 0g, since
     those are useful signal for a person reviewing the result even
     though they can't push anything to CORROBORATED here.
+
+    Two Case 3 detection paths are tried in order: an unlabeled
+    numbered title first (chapters.analyze_case3_book_chapters -- a
+    number with no label word, immediately followed by a title text),
+    and only if that finds nothing, a structural divider instead (a
+    bare <hr>, or a forced page-break -- see case3_structural.py).
+    Title-based detection is tried first because it's the stronger of
+    the two signals: it has *some* text to score against, where a bare
+    divider has none at all. A book could in principle have both kinds
+    of signal present but inconsistent; this doesn't try to merge or
+    reconcile them, it just prefers whichever one actually produced a
+    usable sequence.
     """
+    from .case3_structural import analyze_case3_structural_chapters
     from .chapters import analyze_case3_book_chapters
 
     summary = analyze_case3_book_chapters(book)
+    if not summary.confirmed_boundaries:
+        structural_summary = analyze_case3_structural_chapters(book)
+        if structural_summary.confirmed_boundaries:
+            summary = structural_summary
+
     tree = build_structure(summary, case3=True)
     score_confidence(book, tree)
     return tree

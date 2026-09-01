@@ -245,7 +245,7 @@ wiring is intentionally not built yet; see "Still open" below.
 
 **Still open (not built this session):**
 - Structural-break signals (`<hr>`, page-break CSS) as a second case 3
-  detection path.
+  detection path. **Done (2026-09-01)** -- see that date's entry below.
 - Actually wiring a reviewed case 3 sequence through to a real split --
   today this is detection and review-surfacing only. Likely shape,
   following the same pattern as `map-css` -> review -> `repair
@@ -350,6 +350,94 @@ just read as one long, confusing sequence rather than being split
 into separate works. Not currently a priority (Jacob doesn't care for
 this style of book personally) but noted as a real gap worth its own
 scoping pass if it comes up against a real file.
+
+### Case 3 detection -- second path: structural dividers (2026-09-01)
+
+Built the signal explicitly deferred back on 2026-08-27: a bare `<hr>`,
+or an element carrying a forced page-break (via CSS class/id, or a
+`style=""` attribute directly), used as a chapter divider in a book
+with no label word AND no bare numbered title either -- the case the
+first case 3 path (unlabeled numbered titles) still can't reach.
+
+**New module, `case3_structural.py`:** `analyze_case3_structural_chapters`,
+producing the exact same `ChapterCandidate`/`BookChapterSummary` shapes
+`chapters.py` already does, so nothing downstream had to change to
+accept its output. Two new `MarkerStyle` values in `chapters.py`:
+`UNLABELED_STRUCTURAL_HR` / `UNLABELED_STRUCTURAL_PAGE_BREAK`, kept as
+two separate styles (rather than one merged pool) so that if a book
+happens to use both conventions, whichever one is actually used
+consistently throughout wins on its own rather than the two diluting
+each other's sequence score.
+
+Since a structural divider carries no number and no title of its own
+-- it's pure position -- each one gets a fabricated `number` (its
+1-based rank among same-style dividers in book order). That's a
+bookkeeping trick, not a real chapter number: it turns "every one of
+these is a candidate" into a sequence `chapters._find_best_sequence`
+already knows how to validate (a perfect run, gap 1 throughout),
+without needing a second scoring algorithm built just for this.
+
+**Where a divider resolves to:** a page-break-before marker sits on
+the new chapter's first element directly, same as a heading candidate
+would. A page-break-after marker sits on the *outgoing* chapter's last
+element, so the candidate resolves to whatever comes right after it
+instead. A bare `<hr>` isn't part of either chapter, so it always
+resolves the same way page-break-after does. New shared helpers for
+this in `page_breaks.py`: `deepest_first_block` / `closest_following_block`,
+mirroring the existing `deepest_last_block` / `closest_preceding_block`
+pair exactly, just walking forward instead of backward. If nothing
+block-level follows within the same file, the divider is dropped --
+that's effectively already sitting at the file's own edge, not a new
+split point inside it.
+
+**Content-length pre-filter:** a book could use `<hr>` as pure
+decoration between every paragraph, or a page-break class applied far
+more liberally than actual chapter starts. `MIN_STRUCTURAL_SIDE_WORDS`
+(50, mirroring `structure.MIN_CHAPTER_WORDS`) requires real content on
+both sides of a divider, measured locally within the same file only
+(this is a coarse, cheap filter to keep a person's review file
+readable -- `structure.apply_content_length_check`'s cross-file version
+is still the authoritative check and runs afterward regardless).
+
+**Wired into `structure.analyze_case3_structure`:** tries the
+unlabeled-numbered-title path first (the stronger of the two case 3
+signals, since it has some text to score against), and only falls back
+to structural detection if that comes back with nothing confirmed.
+Same `NEEDS_REVIEW`-only ceiling as the title-based path -- nothing
+about this second detection path changes Jacob's standing rule that
+case 3 boundaries always require a person's sign-off before anything
+splits.
+
+**Verified:** none of the ten sample books are pure structural-only
+case 3 books (each already resolves via normal detection, TOC
+corroboration, or the title-based case 3 path), so this exercises a
+codepath the sample suite can't reach on its own yet -- full ten-book
+`analyze` and `map-structure` regression confirmed zero change to any
+existing book's output. Correctness verified instead with hand-built
+synthetic documents covering: a pure `<hr>`-divided single-file book
+(3 boundaries detected and confirmed correctly), a `page-break-before`
+class as the only signal, a `page-break-after` class as the only
+signal (correctly resolves to the *following* element, not the styled
+one), and a book with dividers spaced too close together to clear
+`MIN_STRUCTURAL_SIDE_WORDS` (correctly produces zero candidates rather
+than flooding a review file with slivers).
+
+**Noted, not fixed (pre-existing, out of scope today):** one of the
+synthetic test documents surfaced a small, reproducible whole-book
+coverage-check discrepancy (`apply_coverage_check` reports a few
+words "double-counted" on a hand-built, four-section, no-front-matter
+document). Confirmed this happens identically with plain
+title-based detection on the same hand-built document -- it's not
+introduced by this session's change -- and none of the ten real
+sample books exhibit it. Likely specific to how a bare `lxml.fromstring`
+tree (no real EPUB whitespace/structure) interacts with the coverage
+math, rather than something a real book would hit, but worth a closer
+look in a future session if it ever shows up against a real file.
+
+**Still open:** an actual sample book to add to `examples/` that
+exercises this path for real (all ten current samples resolve some
+other way first) would give this real end-to-end coverage instead of
+only synthetic-document coverage.
 
 ## The problem
 
@@ -772,7 +860,12 @@ anchor a new entry against). One piece of that gap is now closed:
   further extension of this function.
 - Best-effort chapter splitting for a file with no detected markers at
   all (case 3), likely needing user verification when confidence is
-  low, per Jacob's framework. Not started.
+  low, per Jacob's framework. Detection (both the unlabeled-numbered-
+  title path and the structural-divider path) and the review-gated
+  split itself are done -- see the dated case 3 entries above. Open
+  item: a real sample book exercising the structural-divider path
+  specifically, since all ten current samples resolve some other way
+  first.
 
 ### Phase 4 -- Edge cases and hardening
 - Nested structure (Parts with multiple chapters).

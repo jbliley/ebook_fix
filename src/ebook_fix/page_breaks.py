@@ -74,6 +74,48 @@ def closest_preceding_block(el):
     return None
 
 
+def deepest_first_block(el):
+    """Mirror of deepest_last_block, forward instead of backward: the
+    first block-level element you'd actually reach reading `el` (and
+    everything inside it) top to bottom -- e.g. for a <div> whose
+    first child is a <p>, that's the <p>, not the <div>."""
+    if not isinstance(el.tag, str):
+        return None
+    if is_block(el):
+        return el
+    for child in el:
+        if not isinstance(child.tag, str):
+            continue
+        found = deepest_first_block(child)
+        if found is not None:
+            return found
+    return None
+
+
+def closest_following_block(el):
+    """Mirror of closest_preceding_block, walking forward: the nearest
+    actual block-level element after `el` in reading order. Used by
+    case3_structural.py to find where a new chapter's content actually
+    starts right after a structural divider (a bare <hr>, or an
+    element carrying a forced page-break) -- the divider/marker
+    element itself isn't part of the new chapter's content, so word
+    counts and structural-cleanliness checks need to anchor on
+    whatever comes right after it instead. Returns None if there's
+    nothing block-level left after `el` anywhere in its document (it's
+    the last content there -- already effectively a file boundary, so
+    no new split point to find)."""
+    node = el
+    while node is not None:
+        nxt = node.getnext()
+        while nxt is not None:
+            deepest = deepest_first_block(nxt)
+            if deepest is not None:
+                return deepest
+            nxt = nxt.getnext()
+        node = node.getparent()
+    return None
+
+
 def mark_page_break_after(el) -> bool:
     """Add page-break-after/break-after to el's inline style, unless
     it's already there (idempotent across repeated repair runs, and
