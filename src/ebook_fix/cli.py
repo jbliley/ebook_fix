@@ -262,6 +262,35 @@ def build_parser():
         help="Replace the output file if it already exists. Without -o/--output, this replaces the original file itself instead of writing <input>_series.epub -- you'll be asked to confirm before that happens."
     )
 
+    # Cover replacement
+    replace_cover = sub.add_parser(
+        "replace-cover",
+        help="Install a new cover image from a local file or a URL, replacing whatever cover the book currently has (if any)."
+    )
+    replace_cover.add_argument(
+        "input",
+        help="Input EPUB"
+    )
+    replace_cover.add_argument(
+        "source",
+        help="Path to a local image file, or an http(s) URL to download it from"
+    )
+    replace_cover.add_argument(
+        "-o",
+        "--output",
+        help="Output EPUB (default: <input>_cover.epub)"
+    )
+    replace_cover.add_argument(
+        "--no-container-repair",
+        action="store_true",
+        help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
+    )
+    replace_cover.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the output file if it already exists. Without -o/--output, this replaces the original file itself instead of writing <input>_cover.epub -- you'll be asked to confirm before that happens."
+    )
+
     # Init-config
     init_config = sub.add_parser(
         "init-config",
@@ -407,6 +436,22 @@ def main():
             Path(output),
             name=name,
             index=index,
+            overwrite=args.overwrite,
+        )
+    elif args.command == "replace-cover":
+        output = args.output
+        if output is None:
+            if args.overwrite:
+                if not _confirm_replace_original(epub):
+                    print("Cancelled.")
+                    sys.exit(1)
+                output = epub
+            else:
+                output = epub.with_stem(epub.stem + "_cover")
+        engine.replace_cover(
+            epub,
+            Path(output),
+            args.source,
             overwrite=args.overwrite,
         )
     elif args.command == "auto-fix":

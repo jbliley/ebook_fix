@@ -112,6 +112,24 @@ class SceneBreakRepairConfig:
 
 
 @dataclass(slots=True)
+class CoverRepairConfig:
+    enabled: bool = True
+    # Only ever runs when analysis found exactly one clearly-resolved,
+    # existing, valid cover image -- see modules/cover_repair.py. Both
+    # options below are no-ops otherwise, regardless of their own
+    # setting.
+    #
+    # Add whichever of the EPUB2 <meta name="cover">/EPUB3
+    # properties="cover-image" declarations is missing, or fix one
+    # that disagrees with the other, so both point at the same image.
+    sync_declarations: bool = True
+    # Rename the cover file to ebook_fix's standard "cover.<ext>"
+    # (extension matches the image's actual format, never converted),
+    # updating the manifest and any chapter that displays it to match.
+    standardize_filename: bool = True
+
+
+@dataclass(slots=True)
 class Config:
     epub3_upgrade: EPUB3UpgradeConfig = field(default_factory=EPUB3UpgradeConfig)
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
@@ -123,6 +141,7 @@ class Config:
     ellipsis_repair: EllipsisRepairConfig = field(default_factory=EllipsisRepairConfig)
     apostrophe_repair: ApostropheRepairConfig = field(default_factory=ApostropheRepairConfig)
     scene_break_repair: SceneBreakRepairConfig = field(default_factory=SceneBreakRepairConfig)
+    cover_repair: CoverRepairConfig = field(default_factory=CoverRepairConfig)
 
 
 # ---------------------------------------------------------------------
@@ -168,6 +187,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.ellipsis_repair, modules, "ellipsis_repair")
     _apply_module_toggle(config.apostrophe_repair, modules, "apostrophe_repair")
     _apply_module_toggle(config.scene_break_repair, modules, "scene_break_repair")
+    _apply_module_toggle(config.cover_repair, modules, "cover_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
@@ -179,7 +199,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.ellipsis_repair, "ellipsis_repair", data.get("ellipsis_repair", {}))
     _apply_section(config.apostrophe_repair, "apostrophe_repair", data.get("apostrophe_repair", {}))
     _apply_section(config.scene_break_repair, "scene_break_repair", data.get("scene_break_repair", {}))
-
+    _apply_section(config.cover_repair, "cover_repair", data.get("cover_repair", {}))
     if config.ellipsis_repair.target_style not in ("unicode", "ascii"):
         raise ValueError(
             f"Invalid ellipsis_repair.target_style: {config.ellipsis_repair.target_style!r} "
@@ -244,6 +264,7 @@ gutenberg_repair = true
 ellipsis_repair = true
 apostrophe_repair = true
 scene_break_repair = true
+cover_repair = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -427,6 +448,27 @@ replace_mid_chapter = true
 # with a boundary that's already marked some other way (a heading, a
 # page break), not a real scene break.
 remove_chapter_edge = true
+
+# ---------------------------------------------------------------------
+# Cover Repair
+# ---------------------------------------------------------------------
+[cover_repair]
+
+# Only ever acts when analysis found exactly one clearly-resolved,
+# existing, valid cover image -- an ambiguous or missing cover is
+# reported, never guessed at.
+enabled = true
+
+# Add whichever of the EPUB2 <meta name="cover">/EPUB3
+# properties="cover-image" declarations is missing, or fix one that
+# disagrees with the other, so both point at the same image.
+sync_declarations = true
+
+# Rename the cover file to ebook_fix's standard "cover.<ext>"
+# (extension matches the image's actual format, never converted),
+# updating the manifest and any chapter that displays it (e.g. a
+# dedicated cover.xhtml page) to match.
+standardize_filename = true
 """
 
 

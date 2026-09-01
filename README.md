@@ -50,11 +50,18 @@ After the analysis, the repair will automatically fix issues it finds. These fix
 <p>&emsp;<b>Run repair: </b><code>python cli.py repair "C:/path/to/file/ebook title.epub"</code></p>
 Once the repair finishes, a Repair Report is printed listing only the fixes that were actually applied, grouped by module with a count for each issue type. Pass <code>--details</code> to see the full before/after list for every single change instead of just the counts.
 <p>&emsp;<b>Run repair with full detail: </b><code>python cli.py repair "C:/path/to/file/ebook title.epub" --details</code></p>
+One of the things repair checks is the book's cover: if there's exactly one clearly identifiable cover image (no ambiguity about which file it is), it renames that file to a standard <code>cover.jpg</code>/<code>cover.png</code>/etc. (matching whatever format the image already is, never converting it) and makes sure both the older and newer ways a book can declare its cover agree on it. A book with no cover declared at all, or with genuinely conflicting cover information, is reported rather than guessed at; use <code>replace-cover</code> below to fix those.
 
 <h3>Auto-Fix</h3>
 <p>For a single hands-off command, <code>auto-fix</code> runs everything the normal repair does, then also standardizes chapter-heading and body-text CSS classes (using only its highest-confidence guesses, applied immediately with no file left behind to review) and strips every hardcoded text color from the book so your ebook reader's own theme/night mode controls it instead.</p>
 <p>&emsp;<b>Run auto-fix: </b><code>python cli.py auto-fix "C:/path/to/file/ebook title.epub"</code></p>
 This is a trade of a little safety for convenience: unlike the reviewed class-mapping workflow below, nothing here is checked by a person first. If a book comes out of <code>auto-fix</code> looking wrong, the original file was never touched, so the normal <code>repair</code> command is still there to use instead.
+
+<h3>Replace Cover</h3>
+<p>To swap in a new cover image, whether the book already has one or not, use <code>replace-cover</code> with either a local file path or a URL:</p>
+<p>&emsp;<b>From a local file: </b><code>python cli.py replace-cover "C:/path/to/file/ebook title.epub" "C:/path/to/new-cover.jpg"</code></p>
+<p>&emsp;<b>From a URL: </b><code>python cli.py replace-cover "C:/path/to/file/ebook title.epub" "https://example.com/new-cover.jpg"</code></p>
+<p>The image's actual format is checked by inspecting the file itself, not by trusting its name or extension, and it's kept as-is (never converted) but renamed to the same standard <code>cover.&lt;ext&gt;</code> filename repair uses. If the book already has a usable cover, this replaces it in place; if it doesn't, this adds one from scratch. Unlike repair, this never needs to guess since you're supplying the image directly, so it works even on a book repair would otherwise just report a cover problem on.</p>
 
 <h3>Series Metadata</h3>
 <p>Since a book's own content never reliably says what series it belongs to, this is the one piece of metadata you set by hand rather than something analysis detects on its own. Once set, it's written using both calibre's convention and EPUB3's official one, so it shows up correctly whether the book is opened in calibre, an e-reader, or anything else that reads either standard.</p>
@@ -133,6 +140,15 @@ Quick reference for every command and flag currently available. Run these from t
 <li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_series.epub</code>.</li>
 <li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
 <li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_series.epub</code>. You'll be asked to confirm before that happens.</li>
+</ul>
+
+<p><b>replace-cover</b> - Install a new cover image from a local file or a URL, replacing whatever cover the book currently has (if any).</p>
+<ul>
+<li><code>input</code> - Path to the EPUB file.</li>
+<li><code>source</code> - Path to a local image file, or an http(s) URL to download it from.</li>
+<li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_cover.epub</code>.</li>
+<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
+<li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_cover.epub</code>. You'll be asked to confirm before that happens.</li>
 </ul>
 
 <p><b>validate</b> - Run the file-integrity check only, without analyzing or repairing.</p>

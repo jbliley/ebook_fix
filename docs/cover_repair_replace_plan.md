@@ -1,6 +1,11 @@
 # Cover Image Repair & Replacement -- Planning Doc
 
-**Status:** Not started. This is a planning doc only -- no code yet.
+**Status:** Phase 1 done (2026-09-01) -- repair and replacement both
+shipped, in a narrower, more opinionated form than this doc originally
+sketched. See "Done: Phase 1" near the end for exactly what was built
+and why it diverged from a few of this doc's original recommendations
+(written by another AI without the rest of this project's context,
+per Jacob).
 
 ## The problem
 
@@ -576,3 +581,73 @@ The feature should ultimately be considered complete when:
 This document is the source of truth for the cover-image feature's design and progress.
 
 Update it as decisions are made and implementation phases are completed. Keep implementation details here only when they represent an intentional architectural decision or something future work needs to remember.
+
+## Done: Phase 1 -- repair and replacement (2026-09-01)
+
+Built both halves this session, resolving this doc's open questions
+per Jacob's direct calls rather than the doc's own defaults (written
+by another AI without the rest of the project in front of it):
+
+- **Filename standardization is deliberate, not just "preserve
+  existing when possible."** Every verified cover gets renamed to
+  ebook_fix's own standard `cover.<ext>` (extension matches the
+  image's real format, e.g. `cover.jpg`/`cover.png` -- never
+  converted), the opposite of this doc's original "keep existing name
+  to minimize changes" preference. Jacob wants consistency across his
+  whole library, not per-book preservation.
+- **Two separate commands**, not one `cover` command with a
+  `--replace` mode as this doc's "Option A" suggested: cover repair
+  lives inside the normal `repair` pipeline as a new module
+  (`modules/cover_repair.py`), and `replace-cover` is its own
+  standalone command, matching how `series` works.
+- **Repair only ever acts on exactly one clearly-resolved, existing,
+  valid cover image** -- the doc's own "report don't guess" principle,
+  kept intentionally narrow rather than building out the
+  multi-candidate scoring/tiering system the doc sketched (first
+  image, largest image, filename heuristics, etc.). If a book has no
+  declared cover, or multiple different items both claiming
+  properties="cover-image", repair leaves it alone; only the two
+  existing conventions disagreeing about which valid item is the
+  cover gets auto-resolved (EPUB3 wins, matching what
+  `ebook_fix.cover`'s own analysis already picks). Revisit the wider
+  candidate-scoring idea later if Jacob hits real books this misses.
+- **Replacement accepts a local file path or a URL**, downloaded via
+  the standard library (`urllib`, no new dependency), sniffed from
+  its actual bytes rather than trusting a filename extension or
+  server-supplied Content-Type -- this doc didn't originally cover
+  URL input at all. A 25 MB download cap and clear error messages
+  (unreachable URL, non-image content, missing local file) prevent it
+  from hanging or crashing on a bad input.
+- **Replacement never guesses**: runs even on a book with no cover,
+  or with conflicting/ambiguous declarations repair would just
+  report, since the image is explicit. Replaces in place (same or
+  different filename/format) when a usable existing cover is found;
+  creates a brand-new manifest entry, reusing whatever folder the
+  book's other images already live in, when there isn't one.
+- The low-level OPF-editing operations (`sync_declarations`,
+  `swap_filename`, `find_manifest_item_element`,
+  `rewrite_chapter_image_references`, `create_cover_item`,
+  `sniff_image_media_type`) live in `ebook_fix.cover` itself, shared
+  between `modules/cover_repair.py` and `Engine.replace_cover` rather
+  than duplicated -- this is real cover-domain logic, not the kind of
+  trivial helper this project otherwise duplicates freely per module.
+- Tested: repair standardizes an EPUB2-only `.jpeg` cover to `.jpg`
+  and adds the missing EPUB3 declaration, confirmed idempotent
+  (second pass finds zero issues) and clean across all 10 sample
+  books. Replacement tested against a real existing cover (bytes,
+  media-type, and filename all update correctly, chapter/manifest
+  references follow), a synthetic book with no cover declared at all
+  (creates one from scratch, verified via `analyze` afterward), a
+  live download over a local loopback HTTP server, and all three
+  error paths (unreachable URL, non-image file, missing local file).
+  Ran clean across all 10 sample books both ways, and the resulting
+  file still passes full `validate` integrity checks.
+- README updated with new "Cover Repair" behavior under the existing
+  Repair section, plus a new "Replace Cover" section and cheat-sheet
+  entries for `replace-cover`.
+
+Not built, left for later if it turns out to matter: image
+dimension/size-quality gating, automatic handling of multiple
+competing `properties="cover-image"` items, and the broader
+candidate-scoring/tiering system this doc originally sketched for
+identifying a cover with no declaration at all.

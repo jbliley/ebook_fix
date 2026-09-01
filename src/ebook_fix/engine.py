@@ -1,5 +1,8 @@
 import tempfile
-from pathlib import Path
+import urllib.error
+import urllib.request
+import posixpath
+from pathlib import Path, PurePosixPath
 
 from rich.console import Console
 
@@ -30,6 +33,7 @@ from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.toc_generation import TocGenerationRepair
 from ebook_fix.modules.images import ImageRepair
+from ebook_fix.modules.cover_repair import CoverRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMappingEntry, load_mapping_file, MappingError
 from ebook_fix.modules.color_strip import ColorStripRepair
@@ -40,6 +44,7 @@ from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair, resolve_target_apostrophe_char
 from ebook_fix.apostrophes import normalize_apostrophes_text
 from ebook_fix import series as series_metadata
+from ebook_fix import cover as cover_module
 
 console = Console()
 
@@ -89,6 +94,14 @@ class Engine:
             modules.append(SceneBreakRepair(self.config.scene_break_repair))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
+        # Runs right after Image Repair, the other module that deals
+        # with images -- but is otherwise independent of ordering
+        # relative to everything else here; it only ever touches the
+        # OPF's cover declarations/manifest href and, when renaming,
+        # the specific <img>/<image> element(s) that display the old
+        # filename, never general chapter text.
+        if getattr(self.config, "cover_repair", None) and getattr(self.config.cover_repair, "enabled", True):
+            modules.append(CoverRepair(self.config.cover_repair))
         # Runs before Whitespace Normalizer: both modules can end up
         # wanting to touch the very same text/tail node (an ellipsis
         # sitting in a paragraph that also has, say, doubled internal
@@ -872,6 +885,164 @@ class Engine:
             )
             self.log(f"Name:  {old_name} -> {name}")
             self.log(f"Index: {old_index} -> {new_index}")
+            self.log("")
+
+            writer = EPUBWriter()
+            writer.save(book, output)
+            self.log(f"Saved: {output}")
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+    MAX_COVER_DOWNLOAD_BYTES = 25 * 1024 * 1024  # 25 MB -- generous for a
+    # cover image, small enough to fail fast on something that isn't one.
+
+    def _fetch_cover_bytes(self, source: str) -> bytes:
+        """Reads image bytes from `source`, a local file path or an
+        http(s) URL. Raises ValueError with a clear, person-facing
+        message on anything that goes wrong -- a missing file, an
+        unreachable URL, a download too large to plausibly be a cover
+        -- rather than letting a raw exception surface."""
+        if source.startswith("http://") or source.startswith("https://"):
+            request = urllib.request.Request(source, headers={"User-Agent": "ebook_fix/0.1"})
+            try:
+                with urllib.request.urlopen(request, timeout=20) as response:
+                    data = response.read(self.MAX_COVER_DOWNLOAD_BYTES + 1)
+            except urllib.error.HTTPError as exc:
+                raise ValueError(f"couldn't download \"{source}\": server returned {exc.code} {exc.reason}") from exc
+            except urllib.error.URLError as exc:
+                raise ValueError(f"couldn't download \"{source}\": {exc.reason}") from exc
+            except TimeoutError as exc:
+                raise ValueError(f"couldn't download \"{source}\": timed out") from exc
+
+            if len(data) > self.MAX_COVER_DOWNLOAD_BYTES:
+                limit_mb = self.MAX_COVER_DOWNLOAD_BYTES // (1024 * 1024)
+                raise ValueError(f"\"{source}\" is larger than the {limit_mb} MB limit for a cover image")
+            return data
+
+        path = Path(source)
+        if not path.is_file():
+            raise ValueError(f"can't find a file at \"{source}\"")
+        return path.read_bytes()
+
+    @staticmethod
+    def _guess_images_dir(book, opf_base) -> str:
+        """Picks a folder for a brand-new cover file, for the case
+        where the book has no usable cover to replace in place: reuse
+        whatever folder the book's other images already live in, so
+        the new cover doesn't stand out organizationally. Falls back
+        to the OPF's own folder if the book has no other images."""
+        for image in book.images:
+            resolved = cover_module.resolve_href(opf_base, image.href)
+            directory = posixpath.dirname(resolved)
+            if directory:
+                return directory
+        base_str = str(opf_base)
+        return "" if base_str == "." else base_str
+
+    def replace_cover(self, epub, output, source, overwrite=False):
+        """Installs a person-supplied image (a local file path or a
+        URL) as the book's cover, in place if there's already a
+        usable one, or as a brand-new manifest entry otherwise. Uses
+        the same shared OPF-editing helpers, and the same
+        standardized "cover.<ext>" filename, as
+        modules/cover_repair.py -- but unlike repair, this never needs
+        to guess: the image is supplied explicitly, so it runs even
+        on a book with no cover at all, or with genuinely
+        ambiguous/conflicting cover declarations that repair would
+        otherwise just report rather than touch.
+        """
+        try:
+            data = self._fetch_cover_bytes(source)
+        except ValueError as exc:
+            self.log(f"ERROR: {exc}")
+            return
+
+        media_type = cover_module.sniff_image_media_type(data)
+        if media_type is None:
+            self.log(
+                f"ERROR: \"{source}\" doesn't look like an image ebook_fix "
+                "recognizes (JPEG, PNG, GIF, WEBP, or SVG)."
+            )
+            return
+
+        source_epub, temp_path = self._resolve_source(epub)
+        if source_epub is None:
+            return
+        try:
+            self.log("Opening EPUB...")
+            parser = EPUBParser()
+            book = parser.load(source_epub)
+            self.log("")
+
+            existing_cover = cover_module.analyze_book_cover(book)
+
+            if not self._check_output_path(output, overwrite):
+                return
+
+            target_name = cover_module.standard_cover_filename(media_type, source)
+            opf = book.opf_document
+            base = PurePosixPath(book.package_path).parent
+
+            has_usable_existing = (
+                existing_cover.cover_item is not None
+                and existing_cover.exists_in_archive
+            )
+
+            if has_usable_existing:
+                old_path = existing_cover.resolved_href
+                new_path = cover_module.swap_filename(old_path, target_name)
+
+                occupied = (
+                    (cover_module.archive_names(book) | set(book.new_files))
+                    - book.removed_files
+                    - {old_path}
+                )
+                if new_path in occupied:
+                    self.log(
+                        f"ERROR: can't install the new cover at \"{new_path}\" -- "
+                        "a different, unrelated file already exists there."
+                    )
+                    return
+
+                book.new_files[new_path] = data
+                if new_path != old_path:
+                    book.removed_files.add(old_path)
+
+                item_el = cover_module.find_manifest_item_element(opf, existing_cover.cover_item.id)
+                if item_el is not None:
+                    item_el.set("href", cover_module.swap_filename(item_el.get("href", ""), target_name))
+                    item_el.set("media-type", media_type)
+
+                cover_module.rewrite_chapter_image_references(book, old_path, new_path)
+                cover_module.sync_declarations(opf, existing_cover.cover_item)
+
+                old_display = old_path
+            else:
+                images_dir = self._guess_images_dir(book, base)
+                new_path = posixpath.normpath(f"{images_dir}/{target_name}" if images_dir else target_name)
+
+                occupied = cover_module.archive_names(book) | set(book.new_files)
+                if new_path in occupied:
+                    self.log(
+                        f"ERROR: can't install the new cover at \"{new_path}\" -- "
+                        "a different, unrelated file already exists there."
+                    )
+                    return
+
+                book.new_files[new_path] = data
+                relative_href = posixpath.relpath(new_path, str(base)) if str(base) != "." else new_path
+                new_item = cover_module.create_cover_item(opf, relative_href, media_type)
+                cover_module.sync_declarations(opf, new_item)
+
+                old_display = "(none)"
+
+            book.opf_modified = True
+            book.mark_modified()
+
+            self.header("[Cover Replaced]")
+            self.log(f"Old: {old_display}")
+            self.log(f"New: {new_path}")
             self.log("")
 
             writer = EPUBWriter()
