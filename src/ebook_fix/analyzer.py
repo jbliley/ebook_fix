@@ -34,7 +34,8 @@ from ebook_fix.cover import BookCoverSummary, analyze_book_cover
 from ebook_fix.span_soup import BookSpanSoupSummary, analyze_book_span_soup
 from ebook_fix.running_title import BookRunningTitleSummary, analyze_book_running_titles
 from ebook_fix import epub_version
-from ebook_fix import series as series_metadata
+from metadata.core_fields import BookCoreFieldsSummary, analyze_book_core_fields
+from metadata.identifiers import BookIdentifierSummary, analyze_book_identifiers
 
 # A chapter is flagged as "thin" if it has no paragraphs at all, or if its
 # total word count falls below this threshold. Front/back-matter pages
@@ -130,6 +131,8 @@ class AnalysisReport:
     cover:BookCoverSummary=field(default_factory=BookCoverSummary)
     span_soup:BookSpanSoupSummary=field(default_factory=BookSpanSoupSummary)
     running_titles:BookRunningTitleSummary=field(default_factory=BookRunningTitleSummary)
+    core_fields:BookCoreFieldsSummary=field(default_factory=BookCoreFieldsSummary)
+    identifiers:BookIdentifierSummary=field(default_factory=BookIdentifierSummary)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -209,19 +212,28 @@ class EPUBAnalyzer:
                 r.chapters_with_heading_issues.append(c)
             r.summary.total_word_count+=c.word_count
 
-        meta=getattr(book,"metadata",None)
-        r.summary.title=getattr(meta,"title","") if meta else ""
-        r.summary.author=getattr(meta,"creator","") if meta else ""
-        r.summary.language=getattr(meta,"language","") if meta else ""
-        r.summary.publisher=getattr(meta,"publisher","") if meta else ""
-        r.summary.identifier=getattr(meta,"identifier","") if meta else ""
-        r.summary.date=getattr(meta,"date","") if meta else ""
-        r.summary.rights=getattr(meta,"rights","") if meta else ""
-        r.summary.description=getattr(meta,"description","") if meta else ""
-        r.summary.subjects=list(getattr(meta,"subject",[]) or []) if meta else []
-        series_info=series_metadata.read(book)
-        r.summary.series=series_info.name
-        r.summary.series_index=series_info.index
+        # Core fields (title/author/etc.) and identifiers (ISBN/ASIN/etc.)
+        # are read and classified by the metadata package now, not
+        # inline here -- see docs/metadata_plan.md. r.summary keeps the
+        # same flat fields other code already reads; r.core_fields and
+        # r.identifiers hold the full detail for anything that needs it
+        # (e.g. a future repair module writing normalized identifiers
+        # back out).
+        r.core_fields=analyze_book_core_fields(book)
+        r.summary.title=r.core_fields.title
+        r.summary.author=r.core_fields.author
+        r.summary.language=r.core_fields.language
+        r.summary.publisher=r.core_fields.publisher
+        r.summary.date=r.core_fields.date
+        r.summary.rights=r.core_fields.rights
+        r.summary.description=r.core_fields.description
+        r.summary.subjects=r.core_fields.subjects
+        r.summary.series=r.core_fields.series
+        r.summary.series_index=r.core_fields.series_index
+
+        r.identifiers=analyze_book_identifiers(book)
+        primary_identifier=r.identifiers.primary
+        r.summary.identifier=primary_identifier.normalized_value if primary_identifier else ""
         version_info=epub_version.detect(book)
         r.summary.epub_version=version_info.detected_version
         r.summary.epub_needs_upgrade=version_info.needs_upgrade

@@ -267,6 +267,15 @@ class Engine:
                     if s.epub_needs_upgrade else ""
                 )
             )
+            other_identifiers = [
+                ident for ident in analysis_report.identifiers.identifiers
+                if ident is not analysis_report.identifiers.primary
+            ]
+            if other_identifiers:
+                self.log("Other identifiers found:")
+                for ident in other_identifiers:
+                    label = ident.matched_scheme or "unrecognized"
+                    self.log(f"  {label}: {ident.normalized_value}")
             if s.subjects:
                 self.log(f"Subjects/Genre: {', '.join(s.subjects)}")
             if s.description:

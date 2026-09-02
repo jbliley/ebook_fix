@@ -119,25 +119,28 @@ it was normalized to. Purpose: spot patterns (e.g. 40 books with the same
 unmatched prefix) and promote them into the mapping file instead of
 hand-fixing books one at a time.
 
-## Module breakdown (planned, not all built yet)
+## Module breakdown
 
 Not one monolithic script — one module per metadata *concern*, one shared
 layer for file *access*:
 
-- `identifiers.py` — mapping-driven matching/normalization (built conceptually,
-  not yet coded)
-- `core_fields.py` — title/author/series read+write. Simpler than
-  identifiers since these are direct 1:1 OPF fields, not a scheme-matching
+- `identifiers.py` — mapping-driven matching/classification. Built and
+  wired into the analysis pass (see Session update below). Read-only
+  so far; writing normalized values back out still needs a backend.
+- `core_fields.py` — title/author/series read (write not built yet).
+  Built and wired into the analysis pass. Simpler than identifiers
+  since these are direct 1:1 OPF fields, not a scheme-matching
   problem. Main open question is formatting conventions (e.g. author
   "Last, First" vs "First Last") — not yet designed.
 - `backends/` — shared file-access layer (Calibre vs lone-EPUB) used by
-  both logic modules so neither duplicates file-handling code.
-- `review.py` — logging.
+  both logic modules so neither duplicates file-handling code. Not
+  built yet — needed once either module needs to *write*, not just read.
+- `review.py` — logging. Not built yet.
 
-Suggested build order (proposed, not yet started):
+Suggested build order (updated):
 
-1. Mapping file + matching/normalization core (pure logic, testable
-   without touching real files) — mapping file done, core logic not yet coded.
+1. ~~Mapping file + matching/normalization core~~ — done, wired into
+   the analysis pass.
 2. Calibre-structure detector.
 3. Two backends (Calibre read/write via calibredb, EPUB-only via lxml).
 4. Review log writer.
@@ -148,6 +151,54 @@ Suggested build order (proposed, not yet started):
 - GUI with separate text boxes for editing metadata standards directly —
   explicitly deferred; not being designed yet, but the JSON-based mapping
   approach is intended to make it a natural fit later.
+
+## Session update (2026-09-02): identifier/core-field reading migrated into analysis
+
+The identifier and title/author/etc. reading that used to live inline
+in `analyzer.py` has been moved into the `metadata` package, run as
+part of the same analysis pass rather than a separate step:
+
+- `metadata/identifiers.py` — `analyze_book_identifiers(book)` reads
+  every `<dc:identifier>` directly off `book.opf_document` (bypassing
+  the old single-value `book.metadata.identifier`, which only ever
+  kept the first identifier `parser.py` happened to find) and
+  classifies each one against `identifier_schemes.json` using the
+  matching logic described above. Read-only for now — it records what
+  each identifier is, it doesn't rewrite the book. Matching happens in
+  three stages, tried in order: `opf:scheme` attribute match, embedded
+  text-prefix match, then (for schemes with no prefix at all, like
+  URI, whose value already carries its own recognizable shape such as
+  `urn:uuid:...`) a direct value-shape match. Anything none of the
+  three catch falls back to bare DC as designed.
+- `metadata/core_fields.py` — `analyze_book_core_fields(book)` groups
+  title/author/language/publisher/date/rights/description/subjects/series
+  into one result. For now this is a pass-through over what
+  `ebook_fix.parser` and `ebook_fix.series` already extract; no new
+  normalization logic yet (still an open question below).
+- `AnalysisReport` gained two fields: `core_fields` and `identifiers`,
+  holding the full detail. `AnalysisReport.summary`'s existing flat
+  fields (`title`, `author`, `identifier`, etc.) are now populated
+  *from* these instead of reading `book.metadata` directly, so nothing
+  else reading `analysis_report.summary` needed to change.
+- `engine.py`'s `analyze` command now lists every recognized
+  identifier under `[Book Metadata]`, not just one — confirmed against
+  the sample books that this surfaces a real improvement: MM21.epub
+  carries an ISBN plus two Calibre UUIDs, and the ISBN is now
+  correctly chosen as the primary identifier shown, instead of
+  whichever identifier happened to be listed first in the OPF.
+
+Regression run across all 11 sample books: `analyze` and `repair` both
+run clean, repair output is byte-identical on a second pass
+(idempotent), and all XHTML/OPF/NCX in the repaired output still
+parses as strict, well-formed XML.
+
+Known gap, not fixed here: `ebook_fix.parser._read_metadata` still
+uses `.find()` (not `.findall()`) for `dc:identifier`, so
+`book.metadata.identifier` itself remains a single flattened value if
+anything else ever reads it directly. `metadata.identifiers` avoids
+this by reading `book.opf_document` itself, the same way
+`ebook_fix.series` already does — but flagging this here in case
+`parser.py` or `models.py` ever need a real fix for it later.
 
 ## Open questions / not yet decided
 
