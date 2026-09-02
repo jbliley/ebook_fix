@@ -32,6 +32,7 @@ from ebook_fix.toc import BookTocSummary, analyze_book_toc
 from ebook_fix.gutenberg import BookGutenbergSummary, analyze_book_gutenberg
 from ebook_fix.cover import BookCoverSummary, analyze_book_cover
 from ebook_fix.span_soup import BookSpanSoupSummary, analyze_book_span_soup
+from ebook_fix.running_title import BookRunningTitleSummary, analyze_book_running_titles
 from ebook_fix import epub_version
 from ebook_fix import series as series_metadata
 
@@ -128,6 +129,7 @@ class AnalysisReport:
     gutenberg:BookGutenbergSummary=field(default_factory=BookGutenbergSummary)
     cover:BookCoverSummary=field(default_factory=BookCoverSummary)
     span_soup:BookSpanSoupSummary=field(default_factory=BookSpanSoupSummary)
+    running_titles:BookRunningTitleSummary=field(default_factory=BookRunningTitleSummary)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -249,4 +251,5 @@ class EPUBAnalyzer:
         r.gutenberg=analyze_book_gutenberg(book)
         r.cover=analyze_book_cover(book)
         r.span_soup=analyze_book_span_soup(book)
+        r.running_titles=analyze_book_running_titles(book,chapter_summary=r.chapters)
         return r

@@ -43,6 +43,8 @@ this is a holding pen, not a commitment.
 - Footnote/endnote link integrity -- reference markers that don't
   resolve to a matching note, or notes nothing points to.
 - **Span soup -- done, see below.**
+- **Running title removal -- done, see below** (a book-title heading
+  repeated at the top of every chapter, a shared-template leftover).
 - Fake page-bookmark headings -- found while looking into
   `ChaptersMisaligned.epub` (a `pdftohtml` conversion, one file per
   original PDF page). Chapter detection itself is fine on this book;
@@ -1133,18 +1135,77 @@ write-up. A second detection signal for Case 3 (structural breaks --
 signal already built) is still not built; that's a separate, later
 item, not entangled with this one.
 
-## Next: Case 3 -- structural-break detection, or anthology/omnibus support
+## Done: Case 3 -- structural-break detection (2026-09-01)
 
-Two independent, unscoped items queued from the Case 3 work above,
-neither currently a priority:
-- A second Case 3 detection signal (`<hr>`, page-break CSS) alongside
-  the bare-numbered-title signal already built.
+The second signal flagged as not-yet-built just above is now built --
+see "Case 3 detection -- second path: structural dividers" in
+`xhtml_recoder_plan.md` for the full write-up. New module
+`case3_structural.py`, tried only after the bare-numbered-heading
+signal comes back empty too.
+
+## Done: Running title removal (2026-09-01)
+
+Found against a new sample book, `examples/MM21.epub` (a Calibre
+conversion): every one of its 40 real chapters opened with an `<h1>`
+repeating the book's own title, before the real chapter heading --
+```
+<div class="calibre4"><h1 class="calibre5">Battle Of The Mountain Man</h1></div>
+<div class="calibre4"><h2 class="calibre6">One</h2> ...
+```
+A shared page template stamping the book's title into every page,
+not just its actual title page.
+
+**New analysis module, `running_title.py`:** `analyze_book_running_titles`,
+scoped deliberately to CONFIRMED chapters only (`chapters.py`'s own
+`confirmed_boundaries`) -- a real title page or a Contents page
+legitimately showing the book's title isn't this problem, and this
+module has no business touching front matter. For each confirmed
+chapter, walks the document from the top looking for a heading (h1-h6)
+whose own text matches the book's title (whitespace-normalized,
+case-insensitive), stopping the moment the chapter's own detected
+marker element is reached -- a match has to appear strictly BEFORE the
+chapter actually starts to count as a leading running header.
+
+**New repair module, `modules/running_title_repair.py`:** removes the
+matched heading's whole top-level wrapper (walking up to whichever
+ancestor is a direct child of `<body>`, same idea as
+`gutenberg_repair.py`'s own `_ancestor_under_body` helper, kept as a
+separate small copy rather than shared code -- a handful of lines,
+not worth factoring out yet for a second caller). Runs early in the
+pipeline, right after Gutenberg Boilerplate Removal, for the same
+reason that one runs first: no point running later text-level modules
+against content about to be deleted.
+
+**Verified against MM21:** `analyze` correctly flagged all 40 chapters
+and none of the 2 front-matter pages (the real title page, the
+Contents page) that legitimately repeat the title. `repair` removed
+all 40 headers, left the 2 front-matter ones alone, produced valid
+XML throughout, and a second repair pass made zero further changes
+(idempotent). Full ten-book regression re-run confirmed zero false
+positives on any existing sample book and no other change to their
+output.
+
+## Next: Case 3 -- anthology/omnibus support, or in-body Contents-page linking
+
+Two independent, unscoped items, neither currently a priority:
 - Anthology/omnibus EPUBs bundling multiple separate works into one
   file, each restarting its own numbering -- Case 3 has no label word
   to anchor a restart on the way the normal pipeline's Part-sequence
   handling already does for case 1/2, so this would need its own
   detection strategy. Flagged by Jacob as worth covering eventually,
   not urgent.
+- Linking an in-body Contents page's chapter names to the chapters
+  they name -- also found against MM21: `part1.xhtml` is a real
+  "CONTENTS" page listing every chapter name (`One`, `Two`, `Three`,
+  ...) as plain `<p>` text, no `<a href>` at all (this is why
+  `analyze` shows "Total Links: 0" on that book). This is a different
+  thing than `toc_generation.py`, which builds/repairs the
+  machine-readable NCX/nav.xhtml TOC the reading system's own menu
+  uses -- MM21 already has a working one of those (41 real entries).
+  This would need matching each listed name against a detected
+  chapter (in order) and wrapping it in a link to that chapter's file
+  -- unscoped so far, including what to do about a listed name that
+  doesn't cleanly match anything (typo, extra entry, etc.).
 
 
 ## Open questions

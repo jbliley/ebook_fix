@@ -34,6 +34,7 @@ from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.toc_generation import TocGenerationRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.cover_repair import CoverRepair
+from ebook_fix.modules.running_title_repair import RunningTitleRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMappingEntry, load_mapping_file, MappingError
 from ebook_fix.modules.color_strip import ColorStripRepair
@@ -63,6 +64,15 @@ class Engine:
         # deleted anyway.
         if getattr(self.config, "gutenberg_repair", None) and getattr(self.config.gutenberg_repair, "enabled", True):
             modules.append(GutenbergRepair(self.config.gutenberg_repair))
+        # Runs right after Gutenberg Boilerplate Removal, for the same
+        # reason that one runs first: this deletes a chapter's leading
+        # running-title heading, so it should happen before anything
+        # text-level below wastes effort on content that's about to be
+        # removed. Reads chapters.py's already-confirmed chapter
+        # markers (via analysis.chapters), so it needs nothing from any
+        # module before it in this list.
+        if getattr(self.config, "running_title_repair", None) and getattr(self.config.running_title_repair, "enabled", True):
+            modules.append(RunningTitleRepair(self.config.running_title_repair))
         if getattr(self.config, "paragraph_repair", None) and getattr(self.config.paragraph_repair, "enabled", True):
             modules.append(ParagraphRepair(self.config.paragraph_repair))
         if getattr(self.config, "chapter_markup", None) and getattr(self.config.chapter_markup, "enabled", True):

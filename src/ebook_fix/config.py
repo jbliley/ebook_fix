@@ -112,6 +112,11 @@ class SceneBreakRepairConfig:
 
 
 @dataclass(slots=True)
+class RunningTitleRepairConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class CoverRepairConfig:
     enabled: bool = True
     # Only ever runs when analysis found exactly one clearly-resolved,
@@ -142,6 +147,7 @@ class Config:
     apostrophe_repair: ApostropheRepairConfig = field(default_factory=ApostropheRepairConfig)
     scene_break_repair: SceneBreakRepairConfig = field(default_factory=SceneBreakRepairConfig)
     cover_repair: CoverRepairConfig = field(default_factory=CoverRepairConfig)
+    running_title_repair: RunningTitleRepairConfig = field(default_factory=RunningTitleRepairConfig)
 
 
 # ---------------------------------------------------------------------
@@ -188,6 +194,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.apostrophe_repair, modules, "apostrophe_repair")
     _apply_module_toggle(config.scene_break_repair, modules, "scene_break_repair")
     _apply_module_toggle(config.cover_repair, modules, "cover_repair")
+    _apply_module_toggle(config.running_title_repair, modules, "running_title_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
@@ -200,6 +207,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.apostrophe_repair, "apostrophe_repair", data.get("apostrophe_repair", {}))
     _apply_section(config.scene_break_repair, "scene_break_repair", data.get("scene_break_repair", {}))
     _apply_section(config.cover_repair, "cover_repair", data.get("cover_repair", {}))
+    _apply_section(config.running_title_repair, "running_title_repair", data.get("running_title_repair", {}))
     if config.ellipsis_repair.target_style not in ("unicode", "ascii"):
         raise ValueError(
             f"Invalid ellipsis_repair.target_style: {config.ellipsis_repair.target_style!r} "
@@ -265,6 +273,7 @@ ellipsis_repair = true
 apostrophe_repair = true
 scene_break_repair = true
 cover_repair = true
+running_title_repair = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -469,6 +478,19 @@ sync_declarations = true
 # updating the manifest and any chapter that displays it (e.g. a
 # dedicated cover.xhtml page) to match.
 standardize_filename = true
+
+# ---------------------------------------------------------------------
+# Running Title Removal
+# ---------------------------------------------------------------------
+[running_title_repair]
+
+# Remove a book-title heading repeated as a running header at the top
+# of every chapter -- a conversion-tool leftover (a shared template
+# stamping the book's own title into every page, not just its actual
+# title page). Only ever touches a CONFIRMED chapter's own leading
+# content, never front matter (a real title page, a Contents page) --
+# see ebook_fix/running_title.py for exactly what counts as a match.
+enabled = true
 """
 
 
