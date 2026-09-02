@@ -1,0 +1,178 @@
+{
+  "_meta": {
+    "description": "Editable mapping of book identifier schemes. Add a new entry any time you want the normalizer to recognize another standard identifier type -- no code changes needed.",
+    "fields": {
+      "enabled": "true/false. Set false to disable this scheme entirely -- matches will fall through to the bare-DC fallback instead of being tagged with this scheme.",
+      "aliases": "Case-insensitive strings that count as this scheme when found in an opf:scheme attribute (e.g. 'isbn13' and 'ISBN-13' both mean ISBN).",
+      "match_prefix_regex": "Used when opf:scheme is missing/garbage -- strips a leading label like 'ISBN: ' off the raw text so the remainder can be checked against value_regex.",
+      "value_regex": "Applied AFTER prefix stripping and normalization. If it doesn't match, this scheme is rejected as a candidate and normalizer moves on (or falls back to bare DC).",
+      "normalize": "Transform applied to the value before it's written back: strip_dashes_spaces | digits_only | uppercase | lowercase | trim_only",
+      "output_scheme": "The exact string written into opf:scheme when this match succeeds.",
+      "notes": "Free text for future reference -- no functional effect."
+    }
+  },
+  "schemes": {
+    "ISBN": {
+      "enabled": true,
+      "aliases": ["isbn", "isbn13", "isbn-13", "isbn10", "isbn-10"],
+      "match_prefix_regex": "^(isbn)[\\s:_-]*",
+      "value_regex": "^(97[89])?\\d{9}[\\dXx]$",
+      "normalize": "strip_dashes_spaces",
+      "output_scheme": "ISBN",
+      "notes": "Covers both 10- and 13-digit forms; doesn't separately validate checksum digit, just shape."
+    },
+    "ASIN": {
+      "enabled": true,
+      "aliases": ["asin", "amazon"],
+      "match_prefix_regex": "^(asin)[\\s:_-]*",
+      "value_regex": "^[A-Z0-9]{10}$",
+      "normalize": "uppercase",
+      "output_scheme": "ASIN",
+      "notes": "Amazon catalog ID -- some non-book ASINs (10 char) can collide in shape with other 10-char alphanumeric codes."
+    },
+    "MOBI-ASIN": {
+      "enabled": true,
+      "aliases": ["mobi-asin", "mobiasin", "kindle-asin"],
+      "match_prefix_regex": "^(mobi-asin|mobiasin|kindle-asin)[\\s:_-]*",
+      "value_regex": "^[A-Z0-9]{10}$",
+      "normalize": "uppercase",
+      "output_scheme": "MOBI-ASIN",
+      "notes": "Kept distinct from plain ASIN since some Kindle-sourced files tag it separately; disable and let it fall to ASIN if you'd rather merge them."
+    },
+    "ISSN": {
+      "enabled": true,
+      "aliases": ["issn"],
+      "match_prefix_regex": "^(issn)[\\s:_-]*",
+      "value_regex": "^\\d{4}-?\\d{3}[\\dXx]$",
+      "normalize": "strip_dashes_spaces",
+      "output_scheme": "ISSN",
+      "notes": "For serials/periodicals -- probably rare in your western/horror paperback library, included for completeness."
+    },
+    "DOI": {
+      "enabled": true,
+      "aliases": ["doi"],
+      "match_prefix_regex": "^(doi)[\\s:_-]*",
+      "value_regex": "^10\\.\\d{4,9}/\\S+$",
+      "normalize": "trim_only",
+      "output_scheme": "DOI",
+      "notes": "Mostly academic/journal use, unlikely to show up but harmless to leave on."
+    },
+    "LCCN": {
+      "enabled": true,
+      "aliases": ["lccn"],
+      "match_prefix_regex": "^(lccn)[\\s:_-]*",
+      "value_regex": "^[a-z]{0,3}\\d{8,10}$",
+      "normalize": "lowercase",
+      "output_scheme": "LCCN",
+      "notes": "Library of Congress Control Number."
+    },
+    "OCLC": {
+      "enabled": true,
+      "aliases": ["oclc", "worldcat"],
+      "match_prefix_regex": "^(oclc|worldcat)[\\s:_-]*",
+      "value_regex": "^\\d+$",
+      "normalize": "digits_only",
+      "output_scheme": "OCLC",
+      "notes": "WorldCat's identifier."
+    },
+    "GOODREADS": {
+      "enabled": true,
+      "aliases": ["goodreads", "gr"],
+      "match_prefix_regex": "^(goodreads|gr)[\\s:_-]*",
+      "value_regex": "^\\d+$",
+      "normalize": "digits_only",
+      "output_scheme": "GOODREADS",
+      "notes": "Matches a metadata source you already use."
+    },
+    "HARDCOVER": {
+      "enabled": true,
+      "aliases": ["hardcover", "hardcoverapp"],
+      "match_prefix_regex": "^(hardcover)[\\s:_-]*",
+      "value_regex": "^\\d+$",
+      "normalize": "digits_only",
+      "output_scheme": "HARDCOVER",
+      "notes": "Matches Hardcover.app, another source you use -- worth populating as you build Librarian familiarity there."
+    },
+    "GOOGLE": {
+      "enabled": true,
+      "aliases": ["google", "gbooks", "google-books", "googlebooks"],
+      "match_prefix_regex": "^(google[-_]?books|gbooks|google)[\\s:_-]*",
+      "value_regex": "^[A-Za-z0-9_-]{10,15}$",
+      "normalize": "trim_only",
+      "output_scheme": "GOOGLE",
+      "notes": "Google Books volume ID."
+    },
+    "OPENLIBRARY": {
+      "enabled": true,
+      "aliases": ["ol", "openlibrary"],
+      "match_prefix_regex": "^(openlibrary|ol)[\\s:_-]*",
+      "value_regex": "^OL\\d+[MW]$",
+      "normalize": "uppercase",
+      "output_scheme": "OPENLIBRARY",
+      "notes": "Format is OLxxxxxxxM (edition) or ...W (work)."
+    },
+    "LIBRARYTHING": {
+      "enabled": true,
+      "aliases": ["librarything", "lt"],
+      "match_prefix_regex": "^(librarything|lt)[\\s:_-]*",
+      "value_regex": "^[A-Za-z0-9]+$",
+      "normalize": "trim_only",
+      "output_scheme": "LIBRARYTHING",
+      "notes": "Loose value pattern since LT work IDs vary in shape."
+    },
+    "VIAF": {
+      "enabled": false,
+      "aliases": ["viaf"],
+      "match_prefix_regex": "^(viaf)[\\s:_-]*",
+      "value_regex": "^\\d+$",
+      "normalize": "digits_only",
+      "output_scheme": "VIAF",
+      "notes": "Author/entity authority ID, not really a book-level code -- off by default, flip on if you ever start tracking author identities."
+    },
+    "DOUBAN": {
+      "enabled": false,
+      "aliases": ["douban"],
+      "match_prefix_regex": "^(douban)[\\s:_-]*",
+      "value_regex": "^\\d+$",
+      "normalize": "digits_only",
+      "output_scheme": "DOUBAN",
+      "notes": "Chinese book/media database ID -- off by default, unlikely for this collection."
+    },
+    "OVERDRIVE": {
+      "enabled": false,
+      "aliases": ["overdrive", "odid"],
+      "match_prefix_regex": "^(overdrive|odid)[\\s:_-]*",
+      "value_regex": "^[A-Za-z0-9-]{8,40}$",
+      "normalize": "trim_only",
+      "output_scheme": "OVERDRIVE",
+      "notes": "Library-lending platform ID -- off by default unless you're sourcing from library loans."
+    },
+    "UPC": {
+      "enabled": true,
+      "aliases": ["upc", "ean", "gtin", "barcode"],
+      "match_prefix_regex": "^(upc|ean|gtin|barcode)[\\s:_-]*",
+      "value_regex": "^\\d{12,14}$",
+      "normalize": "digits_only",
+      "output_scheme": "UPC",
+      "notes": "Physical barcode number, sometimes present on scanned mass-market paperback metadata."
+    },
+    "UUID": {
+      "enabled": true,
+      "aliases": ["uuid", "calibre"],
+      "match_prefix_regex": "^(uuid|calibre)[\\s:_-]*",
+      "value_regex": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+      "normalize": "lowercase",
+      "output_scheme": "uuid",
+      "notes": "Calibre's own internal book UUID -- pass-through, mostly here so it doesn't get miscategorized or logged as unmatched."
+    },
+    "URI": {
+      "enabled": true,
+      "aliases": ["uri", "url", "urn"],
+      "match_prefix_regex": null,
+      "value_regex": "^[a-zA-Z][a-zA-Z0-9+.-]*:.+$",
+      "normalize": "trim_only",
+      "output_scheme": "URI",
+      "notes": "Generic catch for anything already shaped like a URI/URN (e.g. urn:isbn:..., http://...). Deliberately loose -- treat as low-confidence, still gets logged."
+    }
+  }
+}
