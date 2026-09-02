@@ -34,8 +34,11 @@ from ebook_fix.cover import BookCoverSummary, analyze_book_cover
 from ebook_fix.span_soup import BookSpanSoupSummary, analyze_book_span_soup
 from ebook_fix.running_title import BookRunningTitleSummary, analyze_book_running_titles
 from ebook_fix import epub_version
+from metadata.calibre_backend import read_metadata_opf
+from metadata.calibre_detect import CalibreContext, detect as detect_calibre
 from metadata.core_fields import BookCoreFieldsSummary, analyze_book_core_fields
 from metadata.identifiers import BookIdentifierSummary, analyze_book_identifiers
+from metadata.merge import MergedCoreFields, MergedIdentifierSummary, merge_core_fields, merge_identifiers
 
 # A chapter is flagged as "thin" if it has no paragraphs at all, or if its
 # total word count falls below this threshold. Front/back-matter pages
@@ -133,6 +136,9 @@ class AnalysisReport:
     running_titles:BookRunningTitleSummary=field(default_factory=BookRunningTitleSummary)
     core_fields:BookCoreFieldsSummary=field(default_factory=BookCoreFieldsSummary)
     identifiers:BookIdentifierSummary=field(default_factory=BookIdentifierSummary)
+    calibre_context:CalibreContext=field(default_factory=CalibreContext)
+    merged_identifiers:MergedIdentifierSummary=field(default_factory=MergedIdentifierSummary)
+    merged_core_fields:MergedCoreFields=field(default_factory=MergedCoreFields)
 
 class EPUBAnalyzer:
     def analyze(self,book):
@@ -234,6 +240,28 @@ class EPUBAnalyzer:
         r.identifiers=analyze_book_identifiers(book)
         primary_identifier=r.identifiers.primary
         r.summary.identifier=primary_identifier.normalized_value if primary_identifier else ""
+
+        # If this book lives inside a Calibre library, metadata.opf is
+        # a second, independent source of truth that can genuinely
+        # disagree with what's baked into the EPUB itself -- see
+        # docs/metadata_plan.md. Both sides are recorded rather than
+        # one silently overriding the other; when there's no Calibre
+        # context (or metadata.opf can't be read), merging against an
+        # empty snapshot just reduces to the EPUB-only values with
+        # nothing ever flagged as a mismatch.
+        r.calibre_context=detect_calibre(book.source) if book.source else CalibreContext()
+        if r.calibre_context.is_calibre_managed and r.calibre_context.metadata_opf_path:
+            opf_snapshot=read_metadata_opf(r.calibre_context.metadata_opf_path)
+        else:
+            opf_snapshot=None
+        r.merged_identifiers=merge_identifiers(
+            r.identifiers.identifiers,
+            opf_snapshot.identifiers.identifiers if opf_snapshot else [],
+        )
+        r.merged_core_fields=merge_core_fields(
+            r.core_fields,
+            opf_snapshot.core_fields if opf_snapshot else BookCoreFieldsSummary(),
+        )
         version_info=epub_version.detect(book)
         r.summary.epub_version=version_info.detected_version
         r.summary.epub_needs_upgrade=version_info.needs_upgrade

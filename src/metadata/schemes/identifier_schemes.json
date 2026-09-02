@@ -158,12 +158,21 @@
     },
     "UUID": {
       "enabled": true,
-      "aliases": ["uuid", "calibre"],
-      "match_prefix_regex": "^(uuid|calibre)[\\s:_-]*",
+      "aliases": ["uuid"],
+      "match_prefix_regex": "^(uuid)[\\s:_-]*",
       "value_regex": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
       "normalize": "lowercase",
       "output_scheme": "uuid",
-      "notes": "Calibre's own internal book UUID -- pass-through, mostly here so it doesn't get miscategorized or logged as unmatched."
+      "notes": "A book's UUID -- pass-through, mostly here so it doesn't get miscategorized or logged as unmatched."
+    },
+    "CALIBRE": {
+      "enabled": true,
+      "aliases": ["calibre"],
+      "match_prefix_regex": "^(calibre)[\\s:_-]*",
+      "value_regex": "^\\d+$",
+      "normalize": "digits_only",
+      "output_scheme": "CALIBRE",
+      "notes": "Calibre's own internal database row id for the book (opf:scheme=\"calibre\" in metadata.opf) -- a plain integer, not a UUID, so this needs to be its own scheme rather than an alias of UUID. Confirmed against a real metadata.opf: id 6130 matched the book's actual Calibre library id."
     },
     "URI": {
       "enabled": true,

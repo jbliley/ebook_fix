@@ -132,6 +132,32 @@ class EPUBParser:
                 ns
             )
         )
+        metadata.description = self._text(
+            package.find(
+                ".//dc:description",
+                ns
+            )
+        )
+        metadata.date = self._text(
+            package.find(
+                ".//dc:date",
+                ns
+            )
+        )
+        metadata.rights = self._text(
+            package.find(
+                ".//dc:rights",
+                ns
+            )
+        )
+        metadata.subject = [
+            self._text(el)
+            for el in package.findall(
+                ".//dc:subject",
+                ns
+            )
+            if self._text(el)
+        ]
         book.metadata = metadata
 
 # ---------------------------------------------------------

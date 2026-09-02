@@ -133,8 +133,14 @@ layer for file *access*:
   problem. Main open question is formatting conventions (e.g. author
   "Last, First" vs "First Last") — not yet designed.
 - `backends/` — shared file-access layer (Calibre vs lone-EPUB) used by
-  both logic modules so neither duplicates file-handling code. Not
-  built yet — needed once either module needs to *write*, not just read.
+  both logic modules so neither duplicates file-handling code.
+  `calibre_backend.py` is built (read-only: parses metadata.opf and
+  returns identifiers + core fields). `epub_backend.py` (the
+  lone-EPUB write path) and any actual *writing* back to either source
+  are still not built — this module only reads so far.
+- `merge.py` — built. Reconciles EPUB-side and Calibre-side results,
+  flags disagreement, never silently picks a winner. Wired into the
+  analysis pass and the `analyze` command's display.
 - `review.py` — logging. Not built yet.
 
 Suggested build order (updated):
@@ -143,8 +149,11 @@ Suggested build order (updated):
    the analysis pass.
 2. ~~Calibre-structure detector~~ — done, wired into the analyze
    command for visibility.
-3. Two backends (Calibre read/write via calibredb, EPUB-only via lxml).
-4. Review log writer.
+3. ~~Calibre backend (read side) + merge~~ — done, wired into the
+   analyze command's display with mismatch flags.
+4. Review log writer — next up. Also still open: an EPUB-only write
+   path, and an actual write path for reconciled Calibre metadata
+   (`calibredb` for metadata.db, direct OPF edit for the sidecar).
 5. Dry-run mode as a hard default before anything writes to real files.
 
 ## Future / not being planned yet
@@ -230,6 +239,134 @@ correctly reports Calibre-managed with the right id and root.
 This module only detects and reports context -- it doesn't read or
 write metadata.opf/metadata.db contents itself. That's the next piece
 (the Calibre and EPUB-only backends).
+
+## Session update (2026-09-02, part 3): bug fix from real-world testing
+
+Testing against a real book (Fellowship of the Ring, from the actual
+Calibre library) surfaced two real bugs, both now fixed:
+
+1. **`calibre` scheme was conflated with `UUID`.** The real
+   `metadata.opf` sidecar has `<dc:identifier opf:scheme="calibre">6130</dc:identifier>`
+   -- a plain integer database row id, not a UUID. Split this into its
+   own `CALIBRE` scheme entry (aliases: `calibre`, value shape: plain
+   digits). Confirmed against the real file: id 6130 matched, which is
+   the book's actual Calibre library id -- also independently
+   cross-validated against the id the folder-name detector in
+   `calibre_detect.py` already extracted from the same book (both
+   agreed: 6130).
+
+2. **More general bug: `digits_only` normalization could manufacture a
+   false match.** The EPUB's own internal OPF (not the metadata.opf
+   sidecar) has `<dc:identifier opf:scheme="calibre">3f7e59de-1169-4c76-810b-b6fa4e2d026c</dc:identifier>`
+   -- here "calibre" is mislabeling what's actually a UUID. Since
+   `digits_only` deletes every non-digit character, that UUID
+   collapsed into a 21-digit string that passed a bare `^\d+$` check.
+   This wasn't unique to CALIBRE -- any scheme using `digits_only`
+   (OCLC, GOODREADS, HARDCOVER, VIAF, DOUBAN, UPC) could be fooled the
+   same way by garbage containing a scheme's matching attribute name
+   but a value shaped like something else entirely. Fixed with a
+   raw-shape guard: before `digits_only` runs, the raw value must
+   already look like digits with only whitespace/dashes as decoration
+   (`^[\d\s-]+$`); anything else is rejected outright rather than
+   normalized into looking valid. Other normalizers here (strip
+   dashes/spaces, upper/lowercase, trim) don't delete
+   distinguishing characters, so they can't manufacture a match this
+   way and didn't need the guard.
+
+Both confirmed fixed against the real book: the mislabeled UUID now
+correctly falls back to bare DC instead of masquerading as a fake
+Calibre id, and the real `metadata.opf` CALIBRE/uuid/ISBN/AMAZON→ASIN/
+GOOGLE identifiers all classify correctly. Full 11-sample-book
+regression (`analyze` + `repair`, idempotency, strict XML validity)
+stayed clean throughout.
+
+**Also surfaced, not yet acted on:** this same real book showed the
+metadata.opf sidecar and the EPUB's own internal OPF genuinely
+disagreeing -- different ISBN (9780007887668 vs 9780007322497),
+different publisher (Ballantine Books vs HarperCollins), and series
+metadata (Lord of the Rings, index 1) that exists *only* in
+metadata.opf, completely absent from the EPUB's own internal file.
+Right now `analyze` only ever reads the EPUB's internal OPF, even when
+`calibre_detect` confirms the book is Calibre-managed -- it doesn't
+read metadata.opf's content at all yet, only detects that the file
+exists. Reconciling these two sources is exactly the job of the
+Calibre backend (next up in the build order) and needs its own design
+decision: which source wins on conflict, or are both recorded
+separately.
+
+## Session update (2026-09-02, part 4): Calibre backend + merge, decided by the user
+
+Discussed with the user whether metadata.opf or the EPUB's own internal
+file should win on conflict (real example: Fellowship of the Ring has
+a different ISBN and publisher in each, plus series info that exists
+only in metadata.opf). Decided: neither wins automatically -- record
+both, flag disagreement, let a person (or eventually the GUI) decide
+per field. This matches the project's existing posture toward
+ambiguous decisions (e.g. Case 3 chapter splitting waiting on the
+GUI rather than guessing).
+
+**Fixed first, since it directly affects whether this merge means
+anything**: `ebook_fix.parser._read_metadata` had `Metadata.date`,
+`.rights`, `.description`, and `.subject` defined on the dataclass but
+never actually populated -- confirmed by testing against the sample
+books: The Call of Cthulhu has a real public-domain rights notice and
+subject tags that `analyze` was silently showing as "(none found)".
+Fixed by mirroring the existing extraction pattern for title/creator/
+etc. Confirmed as a real improvement, not just a refactor, across the
+sample-book regression.
+
+**`metadata/calibre_backend.py`** -- `read_metadata_opf(path)` parses a
+standalone metadata.opf file directly (it isn't inside an EPUB
+container, so it can't go through `ebook_fix.parser`'s normal
+book-loading pipeline) and returns identifiers (reusing
+`identifiers.extract_identifiers_from_opf`, refactored out of
+`identifiers.py` so both the EPUB and metadata.opf paths share the
+exact same classification rules) plus core fields (a small local dc:
+field reader, since metadata.opf isn't a `Book` object `series.read()`
+et al. expect -- a minimal shim object exposing just `.opf_document`
+lets `series.read()` work against it unmodified). Read-only, matching
+the rest of the metadata package so far.
+
+**`metadata/merge.py`** -- reconciles an EPUB-side and Calibre-side
+result:
+- Identifiers: same-scheme entries from both sources are combined into
+  one list, each tagged with which source(s) it came from
+  (`sources: ["epub"]`, `["calibre_opf"]`, or both if they agree
+  exactly). Same scheme, different value -- e.g. two different ISBNs
+  -- surfaces as a flagged conflict via `.conflicts()`, not a silent
+  overwrite.
+- Core fields: each field becomes a `MergedField(epub_value,
+  calibre_value)` with a `.mismatch` flag when both sides have data
+  and disagree, and `.display_value` for the common case where they
+  agree or only one side has data at all.
+- When a book isn't Calibre-managed (or metadata.opf can't be read),
+  the Calibre side of every comparison is simply empty and nothing is
+  ever flagged -- callers don't need a separate code path for the
+  standalone-EPUB case.
+
+**Wired into `analyzer.py`**: `AnalysisReport` gained `calibre_context`
+(computed once here via `calibre_detect.detect(book.source)`, so
+`engine.py` no longer needs its own separate detection call),
+`merged_identifiers`, and `merged_core_fields`. `analyze`'s
+`[Book Metadata]` display now shows `-- MISMATCH` inline wherever the
+two sources disagree (title, author, language, publisher, date,
+rights, description, series, series index, subjects, and same-scheme
+identifier conflicts), and a clean single value otherwise.
+
+**Tested against the real Fellowship of the Ring** (both the EPUB and
+its actual metadata.opf, placed in a synthetic but structurally real
+`Library Root/Author/Title (id)/` layout): every genuine disagreement
+correctly flagged (title, author, language, publisher, date, ISBN),
+the mislabeled UUID under `opf:scheme="calibre"` correctly stayed
+"unrecognized" rather than false-matching (confirming the earlier
+digits_only fix holds through the full merge path), and series
+correctly appeared from metadata.opf alone since the EPUB side has
+none. Full 11-sample-book regression (`analyze` + `repair`, strict XML
+validity) stayed clean throughout, plus a repair pass on the real
+Fellowship book itself -- confirmed idempotent by comparing extracted
+contents directly (whole-zip-file hashes differ only by each file's
+embedded modification timestamp, which is expected and not a content
+difference).
 
 ## Open questions / not yet decided
 

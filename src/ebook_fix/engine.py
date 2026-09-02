@@ -13,7 +13,6 @@ from ebook_fix.report import print_header
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
-from metadata.calibre_detect import detect as detect_calibre
 from ebook_fix.serialize import save_report
 from ebook_fix.class_map import (
     build_class_profiles,
@@ -254,46 +253,85 @@ class Engine:
             # ==========================================
 
             self.header("[Book Metadata]")
-            calibre_ctx = detect_calibre(epub)
+            calibre_ctx = analysis_report.calibre_context
             if calibre_ctx.is_calibre_managed:
                 id_part = f"id {calibre_ctx.book_id}, " if calibre_ctx.book_id is not None else ""
                 self.log(f"Library: Calibre-managed ({id_part}root: {calibre_ctx.library_root})")
             else:
                 self.log("Library: standalone EPUB (no Calibre library detected)")
+
+            merged = analysis_report.merged_core_fields
+
+            def _field_line(label, mf):
+                if mf.mismatch:
+                    return f"{label}: {mf.epub_value} (EPUB) / {mf.calibre_value} (metadata.opf) -- MISMATCH"
+                return f"{label}: {mf.display_value or '(none found)'}"
+
+            self.log(_field_line("Title", merged.title))
+            self.log(_field_line("Author", merged.author))
+            self.log(_field_line("Language", merged.language))
+            self.log(_field_line("Publisher", merged.publisher))
+
+            merged_ids = analysis_report.merged_identifiers
+            primary = merged_ids.primary
+            id_conflicts = merged_ids.conflicts()
+            primary_conflict = next(
+                (g for g in id_conflicts if primary and g[0].matched_scheme == primary.matched_scheme),
+                None,
+            )
+            if primary_conflict:
+                values = " / ".join(f"{i.normalized_value} ({'+'.join(i.sources)})" for i in primary_conflict)
+                self.log(f"Identifier ({primary.matched_scheme}): {values} -- MISMATCH")
+            else:
+                self.log(f"Identifier: {primary.normalized_value if primary else '(none found)'}")
+
+            self.log(_field_line("Date", merged.date))
+            self.log(_field_line("Rights", merged.rights))
             self.log(
-                f"Title: {s.title or '(none found)'}"
-                f"\nAuthor: {s.author or '(none found)'}"
-                f"\nLanguage: {s.language or '(none found)'}"
-                f"\nPublisher: {s.publisher or '(none found)'}"
-                f"\nIdentifier: {s.identifier or '(none found)'}"
-                f"\nDate: {s.date or '(none found)'}"
-                f"\nRights: {s.rights or '(none found)'}"
-                f"\nEPUB Version: {s.epub_version or 'unknown'}"
+                f"EPUB Version: {s.epub_version or 'unknown'}"
                 + (
                     f" (will be upgraded to EPUB {s.epub_target_version})"
                     if s.epub_needs_upgrade else ""
                 )
             )
-            other_identifiers = [
-                ident for ident in analysis_report.identifiers.identifiers
-                if ident is not analysis_report.identifiers.primary
-            ]
-            if other_identifiers:
+
+            shown_conflict_ids = {id(i) for g in id_conflicts for i in g} | ({id(primary)} if primary else set())
+            other_identifiers = [i for i in merged_ids.identifiers if id(i) not in shown_conflict_ids]
+            if other_identifiers or (id_conflicts and primary_conflict is None):
                 self.log("Other identifiers found:")
+                for group in id_conflicts:
+                    if group is primary_conflict:
+                        continue
+                    values = " / ".join(f"{i.normalized_value} ({'+'.join(i.sources)})" for i in group)
+                    label = group[0].matched_scheme or "unrecognized"
+                    self.log(f"  {label}: {values} -- MISMATCH")
                 for ident in other_identifiers:
                     label = ident.matched_scheme or "unrecognized"
                     self.log(f"  {label}: {ident.normalized_value}")
-            if s.subjects:
-                self.log(f"Subjects/Genre: {', '.join(s.subjects)}")
-            if s.description:
-                self.log(f"Description: {s.description}")
-            if s.series:
-                if s.series_index is not None:
-                    idx = s.series_index
-                    idx_display = str(int(idx)) if idx == int(idx) else str(idx)
-                    self.log(f"Series: {s.series} (Book {idx_display})")
+
+            if merged.subjects_mismatch:
+                self.log(f"Subjects/Genre (EPUB): {', '.join(merged.subjects_epub)}")
+                self.log(f"Subjects/Genre (metadata.opf): {', '.join(merged.subjects_calibre)} -- MISMATCH")
+            else:
+                subjects = merged.subjects_calibre or merged.subjects_epub
+                if subjects:
+                    self.log(f"Subjects/Genre: {', '.join(subjects)}")
+
+            if merged.description.mismatch:
+                self.log(_field_line("Description", merged.description))
+            elif merged.description.display_value:
+                self.log(f"Description: {merged.description.display_value}")
+
+            if merged.series.mismatch or merged.series_index.mismatch:
+                epub_disp = merged.series.epub_value + (f" (Book {merged.series_index.epub_value})" if merged.series_index.epub_value else "")
+                cal_disp = merged.series.calibre_value + (f" (Book {merged.series_index.calibre_value})" if merged.series_index.calibre_value else "")
+                self.log(f"Series: {epub_disp or '(none)'} (EPUB) / {cal_disp or '(none)'} (metadata.opf) -- MISMATCH")
+            elif merged.series.display_value:
+                idx_display = merged.series_index.display_value
+                if idx_display:
+                    self.log(f"Series: {merged.series.display_value} (Book {idx_display})")
                 else:
-                    self.log(f"Series: {s.series}")
+                    self.log(f"Series: {merged.series.display_value}")
 
             self.log("")
             self.header("[File Contents]")

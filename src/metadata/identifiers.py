@@ -117,6 +117,23 @@ def _normalize(value: str, normalize_key: str) -> str:
     return fn(value.strip())
 
 
+def _raw_shape_ok(value: str, normalize_key: str) -> bool:
+    """Guards against a destructive normalizer manufacturing a false
+    match. digits_only deletes every non-digit character, so garbage
+    containing letters (e.g. a UUID mislabeled under a numeric-ID
+    scheme) can come out looking like a plausible number once the
+    letters are gone -- confirmed against a real book where a UUID
+    tagged opf:scheme="calibre" collapsed into a 21-digit string that
+    passed a bare \\d+ check. Requiring the raw value to already look
+    like digits (with only whitespace/dashes as decoration) before
+    digits_only runs closes that hole. Other normalizers here don't
+    delete non-cosmetic characters, so they can't manufacture a match
+    this way."""
+    if normalize_key == "digits_only":
+        return bool(re.match(r"^[\d\s-]+$", value.strip()))
+    return True
+
+
 def _match_by_attribute(raw_scheme: str, rules: list[SchemeRule]) -> SchemeRule | None:
     if not raw_scheme:
         return None
@@ -145,7 +162,7 @@ def _classify(raw_value: str, raw_scheme: str, rules: list[SchemeRule]) -> Ident
     result = IdentifierMatch(raw_value=raw_value, raw_scheme=raw_scheme)
 
     rule = _match_by_attribute(raw_scheme, rules)
-    if rule is not None:
+    if rule is not None and _raw_shape_ok(raw_value, rule.normalize):
         normalized = _normalize(raw_value, rule.normalize)
         if re.match(rule.value_regex, normalized):
             result.matched_scheme = rule.output_scheme
@@ -156,12 +173,13 @@ def _classify(raw_value: str, raw_scheme: str, rules: list[SchemeRule]) -> Ident
     prefix_match = _match_by_prefix(raw_value, rules)
     if prefix_match is not None:
         rule, remainder = prefix_match
-        normalized = _normalize(remainder, rule.normalize)
-        if re.match(rule.value_regex, normalized):
-            result.matched_scheme = rule.output_scheme
-            result.normalized_value = normalized
-            result.match_method = "prefix"
-            return result
+        if _raw_shape_ok(remainder, rule.normalize):
+            normalized = _normalize(remainder, rule.normalize)
+            if re.match(rule.value_regex, normalized):
+                result.matched_scheme = rule.output_scheme
+                result.normalized_value = normalized
+                result.match_method = "prefix"
+                return result
 
     # Schemes with no match_prefix_regex at all (e.g. URI) are meant to
     # be recognized by their value's own shape -- a urn:/http(s): value
@@ -169,6 +187,8 @@ def _classify(raw_value: str, raw_scheme: str, rules: list[SchemeRule]) -> Ident
     # strip first. Tried last since it's the lowest-confidence check.
     for rule in rules:
         if not rule.enabled or rule.match_prefix_regex:
+            continue
+        if not _raw_shape_ok(raw_value, rule.normalize):
             continue
         normalized = _normalize(raw_value, rule.normalize)
         if re.match(rule.value_regex, normalized):
@@ -186,20 +206,17 @@ def _classify(raw_value: str, raw_scheme: str, rules: list[SchemeRule]) -> Ident
     return result
 
 
-def analyze_book_identifiers(book) -> BookIdentifierSummary:
-    """Reads every <dc:identifier> on `book` and classifies it against
-    the scheme rules in identifier_schemes.json. Read-only -- records
-    what each identifier is (or isn't); doesn't rewrite anything on
-    the book itself."""
-    summary = BookIdentifierSummary()
+def extract_identifiers_from_opf(opf_root) -> list[IdentifierMatch]:
+    """Reads and classifies every <dc:identifier> directly off an OPF
+    <metadata> block. Shared by analyze_book_identifiers (for an
+    EPUB's own internal OPF) and metadata.calibre_backend (for a
+    standalone metadata.opf sidecar file) -- same classification rules
+    apply to both, they just come from different files."""
+    identifiers: list[IdentifierMatch] = []
 
-    opf = getattr(book, "opf_document", None)
-    if opf is None:
-        return summary
-
-    metadata_el = opf.find(f"{{{OPF_NS}}}metadata")
+    metadata_el = opf_root.find(f"{{{OPF_NS}}}metadata")
     if metadata_el is None:
-        return summary
+        return identifiers
 
     rules = _load_schemes()
     seen = set()
@@ -216,6 +233,17 @@ def analyze_book_identifiers(book) -> BookIdentifierSummary:
             continue
         seen.add(dedupe_key)
 
-        summary.identifiers.append(match)
+        identifiers.append(match)
 
-    return summary
+    return identifiers
+
+
+def analyze_book_identifiers(book) -> BookIdentifierSummary:
+    """Reads every <dc:identifier> on `book` and classifies it against
+    the scheme rules in identifier_schemes.json. Read-only -- records
+    what each identifier is (or isn't); doesn't rewrite anything on
+    the book itself."""
+    opf = getattr(book, "opf_document", None)
+    if opf is None:
+        return BookIdentifierSummary()
+    return BookIdentifierSummary(identifiers=extract_identifiers_from_opf(opf))
