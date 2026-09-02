@@ -13,6 +13,7 @@ from ebook_fix.report import print_header
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
+from metadata.calibre_detect import detect as detect_calibre
 from ebook_fix.serialize import save_report
 from ebook_fix.class_map import (
     build_class_profiles,
@@ -253,6 +254,12 @@ class Engine:
             # ==========================================
 
             self.header("[Book Metadata]")
+            calibre_ctx = detect_calibre(epub)
+            if calibre_ctx.is_calibre_managed:
+                id_part = f"id {calibre_ctx.book_id}, " if calibre_ctx.book_id is not None else ""
+                self.log(f"Library: Calibre-managed ({id_part}root: {calibre_ctx.library_root})")
+            else:
+                self.log("Library: standalone EPUB (no Calibre library detected)")
             self.log(
                 f"Title: {s.title or '(none found)'}"
                 f"\nAuthor: {s.author or '(none found)'}"

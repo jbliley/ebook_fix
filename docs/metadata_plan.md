@@ -141,7 +141,8 @@ Suggested build order (updated):
 
 1. ~~Mapping file + matching/normalization core~~ — done, wired into
    the analysis pass.
-2. Calibre-structure detector.
+2. ~~Calibre-structure detector~~ — done, wired into the analyze
+   command for visibility.
 3. Two backends (Calibre read/write via calibredb, EPUB-only via lxml).
 4. Review log writer.
 5. Dry-run mode as a hard default before anything writes to real files.
@@ -199,6 +200,36 @@ anything else ever reads it directly. `metadata.identifiers` avoids
 this by reading `book.opf_document` itself, the same way
 `ebook_fix.series` already does — but flagging this here in case
 `parser.py` or `models.py` ever need a real fix for it later.
+
+## Session update (2026-09-02, part 2): Calibre-structure detector
+
+`metadata/calibre_detect.py` — `detect(epub_path) -> CalibreContext`.
+Given a book's file path, walks up from its folder looking for the two
+things a real Calibre library always has: a `metadata.opf` sitting
+right next to the book, and a `metadata.db` somewhere above it (up to
+6 parent directories, comfortably past the normal
+`Library Root/Author/Title (id)/` depth). Both need to be present --
+either alone could be coincidence. When both are found, also extracts
+the Calibre book id from the folder name's trailing `(id)` (Calibre's
+own on-disk convention, e.g. `Sidewinders (12)`), and reports the
+library root.
+
+Tested against three synthetic fixtures (lone EPUB, a decoy folder
+with a metadata.opf but no metadata.db anywhere above it, and a real
+Calibre-shaped layout) -- all three classified correctly.
+
+Wired into `engine.py`'s `analyze` command for visibility: a new
+`Library: Calibre-managed (id N, root: ...)` or
+`Library: standalone EPUB (no Calibre library detected)` line now
+prints at the top of `[Book Metadata]`, so this can be verified
+directly against the real library rather than only against synthetic
+fixtures. All 11 sample books (none Calibre-managed) still correctly
+report standalone; a copy placed in a synthetic Calibre-shaped folder
+correctly reports Calibre-managed with the right id and root.
+
+This module only detects and reports context -- it doesn't read or
+write metadata.opf/metadata.db contents itself. That's the next piece
+(the Calibre and EPUB-only backends).
 
 ## Open questions / not yet decided
 
