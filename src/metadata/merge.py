@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ebook_fix import series as series_metadata
+from metadata import author_names, language_codes
 from metadata.core_fields import BookCoreFieldsSummary
 from metadata.identifiers import BookIdentifierSummary, IdentifierMatch
 
@@ -66,18 +67,38 @@ class MergedIdentifierSummary:
 class MergedField:
     epub_value: str = ""
     calibre_value: str = ""
+    # Set when epub_value and calibre_value differ as plain strings but
+    # are recognized as the *same* value once a known convention is
+    # accounted for (e.g. "en" vs "eng", or "Smith, John" vs "John
+    # Smith") -- see language_codes.py and author_names.py. When this
+    # is set the field is never a mismatch, regardless of the raw
+    # string comparison.
+    equivalent: bool = False
+    # For an equivalent field where one rendering should always win
+    # (currently just the reversed-author case), the corrected value
+    # to use instead of either raw side. Empty when there's nothing to
+    # correct (e.g. the language-code case, where both sides are
+    # already "correct" for their own format).
+    normalized_value: str = ""
+    # Short human-readable explanation of why an equivalent field
+    # isn't flagged, or what was corrected -- for display only.
+    note: str = ""
 
     @property
     def display_value(self) -> str:
-        """Whichever side actually has data; metadata.opf is what
-        Calibre-Web and Calibre itself actually display, so it's
-        preferred as the single value when both sides are non-empty
-        but agree, or when only one side has data at all. When they
-        disagree, .mismatch is what should drive the UI, not this."""
-        return self.calibre_value or self.epub_value
+        """The single value to show/use: the corrected form if one
+        was determined, otherwise whichever side actually has data.
+        metadata.opf is what Calibre-Web and Calibre itself actually
+        display, so it's preferred when both sides are non-empty but
+        agree, or when only one side has data at all. When they
+        disagree and aren't equivalent, .mismatch is what should
+        drive the UI, not this."""
+        return self.normalized_value or self.calibre_value or self.epub_value
 
     @property
     def mismatch(self) -> bool:
+        if self.equivalent:
+            return False
         return bool(self.epub_value) and bool(self.calibre_value) and self.epub_value != self.calibre_value
 
 
@@ -134,14 +155,50 @@ def _field(epub_value: str, calibre_value: str) -> MergedField:
     return MergedField(epub_value=epub_value or "", calibre_value=calibre_value or "")
 
 
+def _language_field(epub_value: str, calibre_value: str) -> MergedField:
+    """Language gets its own comparison because EPUB (ISO 639-1, e.g.
+    "en") and Calibre (ISO 639-2/B, e.g. "eng") are both correct for
+    their own format -- see language_codes.py. Neither side is
+    "wrong", so there's nothing to correct, just a mismatch to
+    suppress when the two codes are the same language."""
+    mf = _field(epub_value, calibre_value)
+    if mf.epub_value and mf.calibre_value and mf.epub_value != mf.calibre_value:
+        if language_codes.codes_equivalent(mf.epub_value, mf.calibre_value):
+            mf.equivalent = True
+            mf.note = (
+                f"'{mf.calibre_value}' (Calibre/ISO 639-2) and "
+                f"'{mf.epub_value}' (EPUB/ISO 639-1) are the same "
+                "language -- expected convention, not a mismatch."
+            )
+    return mf
+
+
+def _author_field(epub_value: str, calibre_value: str) -> MergedField:
+    """Detects the common "Last, First" vs "First Last" reversal and
+    always resolves it to "First Last" rather than flagging it, per
+    Jacob's standing preference -- see author_names.py. A genuinely
+    different name still falls through as a normal mismatch."""
+    mf = _field(epub_value, calibre_value)
+    if mf.epub_value and mf.calibre_value and mf.epub_value != mf.calibre_value:
+        canonical = author_names.detect_reversed_author(mf.epub_value, mf.calibre_value)
+        if canonical is not None:
+            mf.equivalent = True
+            mf.normalized_value = canonical
+            mf.note = (
+                f"'{mf.calibre_value}' / '{mf.epub_value}' were the same name in "
+                f"reversed order -- standardized to '{canonical}'."
+            )
+    return mf
+
+
 def merge_core_fields(
     epub_fields: BookCoreFieldsSummary,
     calibre_fields: BookCoreFieldsSummary,
 ) -> MergedCoreFields:
     result = MergedCoreFields(
         title=_field(epub_fields.title, calibre_fields.title),
-        author=_field(epub_fields.author, calibre_fields.author),
-        language=_field(epub_fields.language, calibre_fields.language),
+        author=_author_field(epub_fields.author, calibre_fields.author),
+        language=_language_field(epub_fields.language, calibre_fields.language),
         publisher=_field(epub_fields.publisher, calibre_fields.publisher),
         date=_field(epub_fields.date, calibre_fields.date),
         rights=_field(epub_fields.rights, calibre_fields.rights),

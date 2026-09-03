@@ -288,7 +288,10 @@ class Engine:
             def _field_line(label, mf):
                 if mf.mismatch:
                     return f"{label}: {mf.epub_value} (EPUB) / {mf.calibre_value} (metadata.opf) -- MISMATCH"
-                return f"{label}: {mf.display_value or '(none found)'}"
+                line = f"{label}: {mf.display_value or '(none found)'}"
+                if mf.note:
+                    line += f"  [{mf.note}]"
+                return line
 
             self.log(_field_line("Title", merged.title))
             self.log(_field_line("Author", merged.author))

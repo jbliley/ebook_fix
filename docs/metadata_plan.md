@@ -404,12 +404,58 @@ timestamp. That's intentional for now (an audit trail, not a to-do
 list), but worth revisiting once there's a GUI that can mark a
 conflict as resolved.
 
+## Session update (2026-09-03): language and author convention handling
+
+Two of the mismatches `merge.py` was flagging on every Calibre-managed
+book turned out not to be real disagreements at all -- both are now
+recognized and resolved automatically instead of going to the review
+log.
+
+**Language** -- Calibre stores `dc:language` as a three-letter ISO
+639-2 "bibliographic" code (`eng`), while EPUB's own convention is the
+two-letter ISO 639-1 code (`en`). Neither side is wrong; they're just
+each format's native shape for the same language. New module
+`metadata/language_codes.py` holds the full ISO 639-1 <-> 639-2/B
+table (plus the handful of terminological codes, e.g. `deu`/`ger`,
+that differ from the bibliographic form) and a `codes_equivalent()`
+check that also tolerates a region subtag (`en-US`). `merge.py`'s new
+`_language_field()` uses it: still a real `MISMATCH` if the codes
+genuinely differ, otherwise `MergedField.equivalent=True` with a note
+explaining why, and never logged to `identifier_review.csv`.
+
+**Author name order** -- the other recurring, non-substantive
+disagreement is "Last, First" on one side and "First Last" on the
+other -- same person, just reversed. New module
+`metadata/author_names.py` detects this mechanically (exactly one
+comma; rearranging the comma side's own words matches the other side
+word-for-word) and returns the canonical "First Last" form. Unlike the
+language case there *is* a preferred value here, so `merge.py`'s new
+`_author_field()` sets `MergedField.normalized_value` to it --
+`display_value` now returns that corrected form automatically. A
+genuinely different name (not just reordered) still falls through to
+the normal mismatch path untouched.
+
+`MergedField` gained `equivalent`, `normalized_value`, and `note` to
+carry this: `.mismatch` returns `False` whenever `equivalent` is set,
+regardless of the raw string comparison, and `.display_value` prefers
+`normalized_value` when one was determined. `engine.py`'s
+`[Book Metadata]` display appends the note in brackets after a
+resolved field, so the reasoning stays visible even though it's no
+longer flagged.
+
+Verified with a synthetic Calibre-managed copy of the Sidewinders
+sample (real EPUB, hand-written `metadata.opf` sidecar with
+`Johnstone, William W.` / `eng` against the EPUB's own `William W.
+Johnstone` / `en`): both resolved cleanly with the expected note, a
+genuine date mismatch on the same book still flagged normally, and
+nothing spurious added to `identifier_review.csv`. Full regression
+across all sample EPUBs in `examples/` stayed clean.
+
 ## Open questions / not yet decided
 
-- Exact scope and design of `core_fields.py` (which fields beyond
-  title/author, any formatting-standardization rules).
-- Whether author/title normalization needs its own mapping/config file
-  similar in spirit to `identifier_schemes.json`.
+- Whether title needs its own normalization rules the way author and
+  language now do, or whether title disagreements are always
+  genuinely substantive and should keep going to manual review.
 - Whether this project lives in its own repo or alongside existing
   automation scripts (raindrop_manager.py, check_missing_posters.py, etc.).
 - Whether it runs as a manual one-off pass or eventually gets folded into
