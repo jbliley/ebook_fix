@@ -13,6 +13,7 @@ from ebook_fix.report import print_header
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
+from metadata import review
 from ebook_fix.serialize import save_report
 from ebook_fix.class_map import (
     build_class_profiles,
@@ -240,6 +241,28 @@ class Engine:
 
             cache_file = save_report(analysis_report, epub)
             self.log(f"Saved analysis cache: {cache_file}")
+
+            # Cross-book review log -- see metadata/review.py. Only
+            # scoped to the explicit `analyze` command for now, not
+            # every internal analysis pass (e.g. inside `repair`),
+            # so re-running repair on the same book repeatedly doesn't
+            # pile up duplicate rows for something you already saw.
+            review_rows = review.log_unmatched_identifiers(
+                epub,
+                analysis_report.summary.title,
+                analysis_report.summary.author,
+                analysis_report.identifiers.identifiers,
+                "epub",
+            )
+            review_rows += review.log_merge_conflicts(
+                epub,
+                analysis_report.summary.title,
+                analysis_report.summary.author,
+                analysis_report.merged_identifiers,
+                analysis_report.merged_core_fields,
+            )
+            if review_rows:
+                self.log(f"Logged {review_rows} item(s) needing review to {review.default_review_path()}")
             self.log("")
 
             s = analysis_report.summary

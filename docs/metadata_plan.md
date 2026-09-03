@@ -151,9 +151,10 @@ Suggested build order (updated):
    command for visibility.
 3. ~~Calibre backend (read side) + merge~~ — done, wired into the
    analyze command's display with mismatch flags.
-4. Review log writer — next up. Also still open: an EPUB-only write
-   path, and an actual write path for reconciled Calibre metadata
-   (`calibredb` for metadata.db, direct OPF edit for the sidecar).
+4. ~~Review log writer~~ — done, wired into the analyze command.
+   Still open: an EPUB-only write path, and an actual write path for
+   reconciled Calibre metadata (`calibredb` for metadata.db, direct
+   OPF edit for the sidecar).
 5. Dry-run mode as a hard default before anything writes to real files.
 
 ## Future / not being planned yet
@@ -367,6 +368,41 @@ Fellowship book itself -- confirmed idempotent by comparing extracted
 contents directly (whole-zip-file hashes differ only by each file's
 embedded modification timestamp, which is expected and not a content
 difference).
+
+## Session update (2026-09-02, part 5): review log writer
+
+`metadata/review.py` -- appends rows to a running CSV
+(`identifier_review.csv`, defaults to the current working directory,
+matching how `ebook_fix.toml` also defaults to cwd) whenever `analyze`
+finds something it couldn't confidently resolve on its own:
+
+- `log_unmatched_identifiers()` -- one row per identifier that fell
+  back to bare DC (the original documented purpose of this file).
+- `log_merge_conflicts()` -- one row per same-scheme identifier
+  conflict and per core-field mismatch between the EPUB and a
+  metadata.opf sidecar (the mismatch flags added in part 4). This
+  wasn't in the original plan for this file, but it's the same kind
+  of "needs a person's eyes" signal, so it goes to the same log rather
+  than inventing a second mechanism.
+
+Wired into the `analyze` command only (not into `repair`'s internal
+analysis pass), so re-running repair on a book you've already reviewed
+doesn't pile up duplicate rows for something already seen. `analyze`
+prints how many rows were logged and where, but only when there's
+something to report -- clean books stay quiet.
+
+Confirmed against the real Fellowship of the Ring: 7 rows logged (the
+mislabeled UUID, the ISBN conflict, and mismatches on title, author,
+language, publisher, and date) -- matching exactly what the terminal
+display already showed. Confirmed the 11 standalone sample books log
+nothing, and the file only grows by the rows a given run actually
+found (no false positives, no silent duplication).
+
+This is a plain append log, not a deduplicated state file -- running
+`analyze` on the same book twice adds the same rows again with a new
+timestamp. That's intentional for now (an audit trail, not a to-do
+list), but worth revisiting once there's a GUI that can mark a
+conflict as resolved.
 
 ## Open questions / not yet decided
 

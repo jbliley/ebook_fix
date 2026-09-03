@@ -69,3 +69,6 @@ docs/_build/
 # --- OS files ---
 .DS_Store
 Thumbs.db
+
+# --- ebook_fix generated files ---
+identifier_review.csv
