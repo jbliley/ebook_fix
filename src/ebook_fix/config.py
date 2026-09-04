@@ -135,6 +135,18 @@ class CoverRepairConfig:
 
 
 @dataclass(slots=True)
+class MetadataRepairConfig:
+    enabled: bool = True
+    # Also write the same confidently-resolved values back into the
+    # Calibre metadata.opf sidecar (not just the EPUB itself), so the
+    # correction persists outside this one repair run and shows up in
+    # Calibre/Calibre-Web too. Only ever touches metadata.opf, never
+    # metadata.db -- see modules/metadata_repair.py and
+    # metadata/calibre_write.py.
+    sync_calibre_opf: bool = True
+
+
+@dataclass(slots=True)
 class Config:
     epub3_upgrade: EPUB3UpgradeConfig = field(default_factory=EPUB3UpgradeConfig)
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
@@ -148,6 +160,7 @@ class Config:
     scene_break_repair: SceneBreakRepairConfig = field(default_factory=SceneBreakRepairConfig)
     cover_repair: CoverRepairConfig = field(default_factory=CoverRepairConfig)
     running_title_repair: RunningTitleRepairConfig = field(default_factory=RunningTitleRepairConfig)
+    metadata_repair: MetadataRepairConfig = field(default_factory=MetadataRepairConfig)
 
 
 # ---------------------------------------------------------------------
@@ -195,6 +208,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.scene_break_repair, modules, "scene_break_repair")
     _apply_module_toggle(config.cover_repair, modules, "cover_repair")
     _apply_module_toggle(config.running_title_repair, modules, "running_title_repair")
+    _apply_module_toggle(config.metadata_repair, modules, "metadata_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
@@ -208,6 +222,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.scene_break_repair, "scene_break_repair", data.get("scene_break_repair", {}))
     _apply_section(config.cover_repair, "cover_repair", data.get("cover_repair", {}))
     _apply_section(config.running_title_repair, "running_title_repair", data.get("running_title_repair", {}))
+    _apply_section(config.metadata_repair, "metadata_repair", data.get("metadata_repair", {}))
     if config.ellipsis_repair.target_style not in ("unicode", "ascii"):
         raise ValueError(
             f"Invalid ellipsis_repair.target_style: {config.ellipsis_repair.target_style!r} "
@@ -274,6 +289,7 @@ apostrophe_repair = true
 scene_break_repair = true
 cover_repair = true
 running_title_repair = true
+metadata_repair = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -491,6 +507,28 @@ standardize_filename = true
 # content, never front matter (a real title page, a Contents page) --
 # see ebook_fix/running_title.py for exactly what counts as a match.
 enabled = true
+
+# ---------------------------------------------------------------------
+# Metadata Sync
+# ---------------------------------------------------------------------
+[metadata_repair]
+
+# Only ever acts on a Calibre-managed book (one with a metadata.opf
+# sidecar next to it) -- that sidecar is treated as a second source
+# confirming the value, which is what makes writing here safe to run
+# automatically. A standalone EPUB with no such backup is left alone,
+# same as before (still just flagged for review if anything looks
+# off). Only writes a field when metadata.merge has already ruled out
+# ambiguity: the EPUB and metadata.opf already agree, one side was
+# simply empty, or the two sides are the same value in a different
+# rendering (e.g. "Smith, John" vs "John Smith"). A genuine
+# disagreement is never auto-written -- see docs/metadata_plan.md.
+enabled = true
+
+# Also write the same resolved values into the metadata.opf sidecar
+# itself (not just the EPUB), so the correction shows up in Calibre
+# and Calibre-Web too, not only in the repaired EPUB file.
+sync_calibre_opf = true
 """
 
 

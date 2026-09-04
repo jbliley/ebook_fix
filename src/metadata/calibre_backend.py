@@ -6,11 +6,15 @@ file -- a standalone OPF file, not something inside an EPUB container,
 so it can't be loaded through ebook_fix.parser's normal book-loading
 pipeline. This module parses it directly.
 
-Read-only for now, matching identifiers.py and core_fields.py -- this
-records what metadata.opf says, for metadata.merge to compare against
-what the EPUB itself says. Writing normalized/reconciled values back
-out to metadata.opf (and syncing metadata.db via calibredb) is future
-work, once a reconciliation decision exists to write.
+This module itself is still read-only: it records what metadata.opf
+says, for metadata.merge to compare against what the EPUB itself
+says. Writing confidently-resolved values back out to metadata.opf
+lives in metadata.calibre_write instead (it needs its own file-write
+handling, atomic replace, etc.) -- but that module reuses this one's
+OpfShim to do it, so both reading and writing a bare metadata.opf go
+through the same lightweight stand-in for a real Book. Syncing
+metadata.db via calibredb is still future work, once there's a way to
+verify it against a real Calibre library.
 """
 from __future__ import annotations
 
@@ -28,12 +32,23 @@ DC_NS = "http://purl.org/dc/elements/1.1/"
 
 
 @dataclass(slots=True)
-class _OpfShim:
+class OpfShim:
     """A minimal stand-in for a real Book object, exposing just enough
-    (.opf_document) for ebook_fix.series.read() to work unmodified
-    against a bare metadata.opf file, the same way it already works
-    against a real Book's own internal OPF."""
+    (.opf_document, .opf_modified, .mark_modified()) for ebook_fix.series
+    and metadata.core_fields' write functions to work unmodified
+    against a bare metadata.opf file, the same way they already work
+    against a real Book's own internal OPF. Used both for reading here
+    (core_fields read only needs .opf_document) and for writing, in
+    metadata.calibre_write."""
     opf_document: object = None
+    opf_modified: bool = False
+
+    def mark_modified(self) -> None:
+        # No-op: a bare metadata.opf sidecar isn't part of an EPUB
+        # archive that needs re-zipping, so there's nothing to mark.
+        # metadata.calibre_write serializes opf_document straight back
+        # out to the file itself once all the writes are done.
+        pass
 
 
 @dataclass(slots=True)
@@ -65,7 +80,7 @@ def _read_core_fields(opf_root) -> BookCoreFieldsSummary:
             if _text(el)
         ]
 
-    series_info = series_metadata.read(_OpfShim(opf_document=opf_root))
+    series_info = series_metadata.read(OpfShim(opf_document=opf_root))
     result.series = series_info.name
     result.series_index = series_info.index
 

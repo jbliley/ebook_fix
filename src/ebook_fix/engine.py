@@ -14,6 +14,7 @@ from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
 from metadata import review
+from metadata import calibre_write
 from ebook_fix.serialize import save_report
 from ebook_fix.class_map import (
     build_class_profiles,
@@ -36,6 +37,7 @@ from ebook_fix.modules.toc_generation import TocGenerationRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.cover_repair import CoverRepair
 from ebook_fix.modules.running_title_repair import RunningTitleRepair
+from ebook_fix.modules.metadata_repair import MetadataSyncRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMappingEntry, load_mapping_file, MappingError
 from ebook_fix.modules.color_strip import ColorStripRepair
@@ -147,6 +149,13 @@ class Engine:
             modules.append(ApostropheRepair(self.config.apostrophe_repair))
         if getattr(self.config, "whitespace_repair", None) and getattr(self.config.whitespace_repair, "enabled", True):
             modules.append(WhitespaceRepair(self.config.whitespace_repair))
+        # Runs last: only ever touches OPF metadata fields (title,
+        # author, etc.), completely independent of every chapter-text
+        # module above. Only acts on a Calibre-managed book, and only
+        # writes a value metadata.merge has already confirmed is safe
+        # -- see modules/metadata_repair.py.
+        if getattr(self.config, "metadata_repair", None) and getattr(self.config.metadata_repair, "enabled", True):
+            modules.append(MetadataSyncRepair(self.config.metadata_repair))
         return modules
 
     def _cover_status_line(self, cover):
@@ -1391,6 +1400,35 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
+    def _sync_metadata_opf(self, analysis_report) -> None:
+        """Writes the same confidently-resolved core-field values
+        MetadataSyncRepair already wrote into the EPUB back into its
+        Calibre metadata.opf sidecar too, so the correction shows up
+        in Calibre/Calibre-Web, not just in the repaired EPUB file --
+        see metadata/calibre_write.py. Only ever called after the
+        repaired book has actually been saved to disk (never during a
+        --dry-run), and only does anything for a Calibre-managed book
+        with metadata_repair.sync_calibre_opf enabled."""
+        metadata_config = getattr(self.config, "metadata_repair", None)
+        if metadata_config is None or not metadata_config.enabled or not metadata_config.sync_calibre_opf:
+            return
+
+        calibre_context = analysis_report.calibre_context
+        if not calibre_context.is_calibre_managed or not calibre_context.metadata_opf_path:
+            return
+
+        merged = analysis_report.merged_core_fields
+        changed = calibre_write.sync_metadata_opf(
+            calibre_context.metadata_opf_path,
+            merged.calibre_updates(),
+            merged.subjects_for_calibre(),
+        )
+        if changed:
+            self.log(
+                f"Synced {len(changed)} field(s) to metadata.opf ({', '.join(changed)}): "
+                f"{calibre_context.metadata_opf_path}"
+            )
+
     def _print_repair_summary(self, repair_reports, details: bool = False) -> None:
         """Prints what was actually changed, module by module -- only
         modules that made a change are listed at all. By default each
@@ -1580,6 +1618,7 @@ class Engine:
             writer = EPUBWriter()
             writer.save(book, output)
             self.log(f"\nSaved: {output}")
+            self._sync_metadata_opf(analysis_report)
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
@@ -1764,6 +1803,7 @@ class Engine:
             writer = EPUBWriter()
             writer.save(book, output)
             self.log(f"\nSaved: {output}")
+            self._sync_metadata_opf(analysis_report)
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)

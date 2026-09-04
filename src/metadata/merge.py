@@ -26,6 +26,14 @@ from metadata.core_fields import BookCoreFieldsSummary
 from metadata.identifiers import BookIdentifierSummary, IdentifierMatch
 
 
+# Every MergedCoreFields field that can actually be written back out,
+# used by .epub_updates()/.calibre_updates() below. "language" is
+# deliberately excluded -- both sides are already correct for their
+# own format (see language_codes.py), so there's never anything to
+# write there.
+_WRITABLE_FIELDS = ("title", "author", "publisher", "date", "rights", "description", "series", "series_index")
+
+
 @dataclass(slots=True)
 class MergedIdentifier:
     matched_scheme: str = ""      # "" for an unmatched/fallback entry
@@ -127,6 +135,56 @@ class MergedCoreFields:
     def subjects_mismatch(self) -> bool:
         return bool(self.subjects_epub) and bool(self.subjects_calibre) \
             and set(self.subjects_epub) != set(self.subjects_calibre)
+
+    def epub_updates(self) -> dict[str, str]:
+        """Field name -> confidently-resolved value, for every
+        writable field (everything below except "language" -- see
+        language_codes.py, there's nothing to write there) where the
+        EPUB's own current value doesn't already match. A genuine
+        mismatch is never included, only what's already agreed on, was
+        simply missing from the EPUB, or was corrected (e.g. a
+        reversed author name) -- see metadata.core_fields for what
+        actually applies these."""
+        result = {}
+        for name in _WRITABLE_FIELDS:
+            mf = getattr(self, name)
+            if mf.mismatch:
+                continue
+            value = mf.display_value
+            if value and value != mf.epub_value:
+                result[name] = value
+        return result
+
+    def calibre_updates(self) -> dict[str, str]:
+        """Same as epub_updates(), but for what metadata.opf is
+        missing or has stale -- e.g. backfilling a series the EPUB has
+        and metadata.opf doesn't, or correcting metadata.opf's own
+        copy of a reversed author name."""
+        result = {}
+        for name in _WRITABLE_FIELDS:
+            mf = getattr(self, name)
+            if mf.mismatch:
+                continue
+            value = mf.display_value
+            if value and value != mf.calibre_value:
+                result[name] = value
+        return result
+
+    def subjects_for_epub(self) -> list[str] | None:
+        """The calibre subject list, if the EPUB's own is simply empty
+        and calibre has one -- an unambiguous backfill, not a guess.
+        None otherwise (including a genuine disagreement between two
+        non-empty lists, which stays flagged rather than resolved)."""
+        if self.subjects_mismatch or self.subjects_epub or not self.subjects_calibre:
+            return None
+        return list(self.subjects_calibre)
+
+    def subjects_for_calibre(self) -> list[str] | None:
+        """The mirror of subjects_for_epub(): the EPUB's subject list,
+        if metadata.opf's own is simply empty."""
+        if self.subjects_mismatch or self.subjects_calibre or not self.subjects_epub:
+            return None
+        return list(self.subjects_epub)
 
 
 def merge_identifiers(

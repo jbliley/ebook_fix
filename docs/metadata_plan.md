@@ -451,8 +451,85 @@ genuine date mismatch on the same book still flagged normally, and
 nothing spurious added to `identifier_review.csv`. Full regression
 across all sample EPUBs in `examples/` stayed clean.
 
+## Session update (2026-09-04): the metadata writer
+
+Everything up to this point only ever reported what was wrong --
+nothing actually got written back anywhere. This session adds the
+writer, but deliberately scoped to the one case where it's safe to run
+without a person or a GUI reviewing each change first: a Calibre-
+managed book, where the metadata.opf sidecar sitting right next to the
+EPUB acts as a second source confirming the value.
+
+**What writes, and when.** A new repair module,
+`modules/metadata_repair.py`'s `MetadataSyncRepair`, only ever acts
+when `analysis.calibre_context.is_calibre_managed` is true -- a
+standalone EPUB is untouched, same as before (still just flagged for
+review). Even then, it only ever writes a field metadata.merge has
+already ruled unambiguous: the two sides already agree (nothing to
+write), one side was simply empty (an unambiguous backfill either
+direction), or the two sides are the same value in a different
+rendering (the reversed-author-name case). A genuine disagreement
+(`MergedField.mismatch`) is never written -- it stays in
+identifier_review.csv exactly as before. Language is never touched at
+all, since both codes are already correct for their own format.
+
+**Both sides get updated, not just the EPUB.** Writing into the EPUB
+alone would let it drift right back out of sync with metadata.opf the
+next time Calibre touches it. `MergedCoreFields` gained
+`epub_updates()`/`calibre_updates()` (plus `subjects_for_epub()`/
+`subjects_for_calibre()` for backfilling an empty subject list) --
+each returns exactly the fields that side is missing or has stale,
+computed from the same non-mismatch resolution `.display_value`
+already uses. `metadata/core_fields.py` gained the actual write
+functions (`write_core_field`, `write_subjects`,
+`apply_core_field_updates`), written duck-typed against anything with
+an `.opf_document` so they work unmodified against both a real Book
+and a bare metadata.opf file. `series`/`series_index` are dispatched
+to `ebook_fix.series` instead of a plain dc: element, since it already
+knows how to write both the calibre and EPUB3 collection conventions.
+
+**metadata.opf itself.** New module `metadata/calibre_write.py`
+parses the sidecar, applies whatever `calibre_updates()` says needs
+correcting, and writes it back out (temp-file-then-replace, the same
+atomic convention as every other on-disk write in this project).
+`metadata/calibre_backend.py`'s existing `_OpfShim` (used to let
+`ebook_fix.series.read()` work against a bare metadata.opf) was
+promoted to a public `OpfShim` with `.opf_modified`/`.mark_modified()`
+added, so the same shim now works for writing too, not just reading.
+metadata.db (via `calibredb`) is still NOT touched -- syncing the live
+Calibre database needs its own testing against a real library with
+`calibredb` installed, which isn't available here, so it stays future
+work rather than shipping unverified.
+
+**Respecting --dry-run.** The module itself only ever mutates the
+in-memory `Book` object, exactly like every other repair module --
+that alone keeps `--dry-run` safe. The metadata.opf sidecar write is a
+real disk write outside that mechanism, though, so it's handled
+separately: a new `Engine._sync_metadata_opf()`, called from `repair`/
+`auto_fix` only *after* the repaired EPUB has actually been saved to
+its output path (never during a `--dry-run`, which returns before
+that point).
+
+**Config.** New `[metadata_repair]` section (`enabled`,
+`sync_calibre_opf`), both defaulting to `true` like every other module.
+
+Verified against a synthetic Calibre-managed copy of the Sidewinders
+sample: a reversed author corrected on the metadata.opf side (EPUB's
+own copy was already right), a publisher/series backfilled into the
+EPUB from metadata.opf, a genuine date disagreement left untouched on
+both sides, and `--dry-run` leaving the sidecar's checksum unchanged
+and producing no output file at all. `auto-fix` exercised separately,
+backfilling a missing metadata.opf date from the EPUB in the other
+direction. Full regression across every sample in `examples/` (all
+standalone, no Calibre) stayed clean -- the module correctly does
+nothing for any of them.
+
 ## Open questions / not yet decided
 
+- Syncing metadata.db itself (via `calibredb`, not raw sqlite writes)
+  once there's a real Calibre library with `calibredb` installed to
+  test against -- the writer currently only ever touches the EPUB and
+  the metadata.opf sidecar.
 - Whether title needs its own normalization rules the way author and
   language now do, or whether title disagreements are always
   genuinely substantive and should keep going to manual review.
