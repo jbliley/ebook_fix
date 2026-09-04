@@ -124,38 +124,48 @@ hand-fixing books one at a time.
 Not one monolithic script — one module per metadata *concern*, one shared
 layer for file *access*:
 
-- `identifiers.py` — mapping-driven matching/classification. Built and
-  wired into the analysis pass (see Session update below). Read-only
-  so far; writing normalized values back out still needs a backend.
-- `core_fields.py` — title/author/series read (write not built yet).
-  Built and wired into the analysis pass. Simpler than identifiers
-  since these are direct 1:1 OPF fields, not a scheme-matching
-  problem. Main open question is formatting conventions (e.g. author
-  "Last, First" vs "First Last") — not yet designed.
+- `identifiers.py` — mapping-driven matching/classification, plus
+  writing the result back out (`rewrite_identifiers`). Built.
+- `core_fields.py` — title/author/series read and write
+  (`apply_core_field_updates`, `write_core_field`, `write_subjects`).
+  Built. Author "Last, First" vs "First Last" and language ISO 639-1
+  vs 639-2 conventions are handled in `merge.py` (see the 2026-09-03
+  session below), not here — this module only applies whatever value
+  `merge.py` already decided is safe.
 - `backends/` — shared file-access layer (Calibre vs lone-EPUB) used by
   both logic modules so neither duplicates file-handling code.
-  `calibre_backend.py` is built (read-only: parses metadata.opf and
-  returns identifiers + core fields). `epub_backend.py` (the
-  lone-EPUB write path) and any actual *writing* back to either source
-  are still not built — this module only reads so far.
+  `calibre_backend.py` reads metadata.opf (identifiers + core fields)
+  and its `OpfShim` doubles as the write target `calibre_write.py`
+  uses for the sidecar. A lone EPUB just uses the real `Book` object
+  directly for both reading and writing — no separate `epub_backend.py`
+  ended up being needed, since `core_fields.py`/`identifiers.py`'s
+  functions are already duck-typed to accept either one.
+- `calibre_write.py` — writes confidently-resolved core fields and
+  cleaned-up identifiers back into a metadata.opf sidecar. Built.
+  metadata.db (via `calibredb`) is still NOT touched — needs a real
+  Calibre library with `calibredb` installed to test against, not
+  available in this environment.
 - `merge.py` — built. Reconciles EPUB-side and Calibre-side results,
-  flags disagreement, never silently picks a winner. Wired into the
-  analysis pass and the `analyze` command's display.
-- `review.py` — logging. Not built yet.
+  flags genuine disagreement (never silently picks a winner), resolves
+  known non-issues (language convention, reversed author name)
+  automatically, and hands back exactly what's safe to write via
+  `epub_updates()`/`calibre_updates()`.
+- `review.py` — built. Logs unmatched identifiers and genuine field
+  mismatches to `identifier_review.csv`, wired into the `analyze`
+  command only (not `repair`, to avoid piling up duplicate rows on
+  repeated runs).
 
 Suggested build order (updated):
 
-1. ~~Mapping file + matching/normalization core~~ — done, wired into
-   the analysis pass.
-2. ~~Calibre-structure detector~~ — done, wired into the analyze
-   command for visibility.
-3. ~~Calibre backend (read side) + merge~~ — done, wired into the
-   analyze command's display with mismatch flags.
-4. ~~Review log writer~~ — done, wired into the analyze command.
-   Still open: an EPUB-only write path, and an actual write path for
-   reconciled Calibre metadata (`calibredb` for metadata.db, direct
-   OPF edit for the sidecar).
-5. Dry-run mode as a hard default before anything writes to real files.
+1. ~~Mapping file + matching/normalization core~~ — done.
+2. ~~Calibre-structure detector~~ — done.
+3. ~~Calibre backend (read side) + merge~~ — done.
+4. ~~Review log writer~~ — done.
+5. ~~Language/author-name convention handling~~ — done (2026-09-03).
+6. ~~The writer: core fields + identifiers, both the EPUB and the
+   metadata.opf sidecar~~ — done (2026-09-04).
+7. metadata.db sync via `calibredb` — still open, needs a real Calibre
+   library to test against.
 
 ## Future / not being planned yet
 
@@ -523,6 +533,76 @@ backfilling a missing metadata.opf date from the EPUB in the other
 direction. Full regression across every sample in `examples/` (all
 standalone, no Calibre) stayed clean -- the module correctly does
 nothing for any of them.
+
+## Session update (2026-09-04, part 2): identifier rewriting -- the writer's second piece
+
+The very first goal in this doc ("rewrite them into clean,
+correctly-scoped `<dc:identifier>` entries") was still open even after
+the core-field writer -- identifiers.py only ever read and classified,
+never rewrote anything. This closes that gap, exactly per the
+"Processing logic (identifiers)" rules above: normalize the value, set
+`opf:scheme` to the matched scheme's canonical `output_scheme` (or
+drop `opf:scheme` entirely for an honest bare-DC fallback), then drop
+an exact duplicate that results after normalization.
+
+**Doesn't need a Calibre-managed gate.** Unlike the core-field writer,
+this doesn't need metadata.opf as a second source to be confident -- a
+scheme's own `value_regex` (already the confidence check for reading)
+is enough on its own. `identifiers.py` gained `rewrite_identifiers()`,
+duck-typed the same way `core_fields.py`'s write functions are, so it
+runs unmodified against a real Book or a bare metadata.opf via
+`OpfShim`. New repair module `modules/identifier_repair.py`'s
+`IdentifierStandardizeRepair` runs on every book, Calibre-managed or
+not.
+
+**The one real safety guard:** an identifier element carrying its own
+`id="..."` attribute is never removed as a duplicate, even when
+another element normalizes to the exact same value -- something
+elsewhere in the OPF (most commonly the package's own
+`unique-identifier` reference) may point at that id, and there's no
+reliable way to check every possible reference. It's still
+normalized/rescoped in place like any other identifier, just never
+deleted outright. Confirmed with a synthetic test: an id-bearing
+duplicate survives regardless of whether it's the first or second
+occurrence.
+
+**`analyze` previews exactly what `repair` would do**, by construction
+rather than a hand-maintained parallel dry-run path:
+`IdentifierStandardizeRepair.analyze()` runs the identical
+`rewrite_identifiers()` against a `copy.deepcopy()` of the OPF tree
+instead of the real one, so the preview can never drift out of sync
+with the real thing.
+
+**metadata.opf gets the same cleanup**, via a new
+`calibre_write.clean_metadata_opf_identifiers()`, called from
+`Engine._sync_metadata_opf()` alongside the core-field sync -- same
+timing (only after the repaired book is actually saved, never during
+`--dry-run`), same atomic-write convention, but its own independent
+config toggle (`[identifier_repair]`) since it doesn't depend on
+`MergedCoreFields` at all.
+
+**A real, previously-documented bug surfaced again during testing, and
+confirmed already fixed correctly:** a UUID mislabeled
+`opf:scheme="calibre"` (see the 2026-09-02 bug-fix entry above)
+correctly rewrites to a bare, unscoped identifier -- the rewrite logic
+just enacts the classification that was already fixed, rather than
+needing anything new. Verified this on a hand-built test case using
+the exact UUID from that earlier bug report.
+
+Verified against all 11 sample books: `repair --dry-run` runs clean on
+every one with no errors, several find and correctly fix real,
+previously-unnoticed identifier issues -- MM21.epub's own two Calibre
+UUIDs (mentioned in the 2026-09-02 session note above) both get
+corrected (one mislabeled `opf:scheme="calibre"` stripped to bare DC,
+the genuinely bare `urn:uuid:...` on GutenbergText-ChapterSplit gets
+tagged `opf:scheme="URI"`). Full repair + a second pass on the output
+confirmed idempotent (nothing left to fix), and the output still
+passes `validate`. End-to-end test against a synthetic Calibre-managed
+book with a dashed `opf:scheme="isbn10"` value and an embedded
+`"calibre:5"` label confirmed both the EPUB and metadata.opf sidecar
+end up correctly cleaned (`opf:scheme="ISBN"`/`"CALIBRE"` with
+normalized values) alongside the core-field sync from the previous
+session, in the same run.
 
 ## Open questions / not yet decided
 

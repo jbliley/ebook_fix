@@ -31,6 +31,7 @@ from lxml import etree
 
 from metadata.calibre_backend import OpfShim
 from metadata.core_fields import apply_core_field_updates, write_subjects
+from metadata.identifiers import IdentifierRewrite, rewrite_identifiers
 
 
 def sync_metadata_opf(
@@ -67,6 +68,33 @@ def sync_metadata_opf(
 
     _atomic_write(opf_path, etree.tostring(tree, xml_declaration=True, encoding="UTF-8"))
     return changed
+
+
+def clean_metadata_opf_identifiers(opf_path) -> list[IdentifierRewrite]:
+    """Applies metadata.identifiers.rewrite_identifiers() to a
+    metadata.opf sidecar's own <dc:identifier> entries -- the same
+    cleanup modules/identifier_repair.py already applies to the EPUB
+    itself, kept separate from sync_metadata_opf() above since it
+    doesn't depend on MergedCoreFields at all (a scheme's own regex is
+    the confidence check here, not agreement between two sources).
+
+    Returns the list of changes actually made; empty (never raises)
+    if metadata.opf is missing, fails to parse, or was already
+    clean."""
+    opf_path = Path(opf_path)
+    if not opf_path.is_file():
+        return []
+
+    try:
+        tree = etree.parse(str(opf_path))
+    except etree.XMLSyntaxError:
+        return []
+
+    shim = OpfShim(opf_document=tree.getroot())
+    changes = rewrite_identifiers(shim)
+    if changes:
+        _atomic_write(opf_path, etree.tostring(tree, xml_declaration=True, encoding="UTF-8"))
+    return changes
 
 
 def _atomic_write(path: Path, data: bytes) -> None:

@@ -38,6 +38,7 @@ from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.cover_repair import CoverRepair
 from ebook_fix.modules.running_title_repair import RunningTitleRepair
 from ebook_fix.modules.metadata_repair import MetadataSyncRepair
+from ebook_fix.modules.identifier_repair import IdentifierStandardizeRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMappingEntry, load_mapping_file, MappingError
 from ebook_fix.modules.color_strip import ColorStripRepair
@@ -156,6 +157,12 @@ class Engine:
         # -- see modules/metadata_repair.py.
         if getattr(self.config, "metadata_repair", None) and getattr(self.config.metadata_repair, "enabled", True):
             modules.append(MetadataSyncRepair(self.config.metadata_repair))
+        # Runs alongside Metadata Sync, same "OPF metadata only,
+        # independent of chapter text" reasoning -- but doesn't need
+        # the calibre_managed gate that one does, since a scheme's own
+        # regex is the confidence check here, not a second source.
+        if getattr(self.config, "identifier_repair", None) and getattr(self.config.identifier_repair, "enabled", True):
+            modules.append(IdentifierStandardizeRepair(self.config.identifier_repair))
         return modules
 
     def _cover_status_line(self, cover):
@@ -1405,29 +1412,40 @@ class Engine:
         MetadataSyncRepair already wrote into the EPUB back into its
         Calibre metadata.opf sidecar too, so the correction shows up
         in Calibre/Calibre-Web, not just in the repaired EPUB file --
-        see metadata/calibre_write.py. Only ever called after the
-        repaired book has actually been saved to disk (never during a
-        --dry-run), and only does anything for a Calibre-managed book
-        with metadata_repair.sync_calibre_opf enabled."""
-        metadata_config = getattr(self.config, "metadata_repair", None)
-        if metadata_config is None or not metadata_config.enabled or not metadata_config.sync_calibre_opf:
-            return
-
+        see metadata/calibre_write.py. Also applies the same
+        identifier cleanup IdentifierStandardizeRepair already applied
+        to the EPUB (independent of core-field syncing -- a scheme's
+        own regex is the confidence check, not a second source, so
+        this runs even for a book with nothing else to sync). Only
+        ever called after the repaired book has actually been saved to
+        disk (never during a --dry-run), and only touches a
+        Calibre-managed book's metadata.opf, never metadata.db."""
         calibre_context = analysis_report.calibre_context
         if not calibre_context.is_calibre_managed or not calibre_context.metadata_opf_path:
             return
 
-        merged = analysis_report.merged_core_fields
-        changed = calibre_write.sync_metadata_opf(
-            calibre_context.metadata_opf_path,
-            merged.calibre_updates(),
-            merged.subjects_for_calibre(),
-        )
-        if changed:
-            self.log(
-                f"Synced {len(changed)} field(s) to metadata.opf ({', '.join(changed)}): "
-                f"{calibre_context.metadata_opf_path}"
+        metadata_config = getattr(self.config, "metadata_repair", None)
+        if metadata_config is not None and metadata_config.enabled and metadata_config.sync_calibre_opf:
+            merged = analysis_report.merged_core_fields
+            changed = calibre_write.sync_metadata_opf(
+                calibre_context.metadata_opf_path,
+                merged.calibre_updates(),
+                merged.subjects_for_calibre(),
             )
+            if changed:
+                self.log(
+                    f"Synced {len(changed)} field(s) to metadata.opf ({', '.join(changed)}): "
+                    f"{calibre_context.metadata_opf_path}"
+                )
+
+        identifier_config = getattr(self.config, "identifier_repair", None)
+        if identifier_config is not None and identifier_config.enabled:
+            id_changes = calibre_write.clean_metadata_opf_identifiers(calibre_context.metadata_opf_path)
+            if id_changes:
+                self.log(
+                    f"Cleaned up {len(id_changes)} identifier(s) in metadata.opf: "
+                    f"{calibre_context.metadata_opf_path}"
+                )
 
     def _print_repair_summary(self, repair_reports, details: bool = False) -> None:
         """Prints what was actually changed, module by module -- only

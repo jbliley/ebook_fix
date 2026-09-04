@@ -5,13 +5,17 @@ Reads every <dc:identifier> found on a book and classifies each one
 against the scheme definitions in schemes/identifier_schemes.json --
 see docs/metadata_plan.md for the overall design this implements.
 
-This module only reads and classifies for now. It does not rewrite
-anything on the book -- that's future work, once the Calibre/EPUB
-backends described in docs/metadata_plan.md exist to actually write
-the normalized results back out. Recording the classification here,
-as part of the analysis pass, follows the project's analysis-first
-architecture: a repair module built later reads these results rather
-than re-scanning the book itself.
+Reading (analyze_book_identifiers, extract_identifiers_from_opf) is a
+pure classification pass -- see docs/metadata_plan.md's "Processing
+logic (identifiers)" for the exact rules. rewrite_identifiers() below
+is the write side of the same logic: given the classification a
+scheme rule already confidently produced, it rewrites the element in
+place to match (correct opf:scheme, cleaned-up value), or drops a
+bogus opf:scheme entirely for an honest bare-DC fallback. Unlike
+metadata.core_fields' writers, this never needs a second source to be
+confident -- a scheme's own value_regex is the confidence check, the
+same way it already is for reading -- so it runs on every book,
+Calibre-managed or not.
 
 Bypasses book.metadata.identifier (a single flattened string set by
 ebook_fix.parser, which only ever keeps the first <dc:identifier> it
@@ -247,3 +251,99 @@ def analyze_book_identifiers(book) -> BookIdentifierSummary:
     if opf is None:
         return BookIdentifierSummary()
     return BookIdentifierSummary(identifiers=extract_identifiers_from_opf(opf))
+
+
+@dataclass(slots=True)
+class IdentifierRewrite:
+    """One thing rewrite_identifiers() actually changed, for a repair
+    module's Report."""
+    action: str    # "rewritten" or "removed"
+    before: str
+    after: str
+
+
+def rewrite_identifiers(target) -> list[IdentifierRewrite]:
+    """Rewrites every <dc:identifier> on target's OPF into a clean,
+    correctly-scoped form, per docs/metadata_plan.md's "Processing
+    logic (identifiers)": normalize the value, set opf:scheme to the
+    matched scheme's canonical output_scheme, or drop opf:scheme
+    entirely for an honest bare-DC fallback -- then drop an exact
+    duplicate that two identifiers turn out to share once normalized
+    (same matched scheme, same cleaned-up value).
+
+    An identifier element carrying its own id="..." attribute is never
+    removed as a duplicate, even when another element normalizes to
+    the exact same value -- something elsewhere in the OPF (most
+    commonly the package's own unique-identifier reference) may point
+    at that id, and this module has no reliable way to check every
+    possible reference. It's still normalized/rescoped in place like
+    any other identifier, just never deleted outright; the result is
+    a harmless leftover duplicate rather than a silently broken
+    reference, in the rare case this actually happens.
+
+    Works against anything with an .opf_document, same as
+    metadata.core_fields' write functions -- a real Book, or
+    metadata.calibre_backend.OpfShim for a bare metadata.opf sidecar.
+
+    Returns the list of changes actually made (empty if every
+    identifier was already clean)."""
+    opf = getattr(target, "opf_document", None)
+    if opf is None:
+        return []
+
+    metadata_el = opf.find(f"{{{OPF_NS}}}metadata")
+    if metadata_el is None:
+        return []
+
+    rules = _load_schemes()
+    scheme_attr = f"{{{OPF_NS}}}scheme"
+    changes: list[IdentifierRewrite] = []
+    seen: set[tuple[str, str]] = set()
+    to_remove = []
+
+    for el in metadata_el.findall(f"{{{DC_NS}}}identifier"):
+        raw_value = (el.text or "").strip()
+        if not raw_value:
+            continue
+        raw_scheme = el.get(scheme_attr) or ""
+        match = _classify(raw_value, raw_scheme, rules)
+
+        before = f"{raw_value!r} (scheme={raw_scheme!r})" if raw_scheme else f"{raw_value!r} (no scheme)"
+        dedupe_key = (match.matched_scheme, match.normalized_value)
+
+        if dedupe_key in seen and el.get("id") is None:
+            to_remove.append(el)
+            changes.append(IdentifierRewrite("removed", before, "(removed -- duplicate)"))
+            continue
+        seen.add(dedupe_key)
+
+        target_scheme = match.matched_scheme or None
+        changed = False
+
+        if target_scheme != el.get(scheme_attr):
+            if target_scheme is None:
+                if scheme_attr in el.attrib:
+                    del el.attrib[scheme_attr]
+                    changed = True
+            else:
+                el.set(scheme_attr, target_scheme)
+                changed = True
+
+        if el.text != match.normalized_value:
+            el.text = match.normalized_value
+            changed = True
+
+        if changed:
+            after_scheme = el.get(scheme_attr)
+            after = f"{match.normalized_value!r} (scheme={after_scheme!r})" if after_scheme else f"{match.normalized_value!r} (no scheme)"
+            changes.append(IdentifierRewrite("rewritten", before, after))
+
+    for el in to_remove:
+        el.getparent().remove(el)
+
+    if changes:
+        target.opf_modified = True
+        if hasattr(target, "mark_modified"):
+            target.mark_modified()
+
+    return changes

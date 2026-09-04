@@ -135,6 +135,11 @@ class CoverRepairConfig:
 
 
 @dataclass(slots=True)
+class IdentifierRepairConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class MetadataRepairConfig:
     enabled: bool = True
     # Also write the same confidently-resolved values back into the
@@ -161,6 +166,7 @@ class Config:
     cover_repair: CoverRepairConfig = field(default_factory=CoverRepairConfig)
     running_title_repair: RunningTitleRepairConfig = field(default_factory=RunningTitleRepairConfig)
     metadata_repair: MetadataRepairConfig = field(default_factory=MetadataRepairConfig)
+    identifier_repair: IdentifierRepairConfig = field(default_factory=IdentifierRepairConfig)
 
 
 # ---------------------------------------------------------------------
@@ -209,6 +215,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.cover_repair, modules, "cover_repair")
     _apply_module_toggle(config.running_title_repair, modules, "running_title_repair")
     _apply_module_toggle(config.metadata_repair, modules, "metadata_repair")
+    _apply_module_toggle(config.identifier_repair, modules, "identifier_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
@@ -223,6 +230,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.cover_repair, "cover_repair", data.get("cover_repair", {}))
     _apply_section(config.running_title_repair, "running_title_repair", data.get("running_title_repair", {}))
     _apply_section(config.metadata_repair, "metadata_repair", data.get("metadata_repair", {}))
+    _apply_section(config.identifier_repair, "identifier_repair", data.get("identifier_repair", {}))
     if config.ellipsis_repair.target_style not in ("unicode", "ascii"):
         raise ValueError(
             f"Invalid ellipsis_repair.target_style: {config.ellipsis_repair.target_style!r} "
@@ -290,6 +298,7 @@ scene_break_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
+identifier_repair = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -529,6 +538,24 @@ enabled = true
 # itself (not just the EPUB), so the correction shows up in Calibre
 # and Calibre-Web too, not only in the repaired EPUB file.
 sync_calibre_opf = true
+
+# ---------------------------------------------------------------------
+# Identifier Standardize
+# ---------------------------------------------------------------------
+[identifier_repair]
+
+# Rewrites every <dc:identifier> into a clean, correctly-scoped form:
+# a garbled or missing opf:scheme attribute is corrected once the
+# value's own shape (or an embedded label like "ISBN: ") confidently
+# matches a known scheme in identifier_schemes.json, the value itself
+# is cleaned up (dashes/spaces stripped, case normalized, etc. per
+# that scheme's own rule), and an exact duplicate that results after
+# cleanup is dropped. Runs on every book, Calibre-managed or not --
+# unlike metadata_repair, this doesn't need a second source to be
+# confident, just the scheme's own regex. An identifier that doesn't
+# match any known scheme is left as an honest, unscoped bare-DC entry,
+# same as before -- never guessed at.
+enabled = true
 """
 
 
