@@ -733,13 +733,32 @@ started -- all bigger pieces of their own):
   so far -- explicitly flagged as needing a visual review step (the
   planned GUI) before going further, not a `repair` module.
 
+## Session update (2026-09-05, part 2): resolving the open questions
+
+All three of the open questions below are now decided, per Jacob:
+
+- **Not syncing `metadata.db`.** Calibre treats `metadata.db` as its
+  own source of truth -- it writes *out* to `metadata.opf` and the
+  cover file when you edit something in Calibre, but doesn't
+  automatically read those back in without a manual "Read metadata
+  from format files" or a re-add. The goal here is fixing the book
+  itself (EPUB + its `.opf` sidecar), not keeping Calibre's on-screen
+  library view continuously in sync -- that's a different, narrower
+  problem this project isn't trying to solve. If a real need for it
+  ever shows up, `calibredb set_metadata` (the official CLI) would be
+  the safe way in, never raw SQLite writes against a library Calibre
+  might have open.
+- **Repo structure confirmed as-is.** `ebook_fix` stays its own repo,
+  separate from Jacob's other automation scripts. The metadata code
+  already lives in its own folder (`src/metadata/`), which is the
+  right call given how much has grown under it.
+- **No scheduled automation.** This runs as part of the existing
+  `analyze`/`repair` pipeline, same as everything else in the
+  project. Confidence-gated auto-fixing is the long-term direction
+  (more so once the GUI's review tab exists), but there's no cron-job
+  or scheduled-task use case here -- manual review stays part of the
+  design for genuinely ambiguous cases.
+
 ## Open questions / not yet decided
 
-- Syncing metadata.db itself (via `calibredb`, not raw sqlite writes)
-  once there's a real Calibre library with `calibredb` installed to
-  test against -- the writer currently only ever touches the EPUB and
-  the metadata.opf sidecar.
-- Whether this project lives in its own repo or alongside existing
-  automation scripts (raindrop_manager.py, check_missing_posters.py, etc.).
-- Whether it runs as a manual one-off pass or eventually gets folded into
-  scheduled automation.
+None currently open.
