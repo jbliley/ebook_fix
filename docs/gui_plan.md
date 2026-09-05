@@ -71,6 +71,38 @@ what's allowed to happen automatically.
   `analyze` already knows," proving the plumbing works before any UI
   polish goes in.
 
+**Done (2026-09-05).** Built as `src/gui/` (a new top-level package,
+alongside `ebook_fix` and `metadata`), launched via `run_gui.py` /
+`run_gui.bat` at the repo root -- double-clicking the `.bat` opens a
+browser tab automatically. Two routes: `/` (an upload form) and
+`/analyze` (accepts the uploaded file, runs the exact same
+`Engine.analyze()` the CLI's `analyze` command already calls, shows
+the result).
+
+One adjustment from the phase's original description: rather than
+JSON, Phase 1 captures analyze()'s existing terminal output (all four
+of this project's module-level `rich` Console instances get
+temporarily redirected to one buffer for the request, then restored)
+and shows it as plain text in a `<pre>` block. This still proves the
+full plumbing end-to-end with zero changes to engine.py itself, and
+was less work than reshaping analyze() into a JSON contract before
+Phase 2/3 exist to say what shape that contract actually needs to be.
+Structured JSON is still the right call once the Metadata and Review
+tabs need to bind specific fields to specific inputs -- deferred to
+those phases, not skipped.
+
+Tested end-to-end (Flask's test client, no server needed): a real
+sample book renders its full analysis correctly, no file selected and
+a non-`.epub` upload both show a friendly inline error instead of a
+crash, and a genuinely corrupt upload shows the same friendly
+validation/repair-attempt message the CLI already gives, no traceback.
+No leftover temp files after a request (including the sibling
+`.ebookfix-analysis.json` cache file `analyze()` writes, which needed
+its own cleanup since it isn't visible next to the temp upload the
+way it would be next to a real file on disk). `Flask>=3.0` added to
+`pyproject.toml`/`requirements.txt`; `ebook-fix-gui` added as a
+second `[project.scripts]` entry point alongside `ebook-fix`.
+
 ### Phase 2 -- Metadata tab
 - Render editable fields from the analysis report.
 - Mismatch fields render as a side-by-side picker instead of a plain
