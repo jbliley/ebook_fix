@@ -169,14 +169,82 @@ Suggested build order (updated):
 5. ~~Language/author-name convention handling~~ — done (2026-09-03).
 6. ~~The writer: core fields + identifiers, both the EPUB and the
    metadata.opf sidecar~~ — done (2026-09-04).
-7. metadata.db sync via `calibredb` — still open, needs a real Calibre
-   library to test against.
+7. metadata.db sync via `calibredb` — scoped below, not yet built. Jacob
+   has a real Calibre library to test against now.
 
 ## Future / not being planned yet
 
 - GUI with separate text boxes for editing metadata standards directly —
   explicitly deferred; not being designed yet, but the JSON-based mapping
   approach is intended to make it a natural fit later.
+- Direct support for other library-management tools with their own
+  metadata store instead of Calibre's (Readarr, Kavita, Komga, etc.) —
+  not scoped. Worth remembering that this doesn't block those tools from
+  benefiting from this project already: they all read a book's own
+  internal metadata at scan time, same as any reader, so the EPUB-level
+  fixes this project already makes help them for free. The `calibredb`
+  work below is a Calibre-specific bonus layer on top of that, not a
+  prerequisite for the project's broader usefulness.
+
+## Session update (2026-09-05, part 3): reversing the metadata.db decision
+
+The earlier call not to touch `metadata.db` (see the session update
+right above this one) was made on a mistaken assumption: that Calibre
+reads `metadata.opf` back in on its own. It doesn't. `metadata.db` is
+the actual source of truth for everything Calibre's UI shows;
+`metadata.opf` is a one-way backup Calibre writes out for redundancy,
+and Calibre only reads it back via a full "Restore database" (rebuilds
+the *entire* library from every book's OPF) or a manual per-book
+re-add. So writing only the `.opf` sidecar, as originally planned,
+would leave Calibre's own library view showing the old, wrong data
+indefinitely -- which defeats the actual goal Jacob had in mind.
+
+**Decided: yes, sync `metadata.db`, via `calibredb set_metadata`
+only** (the official CLI), never raw SQLite. Two things fall out of
+this cleanly, from work already done or already in the codebase:
+
+- **No new config needed for locating the library.**
+  `calibre_detect.py` already derives both `library_root` and
+  `book_id` purely from the book's own file path (Calibre's own
+  folder-naming convention embeds the numeric ID as `Title (123)`),
+  specifically so a future writer wouldn't need this decided again.
+  That's exactly the `--with-library <path>` and `book_id` arguments
+  `calibredb set_metadata` needs.
+- **`calibredb set_metadata` regenerates that book's `metadata.opf` at
+  the same time it updates the database** -- confirmed via Calibre's
+  own docs. One call keeps both in sync; this project's existing
+  `calibre_write.py` OPF-writing path stays as-is for lone (non-
+  Calibre) EPUBs, where there's no database to update at all.
+
+**Corruption risk:** real, but narrow and well-understood -- Calibre
+is a single-writer application under the hood, and the risk is
+strictly "don't run this while Calibre's own GUI has the library
+open," not anything inherent to `calibredb` itself. The module should
+fail loudly and clearly if the library appears to be in use (a clear
+"close Calibre and try again" message), never retry or force through
+a lock.
+
+### Rough phased sketch
+
+- **Phase 1 -- `calibredb_write.py`.** A new module, gated behind the
+  same agreement-only posture `calibre_write.py` already uses (only
+  writes when the EPUB and the Calibre sidecar already agree on a
+  field; genuine mismatches still go to `identifier_review.csv`, never
+  auto-resolved here either). Locates the `calibredb` executable,
+  builds the `set_metadata --field ...` calls from the same resolved
+  field values already computed by `metadata.merge`, and surfaces a
+  clear, actionable error if the library is locked or `calibredb`
+  isn't found on the system.
+- **Phase 2 -- wire into the existing write path.** Called alongside
+  (not instead of) the current EPUB + OPF write, only when
+  `CalibreContext.is_calibre_managed` is true and a `book_id` was
+  successfully resolved.
+- **Phase 3 -- real-library testing.** Test against Jacob's actual
+  Calibre library: confirm Calibre's UI reflects the change without
+  any manual restore/re-add step, confirm behavior when Calibre is
+  open at the same time (should fail cleanly, not hang or corrupt),
+  and confirm the regenerated `metadata.opf` matches what this
+  project would have written itself.
 
 ## Session update (2026-09-02): identifier/core-field reading migrated into analysis
 
