@@ -55,6 +55,15 @@ class SchemeRule:
     value_regex: str
     normalize: str
     output_scheme: str
+    # When true, a bare value matching this scheme's value_regex is
+    # recognized even with no opf:scheme attribute and no textual
+    # prefix at all -- see the final pass in _classify() below. Only
+    # meant for schemes whose value_regex is distinctive enough that
+    # this can't misfire on something else (a UUID's 8-4-4-4-12 hex
+    # shape is effectively unique; most schemes here are NOT safe for
+    # this -- e.g. CALIBRE's "^\\d+$" would happily claim any bare
+    # numeric fallback, including a mislabeled ISBN or ASIN).
+    shape_fallback: bool = False
 
 
 @dataclass(slots=True)
@@ -111,6 +120,7 @@ def _load_schemes() -> list[SchemeRule]:
             value_regex=entry.get("value_regex", ".*"),
             normalize=entry.get("normalize", "trim_only"),
             output_scheme=entry.get("output_scheme", name),
+            shape_fallback=entry.get("shape_fallback", False),
         ))
     _schemes_cache = rules
     return rules
@@ -199,6 +209,27 @@ def _classify(raw_value: str, raw_scheme: str, rules: list[SchemeRule]) -> Ident
             result.matched_scheme = rule.output_scheme
             result.normalized_value = normalized
             result.match_method = "value_shape"
+            return result
+
+    # No confident match through attribute, prefix, or (for a
+    # no-prefix scheme like URI) shape alone -- one last check for a
+    # scheme explicitly marked shape_fallback (currently just UUID):
+    # a bare identifier with no scheme attribute and no "uuid:" prefix
+    # text still gets recognized if it's an unmistakable UUID shape,
+    # rather than falling all the way through to an "unrecognized"
+    # bare-DC entry -- see docs/metadata_plan.md, "Identifiers
+    # display". Tried dead last, after every other, more specific
+    # scheme has already had its chance.
+    for rule in rules:
+        if not rule.enabled or not rule.shape_fallback:
+            continue
+        if not _raw_shape_ok(raw_value, rule.normalize):
+            continue
+        normalized = _normalize(raw_value, rule.normalize)
+        if re.match(rule.value_regex, normalized):
+            result.matched_scheme = rule.output_scheme
+            result.normalized_value = normalized
+            result.match_method = "shape_fallback"
             return result
 
     # No confident match -- bare-DC fallback (see docs/metadata_plan.md,

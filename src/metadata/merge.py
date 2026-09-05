@@ -34,6 +34,13 @@ from metadata.identifiers import BookIdentifierSummary, IdentifierMatch
 _WRITABLE_FIELDS = ("title", "author", "publisher", "date", "rights", "description", "series", "series_index")
 
 
+# Schemes where multiple, genuinely different values across sources
+# are expected and don't indicate a data problem -- a book's own
+# UUID (output_scheme "uuid") is the case that actually comes up in
+# practice; see MergedIdentifierSummary.conflicts() below.
+_NEVER_CONFLICTING_SCHEMES = {"uuid"}
+
+
 @dataclass(slots=True)
 class MergedIdentifier:
     matched_scheme: str = ""      # "" for an unmatched/fallback entry
@@ -62,10 +69,19 @@ class MergedIdentifierSummary:
         """Groups of same-scheme identifiers that disagree on value --
         e.g. two different ISBNs, one from each source. Fallback
         (unmatched) entries are never grouped this way; there's no
-        scheme to compare them on."""
+        scheme to compare them on.
+
+        A book's own UUID and Calibre's row id are excluded from this
+        entirely (see _NEVER_CONFLICTING_SCHEMES) -- a Calibre-managed
+        book routinely carries several genuinely different UUIDs (the
+        EPUB's own, Calibre's, sometimes the original publisher's),
+        and that's expected, not a disagreement to flag or send to
+        identifier_review.csv."""
         by_scheme: dict[str, list[MergedIdentifier]] = {}
         for ident in self.identifiers:
             if ident.is_fallback or not ident.matched_scheme:
+                continue
+            if ident.matched_scheme in _NEVER_CONFLICTING_SCHEMES:
                 continue
             by_scheme.setdefault(ident.matched_scheme, []).append(ident)
         return [group for group in by_scheme.values() if len(group) > 1]

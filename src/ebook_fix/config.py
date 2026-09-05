@@ -140,6 +140,11 @@ class IdentifierRepairConfig:
 
 
 @dataclass(slots=True)
+class AuthorInitialsConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class MetadataRepairConfig:
     enabled: bool = True
     # Also write the same confidently-resolved values back into the
@@ -167,6 +172,7 @@ class Config:
     running_title_repair: RunningTitleRepairConfig = field(default_factory=RunningTitleRepairConfig)
     metadata_repair: MetadataRepairConfig = field(default_factory=MetadataRepairConfig)
     identifier_repair: IdentifierRepairConfig = field(default_factory=IdentifierRepairConfig)
+    author_initials: AuthorInitialsConfig = field(default_factory=AuthorInitialsConfig)
 
 
 # ---------------------------------------------------------------------

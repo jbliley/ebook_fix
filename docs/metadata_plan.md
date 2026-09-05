@@ -106,9 +106,17 @@ routes through the review log rather than being trusted outright.
    label (e.g. `"ISBN: 978-1-234..."`).
 3. Validate the extracted value against `value_regex` — don't force a
    match that doesn't actually fit the shape.
-4. No match at all → bare-DC fallback: strip whitespace/junk, drop any
+4. If nothing matched yet, try schemes explicitly marked
+   `shape_fallback` (currently just UUID) purely against the raw
+   value's shape, with no scheme attribute or prefix text needed at
+   all — a UUID's 8-4-4-4-12 hex shape is distinctive enough to be
+   confident even completely unlabeled. Only ever enabled for a
+   scheme whose value_regex can't plausibly match something else
+   (CALIBRE's `^\d+$`, for example, is exactly why this isn't the
+   default for every scheme).
+5. No match at all → bare-DC fallback: strip whitespace/junk, drop any
    bogus `opf:scheme`, leave as a plain `<dc:identifier>`.
-5. Dedupe identical values after normalization.
+6. Dedupe identical values after normalization.
 
 ## Review log
 
@@ -166,7 +174,8 @@ Suggested build order (updated):
 2. ~~Calibre-structure detector~~ — done.
 3. ~~Calibre backend (read side) + merge~~ — done.
 4. ~~Review log writer~~ — done.
-5. ~~Language/author-name convention handling~~ — done (2026-09-03).
+5. ~~Language/author-name convention handling~~ — done (2026-09-03);
+   initials standardization added (2026-09-05, part 4).
 6. ~~The writer: core fields + identifiers, both the EPUB and the
    metadata.opf sidecar~~ — done (2026-09-04).
 7. metadata.db sync via `calibredb` — scoped below, not yet built. Jacob
@@ -185,6 +194,72 @@ Suggested build order (updated):
   fixes this project already makes help them for free. The `calibredb`
   work below is a Calibre-specific bonus layer on top of that, not a
   prerequisite for the project's broader usefulness.
+
+## Session update (2026-09-05, part 4): Identifiers display, UUID
+## handling, and author initials standardization
+
+Three things resolved from the summary-view questions Jacob raised
+before moving on to the GUI:
+
+**Identifiers display consolidated.** The old "Identifier: X" single
+headline plus a separate "Other identifiers found:" list is now one
+flat "Identifiers:" section, listing everything the book carries.
+
+**UUIDs no longer flagged as mismatches.** A Calibre-managed book
+routinely carries several genuinely different UUIDs (the EPUB's own,
+Calibre's row-linked one, sometimes the original publisher's) — that's
+expected, not a disagreement. `MergedIdentifierSummary.conflicts()`
+now excludes the `uuid` scheme entirely (`_NEVER_CONFLICTING_SCHEMES`
+in merge.py), so these never get MISMATCH-flagged or sent to
+identifier_review.csv; they just print together, unlabeled (their
+UUID shape is the label), each tagged with which source it came from
+-- `542fcbfe-... (epub)` / `17ca4b28-... (calibre_opf)`.
+
+While building this, found and fixed a related gap: a bare identifier
+with no `opf:scheme` attribute and no `"uuid:"` prefix text, whose
+value nonetheless has an unmistakable UUID shape, used to fall all the
+way through to an "unrecognized" bare-DC entry instead of being
+recognized as the UUID it obviously is. Added a `shape_fallback` flag
+to `identifier_schemes.json` (set on UUID only) and a final
+shape-only classification pass in `identifiers.py` for schemes that
+opt into it -- see "Processing logic (identifiers)" above. Confirmed
+against a real sample book (`ChaptersNotAligned-New.epub`) that
+actually had the same UUID duplicated under a mislabeled
+`opf:scheme="calibre"` entry -- it's now correctly recognized and
+deduped as the same identifier instead of showing as two.
+
+**Author initials standardized.** New `metadata.author_names.
+standardize_initials()`: "AA Milne", "A.A. Milne", and "A.A.Milne" (the
+last one only when there's a space to tokenize on -- see its
+docstring for that one known limitation) all become "A. A. Milne".
+Deliberately conservative about what counts as an initials cluster --
+see `_is_initials_cluster()`'s own docstring -- since a real all-caps
+given name (accidental all-caps data entry, e.g. "JOHN SMITH") has to
+survive untouched rather than become "J. O. H. N. SMITH". Concretely:
+a token with at least one period already in it ("A.A.", "J.R.R.") is
+trusted up to 4 letters; a bare, unpunctuated all-caps cluster ("AA")
+is only trusted at 1-2 letters, since a 3+ letter unpunctuated cluster
+is genuinely ambiguous with a real short all-caps name and this
+project doesn't guess at ambiguous cases. Only ever touches tokens
+before the last one, on the assumption that the final word is the
+surname -- this is also what keeps a genuinely short all-caps surname
+safe.
+
+Unlike the reversed-author-name check, this doesn't need a Calibre
+metadata.opf sidecar as a second source -- an all-caps initials-shaped
+token is unambiguous on its own, the same reasoning
+modules/identifier_repair.py already uses. Shipped as its own module
+(`modules/author_initials_repair.py`), gated by a new
+`AuthorInitialsConfig` (default on), and runs on every book, Calibre-
+managed or not.
+
+Regression: ran `analyze` and two successive `repair` passes against
+all 11 sample books. No crashes, zero changes on the second repair
+pass (idempotent), and all 11 outputs pass `validate` cleanly. None of
+the sample books happen to have all-caps initials in their author
+field, so Author Initials Standardize didn't have anything to actually
+change in this batch -- confirmed instead that it runs safely with no
+false positives across all of them.
 
 ## Session update (2026-09-05, part 3): reversing the metadata.db decision
 

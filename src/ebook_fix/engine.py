@@ -39,6 +39,7 @@ from ebook_fix.modules.cover_repair import CoverRepair
 from ebook_fix.modules.running_title_repair import RunningTitleRepair
 from ebook_fix.modules.metadata_repair import MetadataSyncRepair
 from ebook_fix.modules.identifier_repair import IdentifierStandardizeRepair
+from ebook_fix.modules.author_initials_repair import AuthorInitialsRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMappingEntry, load_mapping_file, MappingError
 from ebook_fix.modules.color_strip import ColorStripRepair
@@ -163,6 +164,11 @@ class Engine:
         # regex is the confidence check here, not a second source.
         if getattr(self.config, "identifier_repair", None) and getattr(self.config.identifier_repair, "enabled", True):
             modules.append(IdentifierStandardizeRepair(self.config.identifier_repair))
+        # Same "no second source needed" reasoning as Identifier
+        # Standardize -- an all-caps initials-shaped token is
+        # unambiguous on its own, so this runs on every book too.
+        if getattr(self.config, "author_initials", None) and getattr(self.config.author_initials, "enabled", True):
+            modules.append(AuthorInitialsRepair(self.config.author_initials))
         return modules
 
     def _cover_status_line(self, cover):
@@ -305,19 +311,6 @@ class Engine:
             self.log(_field_line("Language", merged.language))
             self.log(_field_line("Publisher", merged.publisher))
 
-            merged_ids = analysis_report.merged_identifiers
-            primary = merged_ids.primary
-            id_conflicts = merged_ids.conflicts()
-            primary_conflict = next(
-                (g for g in id_conflicts if primary and g[0].matched_scheme == primary.matched_scheme),
-                None,
-            )
-            if primary_conflict:
-                values = " / ".join(f"{i.normalized_value} ({'+'.join(i.sources)})" for i in primary_conflict)
-                self.log(f"Identifier ({primary.matched_scheme}): {values} -- MISMATCH")
-            else:
-                self.log(f"Identifier: {primary.normalized_value if primary else '(none found)'}")
-
             self.log(_field_line("Date", merged.date))
             self.log(_field_line("Rights", merged.rights))
             self.log(
@@ -328,19 +321,42 @@ class Engine:
                 )
             )
 
-            shown_conflict_ids = {id(i) for g in id_conflicts for i in g} | ({id(primary)} if primary else set())
-            other_identifiers = [i for i in merged_ids.identifiers if id(i) not in shown_conflict_ids]
-            if other_identifiers or (id_conflicts and primary_conflict is None):
-                self.log("Other identifiers found:")
-                for group in id_conflicts:
-                    if group is primary_conflict:
+            merged_ids = analysis_report.merged_identifiers
+            if merged_ids.identifiers:
+                # One flat "Identifiers:" section rather than a single
+                # "Identifier:" headline plus a separate "Other
+                # identifiers found:" list -- see docs/metadata_plan.md,
+                # "Identifiers display". UUID-scheme entries never get
+                # grouped as conflicts (see merge.py's
+                # _NEVER_CONFLICTING_SCHEMES) and print without a label,
+                # just the value and which source it came from, since a
+                # book routinely carries several genuinely different
+                # UUIDs and that's normal, not something to resolve.
+                id_conflicts = merged_ids.conflicts()
+                conflict_ids = {id(i) for g in id_conflicts for i in g}
+                printed_groups: set[int] = set()
+
+                self.log("Identifiers:")
+                for ident in merged_ids.identifiers:
+                    if id(ident) in conflict_ids:
+                        group = next(g for g in id_conflicts if ident in g)
+                        group_key = id(group[0])
+                        if group_key in printed_groups:
+                            continue
+                        printed_groups.add(group_key)
+                        values = " / ".join(f"{i.normalized_value} ({'+'.join(i.sources)})" for i in group)
+                        label = group[0].matched_scheme or "unrecognized"
+                        self.log(f"  {label}: {values} -- MISMATCH")
                         continue
-                    values = " / ".join(f"{i.normalized_value} ({'+'.join(i.sources)})" for i in group)
-                    label = group[0].matched_scheme or "unrecognized"
-                    self.log(f"  {label}: {values} -- MISMATCH")
-                for ident in other_identifiers:
-                    label = ident.matched_scheme or "unrecognized"
-                    self.log(f"  {label}: {ident.normalized_value}")
+
+                    source_tag = "+".join(ident.sources)
+                    if ident.matched_scheme == "uuid":
+                        self.log(f"  {ident.normalized_value} ({source_tag})")
+                    else:
+                        label = ident.matched_scheme or "unrecognized"
+                        self.log(f"  {label}: {ident.normalized_value}")
+            else:
+                self.log("Identifiers: (none found)")
 
             if merged.subjects_mismatch:
                 self.log(f"Subjects/Genre (EPUB): {', '.join(merged.subjects_epub)}")
