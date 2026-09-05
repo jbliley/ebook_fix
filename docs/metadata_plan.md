@@ -128,10 +128,15 @@ layer for file *access*:
   writing the result back out (`rewrite_identifiers`). Built.
 - `core_fields.py` — title/author/series read and write
   (`apply_core_field_updates`, `write_core_field`, `write_subjects`).
-  Built. Author "Last, First" vs "First Last" and language ISO 639-1
-  vs 639-2 conventions are handled in `merge.py` (see the 2026-09-03
-  session below), not here — this module only applies whatever value
-  `merge.py` already decided is safe.
+  Built. Author "Last, First" vs "First Last", language ISO 639-1 vs
+  639-2 conventions, and title formatting/subtitle handling are all in
+  `merge.py` (see the 2026-09-03 and 2026-09-04 sessions below), not
+  here -- this module only applies whatever value `merge.py` already
+  decided is safe.
+- `title_match.py` — recognizes a purely-cosmetic title difference
+  (whitespace, smart punctuation, ALL CAPS) as the same title, and
+  flags (without resolving) a likely subtitle/series-annotation
+  difference. Built.
 - `backends/` — shared file-access layer (Calibre vs lone-EPUB) used by
   both logic modules so neither duplicates file-handling code.
   `calibre_backend.py` reads metadata.opf (identifiers + core fields)
@@ -604,15 +609,71 @@ end up correctly cleaned (`opf:scheme="ISBN"`/`"CALIBRE"` with
 normalized values) alongside the core-field sync from the previous
 session, in the same run.
 
+## Session update (2026-09-04, part 3): title -- formatting normalization, subtitle flagged not resolved
+
+The remaining open question from the core-fields writer session --
+"whether title needs its own normalization rules the way author and
+language now do" -- is resolved: it does, but narrower in scope than
+author/language, because title carries a real risk the other two
+didn't. Reversing "Smith, John" and recognizing "eng"/"en" both have
+exactly one unambiguous right answer. A title difference doesn't
+always -- sometimes one side genuinely has a subtitle, or an appended
+series annotation, and dropping or keeping that is an editorial call,
+not a formatting bug.
+
+**What's auto-resolved (never flagged at all):** purely cosmetic
+differences -- extra/irregular whitespace, straight vs "smart"
+punctuation (quotes, apostrophes, dashes, ellipses), and one side being
+ALL CAPS (a source-data artifact, essentially never a deliberate
+title style). New module `metadata/title_match.py`'s
+`titles_equivalent()` recognizes these by comparing a folded/
+case-insensitive form of both sides, and picks the "cleaner" rendering
+to standardize on (not shouting, whitespace already collapsed;
+ties go to metadata.opf, matching the existing tie-break convention
+elsewhere). `merge.py`'s new `_title_field()` wires this in exactly
+like `_language_field()`/`_author_field()` -- `title` was already in
+`_WRITABLE_FIELDS`, so the existing writer, `MetadataSyncRepair`, and
+the metadata.opf sync all pick this up for free with no other changes
+needed anywhere.
+
+**What's flagged, but with a note instead of a bare MISMATCH:** a
+likely subtitle ("Sidewinders" vs "Sidewinders: A Western Novel") or
+trailing parenthetical, often a series annotation ("Sidewinders" vs
+"Sidewinders (Sidewinders, #1)") -- `detect_subtitle_relationship()`
+recognizes the shorter title as a normalized prefix of the longer one
+and names the added part, but never resolves it; `_title_field()` only
+attaches the note when the difference *isn't* already a formatting
+match. `engine.py`'s `[Book Metadata]` display now shows a mismatch's
+note in brackets (previously only shown for a resolved,
+non-mismatched field), and `review.py`'s CSV row now carries the same
+note in its `note` column instead of always leaving it blank -- so
+`identifier_review.csv` tells you at a glance "these are probably the
+same book, here's what's different" instead of just two raw strings.
+
+Explicitly NOT done, on purpose: guessing which of two different
+title-casing *styles* (Title Case vs sentence case, as opposed to ALL
+CAPS vs either) is "more correct," and auto-resolving the subtitle/
+series-annotation case at all -- both are real editorial judgment
+calls this project's "repair only unambiguous cases" principle says
+to leave to a person.
+
+Verified: unit-tested `titles_equivalent()`/`detect_subtitle_relationship()`
+against a battery of cases (ALL CAPS, smart quotes/ellipsis, whitespace
+on both sides at once -- caught and fixed a real bug here, where tying
+on two equally-dirty renderings returned the raw uncollapsed string
+instead of a cleaned one -- genuinely different titles, and both kinds
+of subtitle pattern). End-to-end test against a synthetic Calibre book
+(EPUB title clean, metadata.opf's `ALL CAPS  ` with trailing
+whitespace) resolved correctly and synced the clean form back to the
+sidecar. Full regression across all 11 samples stayed clean, no
+Traceback/Error, `analyze` unaffected.
+
 ## Open questions / not yet decided
 
 - Syncing metadata.db itself (via `calibredb`, not raw sqlite writes)
   once there's a real Calibre library with `calibredb` installed to
   test against -- the writer currently only ever touches the EPUB and
   the metadata.opf sidecar.
-- Whether title needs its own normalization rules the way author and
-  language now do, or whether title disagreements are always
-  genuinely substantive and should keep going to manual review.
 - Whether this project lives in its own repo or alongside existing
   automation scripts (raindrop_manager.py, check_missing_posters.py, etc.).
 - Whether it runs as a manual one-off pass or eventually gets folded into

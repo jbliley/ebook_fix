@@ -120,7 +120,7 @@ def log_merge_conflicts(
             "field_or_scheme": field_name,
             "epub_or_raw_value": mf.epub_value,
             "calibre_or_raw_scheme": mf.calibre_value,
-            "note": "",
+            "note": mf.note,
         })
 
     if merged_core_fields.subjects_mismatch:

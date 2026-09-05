@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ebook_fix import series as series_metadata
-from metadata import author_names, language_codes
+from metadata import author_names, language_codes, title_match
 from metadata.core_fields import BookCoreFieldsSummary
 from metadata.identifiers import BookIdentifierSummary, IdentifierMatch
 
@@ -249,12 +249,38 @@ def _author_field(epub_value: str, calibre_value: str) -> MergedField:
     return mf
 
 
+def _title_field(epub_value: str, calibre_value: str) -> MergedField:
+    """Recognizes a purely-cosmetic title difference (whitespace,
+    smart-punctuation style, ALL CAPS) as the same title, resolved the
+    same way the language/author non-issues are -- see
+    title_match.py. A likely subtitle or series-annotation difference
+    is a real editorial call, not a formatting cleanup, so it's never
+    auto-resolved -- it still counts as a mismatch, just with a note
+    explaining the likely relationship so a person can decide quickly
+    instead of seeing a bare, unexplained MISMATCH."""
+    mf = _field(epub_value, calibre_value)
+    if mf.epub_value and mf.calibre_value and mf.epub_value != mf.calibre_value:
+        canonical = title_match.titles_equivalent(mf.epub_value, mf.calibre_value)
+        if canonical is not None:
+            mf.equivalent = True
+            mf.normalized_value = canonical
+            mf.note = (
+                f"'{mf.calibre_value}' / '{mf.epub_value}' were the same title "
+                f"in different formatting -- standardized to '{canonical}'."
+            )
+        else:
+            note = title_match.detect_subtitle_relationship(mf.epub_value, mf.calibre_value)
+            if note:
+                mf.note = note
+    return mf
+
+
 def merge_core_fields(
     epub_fields: BookCoreFieldsSummary,
     calibre_fields: BookCoreFieldsSummary,
 ) -> MergedCoreFields:
     result = MergedCoreFields(
-        title=_field(epub_fields.title, calibre_fields.title),
+        title=_title_field(epub_fields.title, calibre_fields.title),
         author=_author_field(epub_fields.author, calibre_fields.author),
         language=_language_field(epub_fields.language, calibre_fields.language),
         publisher=_field(epub_fields.publisher, calibre_fields.publisher),
