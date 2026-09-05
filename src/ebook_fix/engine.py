@@ -1445,11 +1445,15 @@ class Engine:
         metadata_config = getattr(self.config, "metadata_repair", None)
         if metadata_config is not None and metadata_config.enabled and metadata_config.sync_calibre_opf:
             merged = analysis_report.merged_core_fields
-            changed = calibre_write.sync_metadata_opf(
-                calibre_context.metadata_opf_path,
-                merged.calibre_updates(),
-                merged.subjects_for_calibre(),
-            )
+            try:
+                changed = calibre_write.sync_metadata_opf(
+                    calibre_context.metadata_opf_path,
+                    merged.calibre_updates(),
+                    merged.subjects_for_calibre(),
+                )
+            except calibre_write.MetadataOpfWriteError as exc:
+                self.log(f"\nWarning: {exc}")
+                changed = []
             if changed:
                 self.log(
                     f"Synced {len(changed)} field(s) to metadata.opf ({', '.join(changed)}): "
@@ -1458,7 +1462,11 @@ class Engine:
 
         identifier_config = getattr(self.config, "identifier_repair", None)
         if identifier_config is not None and identifier_config.enabled:
-            id_changes = calibre_write.clean_metadata_opf_identifiers(calibre_context.metadata_opf_path)
+            try:
+                id_changes = calibre_write.clean_metadata_opf_identifiers(calibre_context.metadata_opf_path)
+            except calibre_write.MetadataOpfWriteError as exc:
+                self.log(f"\nWarning: {exc}")
+                id_changes = []
             if id_changes:
                 self.log(
                     f"Cleaned up {len(id_changes)} identifier(s) in metadata.opf: "

@@ -25,9 +25,20 @@ how the EPUB output itself is never written for one either.
 """
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 
 from lxml import etree
+
+
+class MetadataOpfWriteError(Exception):
+    """Raised when metadata.opf couldn't be written back to disk after
+    retrying -- see _atomic_write(). Callers (engine.py) catch this
+    and log a warning rather than letting it crash the run, since by
+    the time this is called the actual EPUB has already been repaired
+    and saved; a sidecar sync failure shouldn't take that down with
+    it."""
 
 from metadata.calibre_backend import OpfShim
 from metadata.core_fields import apply_core_field_updates, write_subjects
@@ -101,7 +112,48 @@ def _atomic_write(path: Path, data: bytes) -> None:
     """Write-to-temp-then-replace, the same convention every other
     on-disk write in this project follows (see docs/metadata_plan.md's
     lxml gotchas) -- avoids leaving a half-written metadata.opf behind
-    if something interrupts the write partway through."""
+    if something interrupts the write partway through.
+
+    On Windows, replacing a file that's momentarily locked by another
+    program (Calibre itself, an antivirus scanner, a OneDrive/Dropbox
+    sync client, etc.) raises PermissionError even though the lock
+    usually clears within a second or two. _replace_with_retry() below
+    retries briefly before giving up. If the write still fails, the
+    leftover .tmp file is cleaned up here rather than left behind, and
+    MetadataOpfWriteError is raised so the caller can decide how to
+    handle it (engine.py logs a warning and continues, since the EPUB
+    itself is already safely saved by this point)."""
     tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_bytes(data)
-    tmp_path.replace(path)
+    try:
+        tmp_path.write_bytes(data)
+        _replace_with_retry(tmp_path, path)
+    except OSError as exc:
+        tmp_path.unlink(missing_ok=True)
+        raise MetadataOpfWriteError(
+            f"Could not write to {path}: {exc}. It may be open in another "
+            "program (Calibre, an antivirus scanner, OneDrive/Dropbox sync, "
+            "etc). Close anything that might have it open and run repair "
+            "again -- your EPUB itself has already been saved successfully."
+        ) from exc
+
+
+def _replace_with_retry(tmp_path: Path, path: Path, attempts: int = 5, delay: float = 0.4) -> None:
+    """Attempts tmp_path.replace(path) a few times before giving up.
+    Also tries clearing a read-only attribute on the destination file
+    first, since that's a common reason Windows refuses the replace
+    (e.g. a file Calibre or a sync client marked read-only)."""
+    last_error = None
+    for attempt in range(attempts):
+        if path.exists() and not os.access(path, os.W_OK):
+            try:
+                path.chmod(0o666)
+            except OSError:
+                pass
+        try:
+            tmp_path.replace(path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            if attempt < attempts - 1:
+                time.sleep(delay)
+    raise last_error
