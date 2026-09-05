@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="details-toggle">
+  {% if details %}
+    Showing full detail (slower on a large book).
+    <a href="{{ url_for('book_analysis', session_id=session_id) }}">Switch to the summary view</a>
+  {% else %}
+    Showing the summary view.
+    <a href="{{ url_for('book_analysis', session_id=session_id) }}?details=1">Show full details instead</a>
+  {% endif %}
+</p>
+<pre>{{ output }}</pre>
+<a class="button secondary" href="/">Analyze another book</a>
+{% endblock %}

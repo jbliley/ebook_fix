@@ -111,6 +111,59 @@ second `[project.scripts]` entry point alongside `ebook-fix`.
   (`calibre_write.py` / `modules/metadata_repair.py`) -- no new
   writing logic, just a new caller.
 
+**Mostly done (2026-09-05).** Introduced a session model to make this
+possible at all: uploading now creates a session folder (under the
+system temp directory, named by a uuid) so the Analysis and Metadata
+tabs -- and Review/Before-After once they exist -- can all work
+against the same uploaded book across several requests, `/book/
+<session_id>` and `/book/<session_id>/metadata`. Fixed a Phase 1
+regression along the way: analysis was defaulting to full detail
+view, which is slow to generate and mostly noise for a book with
+nothing wrong -- summary is now the default, with a one-click link to
+switch to full detail.
+
+The Metadata tab shows title, author, publisher, date, rights, and
+description as editable fields, pre-filled with metadata.merge's
+already-resolved value; a genuine mismatch shows an EPUB-value and a
+Calibre-value button next to the field that fill it in with one
+click, so picking a source doesn't mean retyping it, but the field
+stays a normal text input the person can also just edit freely.
+Language shows read-only, matching the merge logic's own reasoning
+(EPUB and Calibre use different, both-correct formats for it, so
+there's never anything to resolve). Series name/position are editable
+too, via `ebook_fix.series.write()`.
+
+Turned out different from the plan's "wire into calibre_write.py"
+sketch above: that writer is deliberately gated to only fire when the
+two sources already agree, precisely because it runs with no person
+watching. The Metadata tab's whole reason to exist is the opposite
+case -- a person looking at a genuine disagreement and choosing. So
+"Save Changes" calls `metadata.core_fields.write_core_field()`
+directly with whatever the person submitted (which might be either
+side's value, or something they typed themselves), then
+`ebook_fix.writer.EPUBWriter().save()` to produce a real output file,
+with a download link on the page afterward. `calibre_write.py` still
+owns the fully-automatic, no-person-involved path (CLI `repair`
+/`auto_fix`); this is a second, human-in-the-loop path to the same
+underlying fields, not a replacement for it.
+
+Deferred, not forgotten: identifiers aren't editable in this tab yet
+(read-only, on the Analysis tab's existing display) -- the Identifiers
+list from the metadata-plan work is a different shape of problem (add/
+remove/multiple schemes) than a single text field, worth its own pass
+rather than bolting onto this one. Session folders also don't get
+cleaned up yet -- harmless clutter for a single-user local tool for
+now, but worth a real answer (e.g. delete-on-idle) before this goes
+much further.
+
+Tested: full upload -> view Metadata tab -> submit changed
+title/author/series -> download -> confirmed the downloaded file's
+OPF actually contains the submitted values, and that it still passes
+`validate` cleanly. Ran the Analysis and Metadata tabs against all 11
+sample books with no crashes. Full CLI regression (`analyze` on all
+11 samples) still clean, confirming none of this touched the CLI's
+own path.
+
 ### Phase 3 -- Review tab
 - Render case 3 split candidates and other NEEDS_REVIEW findings,
   each with enough surrounding context to judge it.

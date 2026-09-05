@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+{% if saved %}
+<div class="saved-banner">
+  Changes saved. <a href="{{ url_for('download', session_id=session_id) }}">Download the updated EPUB</a>.
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('save_metadata', session_id=session_id) }}">
+  {% for f in fields %}
+  <div class="field-block">
+    <label for="field-{{ f.name }}">
+      {{ f.label }}
+      {% if f.mismatch %}<span class="mismatch-tag">MISMATCH</span>{% endif %}
+    </label>
+    {% if f.multiline %}
+    <textarea id="field-{{ f.name }}" name="{{ f.name }}">{{ f.value }}</textarea>
+    {% else %}
+    <input type="text" id="field-{{ f.name }}" name="{{ f.name }}" value="{{ f.value }}">
+    {% endif %}
+    {% if f.mismatch %}
+    <div class="mismatch-choices">
+      Pick a value:
+      <button type="button" onclick='document.getElementById("field-{{ f.name }}").value = {{ f.epub_value|tojson }};'>EPUB: {{ f.epub_value }}</button>
+      <button type="button" onclick='document.getElementById("field-{{ f.name }}").value = {{ f.calibre_value|tojson }};'>Calibre: {{ f.calibre_value }}</button>
+    </div>
+    {% if f.note %}<div class="mismatch-note">{{ f.note }}</div>{% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <label>Language</label>
+  <p>{{ language }} &mdash; not editable here. Calibre and EPUB use different, both-correct language code formats (eng vs en), so there's nothing to resolve.</p>
+
+  <label for="field-series-name">Series</label>
+  <input type="text" id="field-series-name" name="series_name" value="{{ series_name }}" placeholder="Series name (leave blank for none)">
+
+  <label for="field-series-index">Series Position</label>
+  <input type="text" id="field-series-index" name="series_index" value="{{ series_index if series_index is not none else '' }}" placeholder="e.g. 3 or 3.5">
+
+  <button type="submit" class="button">Save Changes</button>
+</form>
+{% endblock %}
