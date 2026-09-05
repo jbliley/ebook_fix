@@ -125,6 +125,19 @@ class CoverRepair:
 
         if self.config.sync_declarations and self._needs_sync(cover):
             sync_declarations(opf, cover.cover_item)
+            # analyze_book_cover() reads properties off book.manifest's
+            # ManifestItem snapshot, not the live OPF tree just edited
+            # above by sync_declarations() -- without also updating the
+            # snapshot here, a fresh re-analysis on the next repair pass
+            # would still see the old ("not synced yet") properties
+            # string and report this same fix as needed forever, so
+            # this module would never converge. cover.cover_item is the
+            # very same object stored in book.manifest (analyze_book_cover
+            # builds it straight from that list without copying), so
+            # mutating it in place here keeps the snapshot honest.
+            properties = set((cover.cover_item.properties or "").split())
+            properties.add("cover-image")
+            cover.cover_item.properties = " ".join(sorted(properties))
             report.add(
                 "content.opf",
                 "Cover declaration synced",
@@ -135,6 +148,12 @@ class CoverRepair:
         if self.config.standardize_filename:
             renamed_to = self._standardize_filename(book, opf, cover)
             if renamed_to:
+                # Same reasoning as above: keep the manifest snapshot's
+                # href in sync with the live OPF edit _standardize_filename
+                # just made, so the next pass doesn't see the stale
+                # pre-rename filename and think a rename is still needed.
+                target_name = PurePosixPath(renamed_to).name
+                cover.cover_item.href = swap_filename(cover.cover_item.href, target_name)
                 report.add(
                     "content.opf",
                     "Cover file renamed",

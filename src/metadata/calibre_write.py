@@ -118,23 +118,53 @@ def _atomic_write(path: Path, data: bytes) -> None:
     program (Calibre itself, an antivirus scanner, a OneDrive/Dropbox
     sync client, etc.) raises PermissionError even though the lock
     usually clears within a second or two. _replace_with_retry() below
-    retries briefly before giving up. If the write still fails, the
-    leftover .tmp file is cleaned up here rather than left behind, and
-    MetadataOpfWriteError is raised so the caller can decide how to
-    handle it (engine.py logs a warning and continues, since the EPUB
-    itself is already safely saved by this point)."""
+    retries briefly before giving up.
+
+    Some network drives/NAS mounts and sync clients specifically block
+    "replace an existing file via rename" while still allowing a plain
+    open-and-overwrite write (the rename requires exclusive delete
+    access to the target that a plain write doesn't). If the atomic
+    replace still fails after retrying, _fallback_direct_write() below
+    tries that instead of giving up outright -- less strictly atomic
+    (a crash mid-write could leave a half-written file, same risk every
+    other program taking this shortcut already accepts), but better
+    than failing on a filesystem that just doesn't support atomic
+    replace well. If even that fails, the leftover .tmp file is
+    cleaned up here rather than left behind, and MetadataOpfWriteError
+    is raised so the caller can decide how to handle it (engine.py logs
+    a warning and continues, since the EPUB itself is already safely
+    saved by this point)."""
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     try:
         tmp_path.write_bytes(data)
-        _replace_with_retry(tmp_path, path)
+        try:
+            _replace_with_retry(tmp_path, path)
+        except PermissionError:
+            _fallback_direct_write(path, data)
+            tmp_path.unlink(missing_ok=True)
     except OSError as exc:
         tmp_path.unlink(missing_ok=True)
         raise MetadataOpfWriteError(
-            f"Could not write to {path}: {exc}. It may be open in another "
-            "program (Calibre, an antivirus scanner, OneDrive/Dropbox sync, "
-            "etc). Close anything that might have it open and run repair "
-            "again -- your EPUB itself has already been saved successfully."
+            f"Could not write to {path}: {exc}. Close any program that "
+            "might have it open (Calibre, an antivirus scanner, a "
+            "OneDrive/Dropbox/NAS sync client), and check that your "
+            "Windows user account has Modify permission on the file -- "
+            "see its Properties > Security tab. Also worth checking: "
+            "Windows Security > Virus & threat protection > Ransomware "
+            "protection > Controlled folder access, which can silently "
+            "block this even with everything else closed. Your EPUB "
+            "itself has already been saved successfully regardless."
         ) from exc
+
+
+def _fallback_direct_write(path: Path, data: bytes) -> None:
+    """Opens `path` directly and overwrites it in place, for
+    filesystems (some NAS mounts, network drives, sync clients) that
+    refuse an atomic rename-over-existing-file but allow a plain
+    write. Lets any OSError here propagate up to _atomic_write's own
+    handling."""
+    with open(path, "wb") as f:
+        f.write(data)
 
 
 def _replace_with_retry(tmp_path: Path, path: Path, attempts: int = 5, delay: float = 0.4) -> None:
