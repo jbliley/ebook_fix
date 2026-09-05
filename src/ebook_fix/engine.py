@@ -257,28 +257,6 @@ class Engine:
 
             cache_file = save_report(analysis_report, epub)
             self.log(f"Saved analysis cache: {cache_file}")
-
-            # Cross-book review log -- see metadata/review.py. Only
-            # scoped to the explicit `analyze` command for now, not
-            # every internal analysis pass (e.g. inside `repair`),
-            # so re-running repair on the same book repeatedly doesn't
-            # pile up duplicate rows for something you already saw.
-            review_rows = review.log_unmatched_identifiers(
-                epub,
-                analysis_report.summary.title,
-                analysis_report.summary.author,
-                analysis_report.identifiers.identifiers,
-                "epub",
-            )
-            review_rows += review.log_merge_conflicts(
-                epub,
-                analysis_report.summary.title,
-                analysis_report.summary.author,
-                analysis_report.merged_identifiers,
-                analysis_report.merged_core_fields,
-            )
-            if review_rows:
-                self.log(f"Logged {review_rows} item(s) needing review to {review.default_review_path()}")
             self.log("")
 
             s = analysis_report.summary
@@ -308,7 +286,17 @@ class Engine:
                         line += f"  [{mf.note}]"
                     return line
                 line = f"{label}: {mf.display_value or '(none found)'}"
-                if mf.note:
+                # A resolved/equivalent field's note (why "eng" and "en"
+                # aren't a real mismatch, why a reversed author name was
+                # standardized, why a title only differed cosmetically)
+                # is only useful the first time or two, not on every
+                # single run against a library that's already mostly
+                # clean -- so it's held back behind --details, the same
+                # convention used everywhere else in this project for
+                # "more than the headline number." A genuine MISMATCH's
+                # note (e.g. a likely subtitle) stays visible either way,
+                # since that's the one still asking for a decision.
+                if mf.note and details:
                     line += f"  [{mf.note}]"
                 return line
 
@@ -1410,6 +1398,33 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
+    def _log_metadata_review(self, epub, analysis_report) -> None:
+        """Cross-book review log -- see metadata/review.py. Only
+        called from `repair`/`auto_fix` (once per invocation, using
+        the initial analysis, not once per internal re-analysis pass)
+        -- not from plain `analyze`, since the CSV is meant to capture
+        what an actual repair attempt couldn't resolve on its own and
+        needs a person's judgment call, the same role a class-mapping
+        file plays for map-css/repair --class-mapping. Running
+        `analyze` alone is just looking, so it shouldn't leave a file
+        behind."""
+        review_rows = review.log_unmatched_identifiers(
+            epub,
+            analysis_report.summary.title,
+            analysis_report.summary.author,
+            analysis_report.identifiers.identifiers,
+            "epub",
+        )
+        review_rows += review.log_merge_conflicts(
+            epub,
+            analysis_report.summary.title,
+            analysis_report.summary.author,
+            analysis_report.merged_identifiers,
+            analysis_report.merged_core_fields,
+        )
+        if review_rows:
+            self.log(f"Logged {review_rows} item(s) needing review to {review.default_review_path()}")
+
     def _sync_metadata_opf(self, analysis_report) -> None:
         """Writes the same confidently-resolved core-field values
         MetadataSyncRepair already wrote into the EPUB back into its
@@ -1600,6 +1615,8 @@ class Engine:
             self.log(f"Saved analysis cache: {cache_file}")
             self.log("")
 
+            self._log_metadata_review(epub, analysis_report)
+
             modules = list(self.modules)
 
             profiles = build_class_profiles(
@@ -1756,6 +1773,8 @@ class Engine:
             cache_file = save_report(analysis_report, epub)
             self.log(f"Saved analysis cache: {cache_file}")
             self.log("")
+
+            self._log_metadata_review(epub, analysis_report)
 
             modules = list(self.modules)
             if class_mapping:

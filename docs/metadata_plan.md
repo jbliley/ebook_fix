@@ -668,6 +668,71 @@ whitespace) resolved correctly and synced the clean form back to the
 sidecar. Full regression across all 11 samples stayed clean, no
 Traceback/Error, `analyze` unaffected.
 
+## Session update (2026-09-05): review-log timing, and quieting the routine display
+
+Feedback from actually running this against a few real library books,
+two rough edges:
+
+**identifier_review.csv was appearing after a plain `analyze`.**
+`analyze` is just looking -- it shouldn't leave a file behind. Moved
+the logging call (`Engine._log_metadata_review()`, previously inline
+in `analyze()`) so it only fires from `repair`/`auto_fix`, the same
+role a class-mapping file plays for `map-css`/`repair
+--class-mapping`: a file that shows up specifically because a repair
+was requested and something couldn't be resolved automatically.
+Verified: `analyze` on a book with a genuine date mismatch shows the
+MISMATCH inline but writes no CSV; `repair --dry-run` on the same book
+does. `analyze` remains the way to just look without leaving anything
+on disk.
+
+**The routine `[Book Metadata]` display was showing the full
+explanation for every resolved field, every single run.** Useful the
+first time you see a book carries `eng` vs `en`, much less so on the
+thousandth already-clean book. `engine.py`'s `_field_line()` now only
+appends a resolved (non-mismatched) field's note with `--details` --
+the same convention this project already uses everywhere else for
+"more than the headline number." A genuine mismatch's note (e.g. the
+subtitle-relationship one) still always shows, since that one's still
+asking for a decision, not just explaining why there's nothing to do.
+Default output is now just `Language: eng`, `Author: William W.
+Johnstone`, etc. -- the interesting cases only spend words when
+they've earned it.
+
+Also worth capturing here, from that same feedback, for later (not
+started -- all bigger pieces of their own):
+
+- **What those extra UUIDs in "Other identifiers found" actually are,
+  and whether they can be cross-checked against each other.** A
+  Calibre-managed book routinely carries several: its own EPUB-native
+  UUID (the `unique-identifier` a reader/reading-system uses),
+  Calibre's own row id (`opf:scheme="calibre"`), and often a genuine
+  `urn:uuid:...` the original publisher/converter baked in -- three
+  different, legitimate things, not duplicates of each other, so
+  there's no "pick the right one" call to make. Where this *could* get
+  more useful: if an ASIN or a Google Books id is also present,
+  fetching that source's own record and comparing title/author against
+  it would be a real, external cross-check -- worth scoping once
+  there's an approach for outside lookups at all (see the date-lookup
+  idea right below, same underlying need).
+- **Looking up a canonical publish date from an ASIN (or ISBN) to
+  resolve a genuine date MISMATCH with real evidence**, instead of
+  just flagging two dates and letting a person guess which is right.
+  Needs a real external data source and a plan for handling that
+  source being wrong, unavailable, or rate-limited -- not something to
+  wire in casually.
+- **A description standardizer** -- missing descriptions, and
+  descriptions that are far too long, both came up. Likely its own
+  small module once there's a sense of what "too long" and "how to
+  shorten without just truncating mid-sentence" should actually mean.
+- **Whether other fields (description, cover art, author) could be
+  auto-verified/overwritten once an identifier is confidently
+  matched**, the same way core fields already are for a
+  Calibre-managed book. Cover art and description both go well beyond
+  "does this match a second source" into "is this actually the right
+  content," which is a much bigger trust question than anything built
+  so far -- explicitly flagged as needing a visual review step (the
+  planned GUI) before going further, not a `repair` module.
+
 ## Open questions / not yet decided
 
 - Syncing metadata.db itself (via `calibredb`, not raw sqlite writes)
