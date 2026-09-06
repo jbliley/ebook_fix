@@ -231,6 +231,59 @@ against all 11 sample books with no crashes, plus a full CLI
 regression (`analyze` and `split-structure` on all 11) to confirm the
 two additions above didn't touch the CLI's own behavior at all.
 
+### Bug fix -- Calibre detection and save location (2026-09-05)
+
+Jacob tried real books from his own Calibre library and found every
+one showed as standalone, and that fixed output always went to a
+browser-download location rather than back into the book's own
+folder. Both traced to the same root cause: uploading a book (the
+only way to open one, until now) hands the browser's raw bytes to the
+server, which then gets saved into a throwaway session folder --
+`book.source` (what `calibre_detect.py` walks up from looking for
+`metadata.db` and Calibre's folder-naming convention) was always that
+temp copy's path, never the real one. No amount of fixing the
+detection logic itself could have helped; the actual book location
+was simply gone by the time detection ran. Browsers don't hand over a
+real file path on upload at all, for their own users' security --
+this isn't an ebook_fix bug to patch around, it's what browser file
+inputs are designed to do.
+
+Fix: the upload page now also accepts a **typed/pasted file path** as
+an alternative to browsing for a file. Opening a book this way reads
+it directly from its real location on disk -- no copy, no session-
+folder detour -- so `calibre_detect.py` sees the book's actual folder
+structure and works exactly as it already does for the CLI. Once a
+book is open this way, saving a fix (Metadata tab or Review tab) also
+writes directly back next to the original as `<name>_fixed.epub`,
+matching the CLI's own default output convention exactly, with no
+browser download step at all -- the file's just already in the right
+folder. A book opened by upload still works exactly as before
+(temp copy, standalone, browser download for output) since there's
+no real location to speak of in that case; the Metadata tab now shows
+a plain note when a book displays as standalone, pointing at
+"Open by Path" as the fix, so this doesn't look like a silent mystery
+the next time someone hits it.
+
+Tested against a constructed fake Calibre library (a book folder named
+`Title (42)`, a sibling `metadata.opf` with a deliberately different
+title, and a `metadata.db` two levels up) to confirm the whole chain
+end to end: opening by path correctly shows the book as Calibre-
+managed, correctly flags the title MISMATCH between the EPUB and the
+fake sidecar, and both the Metadata tab's Save and the Review tab's
+Split Selected write their output directly into that same folder as
+`<name>_fixed.epub` rather than offering a download -- confirmed the
+resulting file passes `validate` and actually contains the resolved
+title. Also confirmed a bad path or wrong extension shows a plain
+inline error rather than a crash. Re-ran the full tab regression
+(Analysis/Metadata/Review across all 11 sample books via the upload
+path) plus a full CLI regression to confirm the upload flow and the
+CLI itself are both unaffected by any of this.
+
+A native OS "Browse..." dialog (so path-based opening doesn't mean
+hand-typing a long path) would be a nice next step here, but needs
+testing on Jacob's own Windows machine before it ships -- there's no
+way to verify a real desktop file dialog from this sandbox.
+
 ### Phase 4 -- Before / After tab
 - Render a chapter/page from the original EPUB and its post-repair
   counterpart side by side.

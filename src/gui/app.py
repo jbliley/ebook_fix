@@ -78,13 +78,51 @@ def _session_dir(session_id: str) -> Path:
     return path
 
 
+def _source_path(session_dir: Path) -> Path:
+    """Where to actually read the book from. A session opened by
+    typed/browsed path (real_path.txt present) reads straight from
+    that real location on disk -- this is what lets Calibre detection
+    work at all (it walks up from the book's own path looking for
+    metadata.db and Calibre's folder-naming convention, so a copy
+    sitting in a temp folder can never be recognized as Calibre-
+    managed, no matter what it contains). A session opened by browser
+    upload has no real location to speak of -- the browser only ever
+    hands over bytes, never a path (a deliberate browser security
+    restriction, not something this app can work around) -- so that
+    case reads from the copy this app made itself, and is always
+    "standalone" as far as Calibre detection goes."""
+    real_path_file = session_dir / "real_path.txt"
+    if real_path_file.exists():
+        return Path(real_path_file.read_text(encoding="utf-8"))
+    return session_dir / "original.epub"
+
+
+def _is_real_path_session(session_dir: Path) -> bool:
+    return (session_dir / "real_path.txt").exists()
+
+
 def _load_analysis(session_dir: Path):
     """Loads the book and runs the same EPUBAnalyzer pass engine.py's
     analyze() uses internally, returning (book, analysis_report). Used
     by every tab that needs structured data rather than printed text."""
-    book = EPUBParser().load(session_dir / "original.epub")
+    book = EPUBParser().load(_source_path(session_dir))
     analysis_report = EPUBAnalyzer().analyze(book)
     return book, analysis_report
+
+
+def _output_path_for(session_dir: Path) -> tuple[str, Path]:
+    """Where a fix should be written: for a real-path session, right
+    next to the original file as "<name>_fixed.epub" -- the same
+    default the CLI's own repair command uses when no -o is given --
+    so it lands in the right folder without a browser download step
+    at all. For an uploaded session (no real location to write next
+    to), into the session folder instead, for the person to download
+    through the browser same as Phases 1-3 always worked. Returns
+    (mode, path) where mode is "saved_to_disk" or "download"."""
+    if _is_real_path_session(session_dir):
+        source = _source_path(session_dir)
+        return "saved_to_disk", source.with_name(source.stem + "_fixed" + source.suffix)
+    return "download", session_dir / "output.epub"
 
 
 def _split_candidate_groups(book):
@@ -172,9 +210,25 @@ def index():
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    typed_path = request.form.get("path", "").strip().strip('"')
     uploaded = request.files.get("epub_file")
+
+    if typed_path:
+        path_obj = Path(typed_path)
+        if not path_obj.is_file():
+            return render_template("index.html", error=f"Can't find that file: {typed_path}")
+        if path_obj.suffix.lower() != ".epub":
+            return render_template("index.html", error="That doesn't look like an EPUB file (expected a .epub).")
+
+        session_id = str(uuid.uuid4())
+        session_dir = SESSIONS_ROOT / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "real_path.txt").write_text(str(path_obj.resolve()), encoding="utf-8")
+        (session_dir / "original_filename.txt").write_text(path_obj.name, encoding="utf-8")
+        return redirect(url_for("book_analysis", session_id=session_id))
+
     if uploaded is None or uploaded.filename == "":
-        return render_template("index.html", error="Choose an EPUB file first.")
+        return render_template("index.html", error="Choose an EPUB file, or paste a path to one, first.")
     if not uploaded.filename.lower().endswith(".epub"):
         return render_template("index.html", error="That doesn't look like an EPUB file (expected a .epub).")
 
@@ -196,14 +250,16 @@ def book_analysis(session_id):
     config = load_config(None)
     engine = Engine(config=config)
     with _captured_output() as buf:
-        engine.analyze(session_dir / "original.epub", details=details)
+        engine.analyze(_source_path(session_dir), details=details)
     output = buf.getvalue()
 
-    # analyze() writes its cache file next to whatever path it's given
-    # -- here that's inside the session folder, so it's harmless to
-    # leave (cleaned up whenever the whole session folder eventually
-    # is), unlike Phase 1's per-request temp file which had nowhere
-    # else to live.
+    # analyze() writes its cache file next to whatever path it's given.
+    # For an uploaded session that's inside the session folder,
+    # harmless to leave. For a real-path session, that's a real
+    # ".ebookfix-analysis.json" sitting next to the actual book on
+    # disk -- exactly the same file the CLI's own `analyze` command
+    # already leaves behind next to any book it's pointed at, so this
+    # isn't new GUI-only clutter, just the existing convention.
 
     return render_template(
         "book.html",
@@ -237,6 +293,7 @@ def book_metadata(session_id):
         })
 
     series_info = series_metadata.read(book)
+    calibre_ctx = analysis_report.calibre_context
 
     return render_template(
         "metadata.html",
@@ -248,13 +305,15 @@ def book_metadata(session_id):
         series_name=series_info.name or "",
         series_index=series_info.index,
         saved=request.args.get("saved") == "1",
+        saved_path=request.args.get("saved_path", ""),
+        is_calibre_managed=calibre_ctx.is_calibre_managed,
     )
 
 
 @app.route("/book/<session_id>/metadata", methods=["POST"])
 def save_metadata(session_id):
     session_dir = _session_dir(session_id)
-    book = EPUBParser().load(session_dir / "original.epub")
+    book = EPUBParser().load(_source_path(session_dir))
 
     for name in _EDITABLE_FIELDS:
         value = request.form.get(name, "")
@@ -271,8 +330,10 @@ def save_metadata(session_id):
                 series_index = None
         series_metadata.write(book, series_name, series_index)
 
-    EPUBWriter().save(book, session_dir / "output.epub")
-
+    mode, output_path = _output_path_for(session_dir)
+    EPUBWriter().save(book, output_path)
+    if mode == "saved_to_disk":
+        return redirect(url_for("book_metadata", session_id=session_id, saved="1", saved_path=str(output_path)))
     return redirect(url_for("book_metadata", session_id=session_id, saved="1"))
 
 
@@ -291,7 +352,7 @@ def download(session_id):
 def book_review(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
-    book = EPUBParser().load(session_dir / "original.epub")
+    book = EPUBParser().load(_source_path(session_dir))
     groups = _split_candidate_groups(book)
 
     return render_template(
@@ -309,7 +370,7 @@ def book_review(session_id):
 def save_review(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
-    book = EPUBParser().load(session_dir / "original.epub")
+    book = EPUBParser().load(_source_path(session_dir))
     groups = _split_candidate_groups(book)
 
     accepted_ids = set(request.form.getlist("accept"))
@@ -331,8 +392,9 @@ def save_review(session_id):
         ]
 
     engine = Engine(config=load_config(None))
+    mode, output_path = _output_path_for(session_dir)
     with _captured_output() as buf:
-        split_count, _reports = engine.split_marked(book, session_dir / "output.epub", markers_by_href, details=False)
+        split_count, _reports = engine.split_marked(book, output_path, markers_by_href, details=False)
     output = buf.getvalue()
 
     return render_template(
@@ -340,13 +402,14 @@ def save_review(session_id):
         active_tab="review",
         session_id=session_id,
         filename=filename,
-        groups=_split_candidate_groups(EPUBParser().load(session_dir / "original.epub")),
+        groups=_split_candidate_groups(EPUBParser().load(_source_path(session_dir))),
         has_candidates=bool(groups),
         split_result={
             "split_count": split_count,
             "skipped_hrefs": skipped_hrefs,
             "output": output,
-            "downloadable": split_count > 0,
+            "downloadable": split_count > 0 and mode == "download",
+            "saved_path": str(output_path) if split_count > 0 and mode == "saved_to_disk" else "",
         },
     )
 

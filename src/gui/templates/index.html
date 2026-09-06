@@ -20,9 +20,19 @@
   <div class="card">
     <p>Choose an EPUB file to analyze. This runs entirely on your own computer &mdash; nothing is uploaded anywhere outside this program.</p>
     <form action="/upload" method="post" enctype="multipart/form-data">
-      <input type="file" name="epub_file" accept=".epub" required>
+      <input type="file" name="epub_file" accept=".epub">
       <br>
       <button type="submit">Analyze</button>
+    </form>
+    <p style="margin-top:1.5rem; color:#666; font-size:0.9rem;">
+      Testing a book that's in your Calibre library? Paste its full file path instead &mdash;
+      opening by path (rather than uploading) is what lets this correctly detect Calibre and
+      save fixes back to the right folder.
+    </p>
+    <form action="/upload" method="post">
+      <input type="text" name="path" placeholder="C:\Users\you\Calibre Library\Author\Book Title (123)\book.epub">
+      <br>
+      <button type="submit">Open by Path</button>
     </form>
     {% if error %}<p class="error">{{ error }}</p>{% endif %}
   </div>

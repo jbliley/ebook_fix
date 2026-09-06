@@ -2,8 +2,21 @@
 {% block content %}
 {% if saved %}
 <div class="saved-banner">
-  Changes saved. <a href="{{ url_for('download', session_id=session_id) }}">Download the updated EPUB</a>.
+  {% if saved_path %}
+    Changes saved directly to <code>{{ saved_path }}</code>.
+  {% else %}
+    Changes saved. <a href="{{ url_for('download', session_id=session_id) }}">Download the updated EPUB</a>.
+  {% endif %}
 </div>
+{% endif %}
+
+{% if not is_calibre_managed %}
+<p style="font-size:0.85rem; color:#888; margin-top:-0.5rem;">
+  This book is showing as standalone, not Calibre-managed. If it's actually in your Calibre
+  library, that usually means it was opened by upload rather than by path &mdash; browsers don't
+  hand over a real file location, only the file's bytes, so there's no folder structure to detect
+  Calibre from. Reopen it with <a href="/">Open by Path</a> instead to fix this.
+</p>
 {% endif %}
 
 <form method="post" action="{{ url_for('save_metadata', session_id=session_id) }}">
