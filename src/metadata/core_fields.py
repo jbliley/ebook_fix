@@ -40,6 +40,15 @@ DC_NS = "http://purl.org/dc/elements/1.1/"
 # already knows how to keep both the calibre and EPUB3 collection
 # conventions in sync), and "subjects" is a list, handled by
 # write_subjects() below.
+#
+# "language" is writable here even though metadata.merge never
+# resolves it automatically (see language_codes.py -- EPUB and
+# Calibre's own formats are both correct, so there's nothing for
+# merge to correct). This is only ever reached through the GUI's
+# Metadata tab, where a person is deliberately overriding the book's
+# own dc:language because it's wrong outright, not through
+# MergedCoreFields.epub_updates()/.calibre_updates(), which still
+# exclude it entirely -- see docs/gui_plan.md, Phase 5.
 _DC_FIELD_MAP = {
     "title": "title",
     "author": "creator",
@@ -47,6 +56,7 @@ _DC_FIELD_MAP = {
     "date": "date",
     "rights": "rights",
     "description": "description",
+    "language": "language",
 }
 
 

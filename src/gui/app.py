@@ -59,15 +59,19 @@ from ebook_fix.splitter import SplitMarker
 from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, iter_chapter_nodes
 from ebook_fix.writer import EPUBWriter
 from metadata.core_fields import write_core_field
+from metadata.language_codes import language_options
 
 app = Flask(__name__)
 
 SESSIONS_ROOT = Path(tempfile.gettempdir()) / "ebook_fix_gui_sessions"
 
 # Core fields the Metadata tab shows as editable text -- same set
-# metadata.merge already tracks as MergedField, minus "language"
-# (both sides are already correct for their own format, see
-# language_codes.py -- there's never anything to write there).
+# metadata.merge already tracks as MergedField, minus "language".
+# Language is still editable (see below), just not through this
+# generic text-field loop -- it's a dropdown, and unlike these fields
+# it's never a genuine EPUB-vs-Calibre mismatch to pick between (see
+# language_codes.py), so it gets its own small block in both the
+# template and the staging/apply logic here.
 _EDITABLE_FIELDS = ("title", "author", "publisher", "date", "rights", "description")
 
 # Every standard repair module that's actually toggleable via
@@ -360,13 +364,24 @@ def book_metadata(session_id):
     series_info = series_metadata.read(book)
     calibre_ctx = analysis_report.calibre_context
 
+    # The EPUB's own current dc:language value, not merged.display_value
+    # -- this dropdown edits the EPUB directly (write_core_field targets
+    # the book, same as every other field here), so it should start on
+    # what the EPUB actually has, not a value resolved from Calibre's
+    # side of a comparison that was never a real disagreement to begin
+    # with. Falls back to whichever side has something when the EPUB's
+    # own field is simply blank.
+    current_language = (staged.get("language") if staged else None) or merged.language.epub_value or merged.language.display_value
+
     return render_template(
         "metadata.html",
         active_tab="metadata",
         session_id=session_id,
         filename=filename,
         fields=fields,
-        language=merged.language.display_value or "(none found)",
+        language_value=current_language,
+        language_choices=language_options(current_language),
+        language_note=merged.language.note,
         series_name=staged["series_name"] if staged else (series_info.name or ""),
         series_index=staged["series_index"] if staged else series_info.index,
         is_staged=staged is not None,
@@ -388,6 +403,7 @@ def save_metadata(session_id):
 
     staged = {
         "fields": {name: request.form.get(name, "") for name in _EDITABLE_FIELDS},
+        "language": request.form.get("language", "").strip(),
         "series_name": request.form.get("series_name", "").strip(),
         "series_index": series_index,
     }
@@ -519,6 +535,12 @@ def apply_repair(session_id):
     if staged_metadata is not None:
         for name, value in staged_metadata["fields"].items():
             write_core_field(book, name, value)
+        # .get(), not [] -- a session staged before Phase 5 shipped
+        # won't have a "language" key at all, and that should just mean
+        # "nothing to change" rather than a KeyError at apply time.
+        language_value = staged_metadata.get("language")
+        if language_value:
+            write_core_field(book, "language", language_value)
         series_name = staged_metadata["series_name"]
         if series_name:
             series_metadata.write(book, series_name, staged_metadata["series_index"])

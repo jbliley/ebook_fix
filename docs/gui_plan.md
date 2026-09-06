@@ -449,6 +449,59 @@ model Phase 4 introduces for the other fields, writing to the
 `dc:language` element the same way `write_core_field` already would if
 "language" weren't currently excluded from `_EDITABLE_FIELDS`.
 
+**Done (2026-09-06).** Built essentially as scoped above, with a couple
+of specifics worth recording:
+
+- `language_codes.py` gained `COMMON_LANGUAGES` (about 50 codes,
+  common personal-library languages, not an attempt at ISO 639
+  completeness) and `language_options(current_value)`, which turns
+  that list into sorted `(code, "Name (code)")` pairs for a `<select>`
+  -- and, if the book's own current value isn't one of the common
+  codes (a region subtag like `en-GB`, or anything unusual), appends
+  it as its own entry rather than dropping it from the list. A book's
+  existing value should stay visible and selected until a person
+  actively picks something else, not vanish the moment the dropdown
+  renders.
+- `core_fields.py`'s `_DC_FIELD_MAP` now includes `"language"`, so
+  `write_core_field` can write `dc:language` -- but `merge.py`'s
+  `_WRITABLE_FIELDS` (what the CLI's fully-automatic `repair`/
+  `auto_fix` path is allowed to touch) still excludes it. This is
+  deliberate, not an oversight: language only becomes writable through
+  the GUI's Metadata tab, where a person is the one choosing the new
+  value, never through the automatic merge path.
+- The dropdown edits the EPUB's own `dc:language` directly -- it's
+  pre-filled from `merged.language.epub_value` (falling back to
+  `display_value` if the EPUB's own field is blank), not from whatever
+  `MergedField.display_value` would otherwise resolve to, since
+  there's no Calibre-side value to prefer here the way there is for
+  title/author/etc.
+- Staged the same way every other Metadata field already is (Phase
+  4's model): "Stage Changes" writes it into `staged_metadata.json`
+  under a `"language"` key, and the Repair tab's "Apply Everything"
+  writes it via `write_core_field` alongside the other staged fields.
+  Read with `.get("language")` rather than `[...]`, so a session
+  staged before this phase shipped (no `"language"` key at all) just
+  means "nothing to change" instead of a `KeyError` at apply time.
+- Added a `select` rule to `base.html`'s shared CSS alongside the
+  existing `input[type=text]`/`textarea` rule, so the new dropdown
+  matches the rest of the form instead of using the browser default
+  style.
+
+Tested: staged a language change on a sample book with no other edits,
+applied with every repair module unchecked (isolating just the
+language write), confirmed the resulting file's `dc:language` matches
+what was picked and still passes `validate`. Ran the Metadata tab
+across all 11 sample books, confirming the dropdown renders and
+selects the book's actual current value (including `MM21.epub`'s
+`en-GB` and `GutenbergText-ChapterSplit.epub`'s blank language) --
+then staged/applied each with the language left untouched and
+confirmed it comes out unchanged every time. Confirmed
+`language_options()` handles an unusual code (not in the common list),
+a known code (no duplicate entry), and a blank current value (no
+empty-string option added) directly. Full CLI regression (`analyze`
+on all 11 samples) stayed clean, confirming `_WRITABLE_FIELDS` still
+keeps this out of the automatic path.
+
 ### Phase 6 -- Analysis tab rebuild
 Replaces the raw captured-CLI-text `<pre>` block from Phase 1 with an
 actual HTML report: real structure (headings, lists), and -- Jacob's

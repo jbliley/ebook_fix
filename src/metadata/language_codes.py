@@ -81,6 +81,45 @@ def _normalize(code: str) -> str:
     return code.strip().lower().split("-")[0]
 
 
+# A short, well-known subset of ISO 639-1 for the GUI's Language
+# dropdown (Phase 5, docs/gui_plan.md) -- not meant to cover every
+# code in ALPHA2_TO_ALPHA3 above, just what's actually likely to turn
+# up in a personal library. Sorted by name at the point of use, not
+# here, so this list can stay in whatever order is easiest to skim.
+COMMON_LANGUAGES: list[tuple[str, str]] = [
+    ("en", "English"), ("es", "Spanish"), ("fr", "French"), ("de", "German"),
+    ("it", "Italian"), ("pt", "Portuguese"), ("nl", "Dutch"), ("ru", "Russian"),
+    ("ja", "Japanese"), ("zh", "Chinese"), ("ko", "Korean"), ("ar", "Arabic"),
+    ("hi", "Hindi"), ("pl", "Polish"), ("sv", "Swedish"), ("no", "Norwegian"),
+    ("da", "Danish"), ("fi", "Finnish"), ("cs", "Czech"), ("el", "Greek"),
+    ("tr", "Turkish"), ("he", "Hebrew"), ("hu", "Hungarian"), ("ro", "Romanian"),
+    ("uk", "Ukrainian"), ("id", "Indonesian"), ("vi", "Vietnamese"), ("th", "Thai"),
+    ("la", "Latin"), ("ga", "Irish"), ("cy", "Welsh"), ("is", "Icelandic"),
+    ("bg", "Bulgarian"), ("hr", "Croatian"), ("sr", "Serbian"), ("sk", "Slovak"),
+    ("sl", "Slovenian"), ("et", "Estonian"), ("lv", "Latvian"), ("lt", "Lithuanian"),
+    ("ca", "Catalan"), ("eu", "Basque"), ("af", "Afrikaans"), ("sw", "Swahili"),
+    ("fa", "Persian"), ("ur", "Urdu"), ("bn", "Bengali"), ("ta", "Tamil"),
+    ("eo", "Esperanto"),
+]
+
+
+def language_options(current_value: str) -> list[tuple[str, str]]:
+    """COMMON_LANGUAGES as (code, display label) pairs, sorted by
+    name, for a select dropdown. If current_value (the book's actual
+    current dc:language, as opened) isn't one of the common codes, it
+    gets appended as its own entry labeled by its raw code rather than
+    silently dropped from the list -- an unusual existing value should
+    stay visible and selected until a person actively picks something
+    else, not disappear the moment this dropdown renders."""
+    options = list(COMMON_LANGUAGES)
+    current = (current_value or "").strip()
+    if current and not any(code.lower() == current.lower() for code, _name in options):
+        options.append((current, current))
+
+    labeled = [(code, f"{name} ({code})") for code, name in options]
+    return sorted(labeled, key=lambda pair: pair[1].lower())
+
+
 def codes_equivalent(code_a: str, code_b: str) -> bool:
     """True if code_a and code_b are the same language, allowing for
     ISO 639-1 vs ISO 639-2 (B or T) and region-subtag differences.

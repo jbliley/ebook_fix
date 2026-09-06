@@ -37,8 +37,20 @@
   </div>
   {% endfor %}
 
-  <label>Language</label>
-  <p>{{ language }} &mdash; not editable here. Calibre and EPUB use different, both-correct language code formats (eng vs en), so there's nothing to resolve.</p>
+  <div class="field-block">
+    <label for="field-language">Language</label>
+    <select id="field-language" name="language">
+      {% for code, choice_label in language_choices %}
+      <option value="{{ code }}" {% if code == language_value %}selected{% endif %}>{{ choice_label }}</option>
+      {% endfor %}
+    </select>
+    <div class="mismatch-note">
+      Sets the EPUB's own language directly. Calibre and EPUB use different, both-correct
+      code formats (eng vs en), so this never shows as a mismatch to pick between&mdash;use
+      this dropdown only if the language itself is actually wrong.
+      {% if language_note %}{{ language_note }}{% endif %}
+    </div>
+  </div>
 
   <label for="field-series-name">Series</label>
   <input type="text" id="field-series-name" name="series_name" value="{{ series_name }}" placeholder="Series name (leave blank for none)">
