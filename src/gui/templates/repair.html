@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="details-toggle">
+  This is the one place that actually changes the book. Whatever you staged on the Metadata and
+  Review tabs gets applied here too, together with whichever standard repairs you leave checked
+  below, all in a single pass ending in one file &mdash; not a separate copy per tab.
+</p>
+
+{% if has_staged_metadata or has_staged_review %}
+<div class="staged-banner">
+  {% if has_staged_metadata %}Metadata: {{ staged_field_count }} field(s) staged.{% endif %}
+  {% if has_staged_review %}{{ ' ' if has_staged_metadata }}Review: {{ staged_boundary_count }} boundary/boundaries staged.{% endif %}
+</div>
+{% else %}
+<div class="staged-banner" style="background:#f7fafc;border-color:#e2e8f0;color:#555;">
+  Nothing staged on the Metadata or Review tabs yet. That's fine &mdash; you can still run just
+  the standard repairs below.
+</div>
+{% endif %}
+
+{% if result %}
+<div class="saved-banner">
+  Saved to <code>{{ result.output_path }}</code>
+  {% if result.pass_count > 1 %}(completed in {{ result.pass_count }} passes){% endif %}.
+  {% if result.split_count %}Split {{ result.split_count }} file{{ 's' if result.split_count != 1 else '' }} from the Review tab's staged boundaries.{% endif %}
+  {% if result.module_summaries %}
+  <div class="result-summary">
+    Changes made:
+    <ul>
+      {% for m in result.module_summaries %}<li>{{ m.name }}: {{ m.count }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% elif not result.split_count %}
+  <div class="result-summary">No standard repairs found anything to change.</div>
+  {% endif %}
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('apply_repair', session_id=session_id) }}">
+  <label style="margin-bottom:0.3rem;">Standard repairs to include (pre-checked from your ebook_fix.toml)</label>
+  <div class="module-list">
+    {% for m in modules %}
+    <div class="module-row">
+      <input type="checkbox" name="modules" value="{{ m.attr }}" id="mod-{{ m.attr }}" {% if m.checked %}checked{% endif %}>
+      <label for="mod-{{ m.attr }}" style="display:inline; font-weight:normal; margin:0;">{{ m.label }}</label>
+    </div>
+    {% endfor %}
+  </div>
+  <button type="submit" class="button">Apply Everything</button>
+</form>
+{% endblock %}

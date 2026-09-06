@@ -37,6 +37,7 @@ AnalysisReport object, not printed text.
 from __future__ import annotations
 
 import io
+import json
 import subprocess
 import sys
 import tempfile
@@ -68,6 +69,32 @@ SESSIONS_ROOT = Path(tempfile.gettempdir()) / "ebook_fix_gui_sessions"
 # (both sides are already correct for their own format, see
 # language_codes.py -- there's never anything to write there).
 _EDITABLE_FIELDS = ("title", "author", "publisher", "date", "rights", "description")
+
+# Every standard repair module that's actually toggleable via
+# ebook_fix.toml -- i.e. everything Engine._build_modules() checks an
+# `enabled` flag for. Order matches _build_modules()'s own pipeline
+# order, so the Repair tab's checkbox list reads the same way the CLI
+# already applies them. Deliberately excludes Class Standardize and
+# Color Strip, which aren't part of this config-gated pipeline at all
+# (Class Standardize needs an explicit --class-mapping file; see
+# analysis_roadmap.md for why those stay separate CLI subcommands).
+_REPAIR_MODULES = [
+    ("gutenberg_repair", "Gutenberg Boilerplate Removal"),
+    ("running_title_repair", "Running Title Removal"),
+    ("paragraph_repair", "Paragraph Repair"),
+    ("chapter_markup", "Chapter Markup"),
+    ("epub3_upgrade", "EPUB 3 Upgrade"),
+    ("toc_generation", "TOC Generation"),
+    ("scene_break_repair", "Scene Break Normalizer"),
+    ("image_repair", "Image Repair"),
+    ("cover_repair", "Cover Repair"),
+    ("ellipsis_repair", "Ellipsis Normalizer"),
+    ("apostrophe_repair", "Apostrophe Repair"),
+    ("whitespace_repair", "Whitespace Normalizer"),
+    ("metadata_repair", "Metadata Sync (Calibre-managed books only)"),
+    ("identifier_repair", "Identifier Standardize"),
+    ("author_initials", "Author Initials"),
+]
 
 
 def _session_dir(session_id: str) -> Path:
@@ -117,6 +144,20 @@ def _fixed_output_path(session_dir: Path) -> Path:
     in the right folder."""
     source = _source_path(session_dir)
     return source.with_name(source.stem + "_fixed" + source.suffix)
+
+
+def _staged_metadata_path(session_dir: Path) -> Path:
+    return session_dir / "staged_metadata.json"
+
+
+def _staged_review_path(session_dir: Path) -> Path:
+    return session_dir / "staged_review.json"
+
+
+def _read_staged(path: Path):
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _split_candidate_groups(book):
@@ -299,14 +340,16 @@ def book_metadata(session_id):
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
     book, analysis_report = _load_analysis(session_dir)
     merged = analysis_report.merged_core_fields
+    staged = _read_staged(_staged_metadata_path(session_dir))
 
     fields = []
     for name in _EDITABLE_FIELDS:
         mf = getattr(merged, name)
+        value = staged["fields"][name] if staged else mf.display_value
         fields.append({
             "name": name,
             "label": name.replace("_", " ").title(),
-            "value": mf.display_value,
+            "value": value,
             "mismatch": mf.mismatch,
             "epub_value": mf.epub_value,
             "calibre_value": mf.calibre_value,
@@ -324,10 +367,9 @@ def book_metadata(session_id):
         filename=filename,
         fields=fields,
         language=merged.language.display_value or "(none found)",
-        series_name=series_info.name or "",
-        series_index=series_info.index,
-        saved=request.args.get("saved") == "1",
-        saved_path=request.args.get("saved_path", ""),
+        series_name=staged["series_name"] if staged else (series_info.name or ""),
+        series_index=staged["series_index"] if staged else series_info.index,
+        is_staged=staged is not None,
         is_calibre_managed=calibre_ctx.is_calibre_managed,
     )
 
@@ -335,26 +377,23 @@ def book_metadata(session_id):
 @app.route("/book/<session_id>/metadata", methods=["POST"])
 def save_metadata(session_id):
     session_dir = _session_dir(session_id)
-    book = EPUBParser().load(_source_path(session_dir))
 
-    for name in _EDITABLE_FIELDS:
-        value = request.form.get(name, "")
-        write_core_field(book, name, value)
-
-    series_name = request.form.get("series_name", "").strip()
     series_index_raw = request.form.get("series_index", "").strip()
-    if series_name:
-        series_index = None
-        if series_index_raw:
-            try:
-                series_index = float(series_index_raw)
-            except ValueError:
-                series_index = None
-        series_metadata.write(book, series_name, series_index)
+    series_index = None
+    if series_index_raw:
+        try:
+            series_index = float(series_index_raw)
+        except ValueError:
+            series_index = None
 
-    output_path = _fixed_output_path(session_dir)
-    EPUBWriter().save(book, output_path)
-    return redirect(url_for("book_metadata", session_id=session_id, saved="1", saved_path=str(output_path)))
+    staged = {
+        "fields": {name: request.form.get(name, "") for name in _EDITABLE_FIELDS},
+        "series_name": request.form.get("series_name", "").strip(),
+        "series_index": series_index,
+    }
+    _staged_metadata_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
+
+    return redirect(url_for("book_metadata", session_id=session_id))
 
 
 @app.route("/book/<session_id>/review")
@@ -364,6 +403,13 @@ def book_review(session_id):
     book = EPUBParser().load(_source_path(session_dir))
     groups = _split_candidate_groups(book)
 
+    staged = _read_staged(_staged_review_path(session_dir))
+    if staged is not None:
+        staged_ids = set(staged["accepted_ids"])
+        for group in groups:
+            for item in group["candidates"]:
+                item["auto_checked"] = item["id"] in staged_ids
+
     return render_template(
         "review.html",
         active_tab="review",
@@ -371,6 +417,7 @@ def book_review(session_id):
         filename=filename,
         groups=groups,
         has_candidates=bool(groups),
+        is_staged=staged is not None,
         split_result=None,
     )
 
@@ -384,40 +431,166 @@ def save_review(session_id):
 
     accepted_ids = set(request.form.getlist("accept"))
 
-    markers_by_href = {}
+    # Just a preview of what would happen -- the actual split only
+    # happens when the Repair tab applies everything. A file needs 2+
+    # accepted boundaries to split at all; anything short of that is
+    # shown here so the choice can be corrected before staging it, not
+    # silently dropped at apply time.
+    would_split = 0
     skipped_hrefs = []
     for group in groups:
-        accepted_nodes = [item["node"] for item in group["candidates"] if item["id"] in accepted_ids]
+        accepted_nodes = [item for item in group["candidates"] if item["id"] in accepted_ids]
         if not accepted_nodes:
             continue
         if len(accepted_nodes) < 2:
-            # Splitting needs at least 2 boundaries in the same file --
-            # one accepted checkbox alone has nothing to cut against.
             skipped_hrefs.append(group["href"])
-            continue
-        markers_by_href[group["href"]] = [
-            SplitMarker(element=node.evidence.candidate.element, title=node.title, number=node.evidence.candidate.number)
-            for node in accepted_nodes
-        ]
+        else:
+            would_split += 1
 
-    engine = Engine(config=load_config(None))
-    output_path = _fixed_output_path(session_dir)
-    with _captured_output() as buf:
-        split_count, _reports = engine.split_marked(book, output_path, markers_by_href, details=False)
-    output = buf.getvalue()
+    staged = {"accepted_ids": sorted(accepted_ids)}
+    _staged_review_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
+
+    for group in groups:
+        for item in group["candidates"]:
+            item["auto_checked"] = item["id"] in accepted_ids
 
     return render_template(
         "review.html",
         active_tab="review",
         session_id=session_id,
         filename=filename,
-        groups=_split_candidate_groups(EPUBParser().load(_source_path(session_dir))),
+        groups=groups,
         has_candidates=bool(groups),
+        is_staged=True,
         split_result={
-            "split_count": split_count,
+            "would_split": would_split,
             "skipped_hrefs": skipped_hrefs,
-            "output": output,
-            "saved_path": str(output_path) if split_count > 0 else "",
+        },
+    )
+
+
+@app.route("/book/<session_id>/repair")
+def book_repair(session_id):
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    config = load_config(None)
+
+    modules = [
+        {"attr": attr, "label": label, "checked": getattr(config, attr).enabled}
+        for attr, label in _REPAIR_MODULES
+    ]
+
+    staged_metadata = _read_staged(_staged_metadata_path(session_dir))
+    staged_review = _read_staged(_staged_review_path(session_dir))
+    staged_field_count = len(staged_metadata["fields"]) if staged_metadata else 0
+    staged_boundary_count = len(staged_review["accepted_ids"]) if staged_review else 0
+
+    return render_template(
+        "repair.html",
+        active_tab="repair",
+        session_id=session_id,
+        filename=filename,
+        modules=modules,
+        has_staged_metadata=staged_metadata is not None,
+        has_staged_review=staged_review is not None,
+        staged_field_count=staged_field_count,
+        staged_boundary_count=staged_boundary_count,
+        result=None,
+    )
+
+
+@app.route("/book/<session_id>/repair", methods=["POST"])
+def apply_repair(session_id):
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+
+    selected = set(request.form.getlist("modules"))
+    config = load_config(None)
+    for attr, _label in _REPAIR_MODULES:
+        getattr(config, attr).enabled = attr in selected
+
+    book = EPUBParser().load(_source_path(session_dir))
+
+    # Staged metadata edits, if any -- applied directly the same way
+    # save_metadata used to write immediately, just deferred to here so
+    # it lands in the same file as everything else instead of its own
+    # separate "_fixed.epub".
+    staged_metadata = _read_staged(_staged_metadata_path(session_dir))
+    if staged_metadata is not None:
+        for name, value in staged_metadata["fields"].items():
+            write_core_field(book, name, value)
+        series_name = staged_metadata["series_name"]
+        if series_name:
+            series_metadata.write(book, series_name, staged_metadata["series_index"])
+
+    # Staged split boundaries, if any -- re-derives candidates fresh
+    # against the book as it exists right now (post-metadata-edit,
+    # though metadata edits never affect chapter structure, so this is
+    # really just "fresh" for its own sake, not because anything above
+    # could have invalidated it) and applies only the ones that still
+    # meet the 2-per-file bar.
+    split_count = 0
+    with _captured_output() as buf:
+        staged_review = _read_staged(_staged_review_path(session_dir))
+        if staged_review is not None:
+            accepted_ids = set(staged_review["accepted_ids"])
+            groups = _split_candidate_groups(book)
+            markers_by_href = {}
+            for group in groups:
+                accepted_nodes = [item["node"] for item in group["candidates"] if item["id"] in accepted_ids]
+                if len(accepted_nodes) < 2:
+                    continue
+                markers_by_href[group["href"]] = [
+                    SplitMarker(element=node.evidence.candidate.element, title=node.title, number=node.evidence.candidate.number)
+                    for node in accepted_nodes
+                ]
+            if markers_by_href:
+                engine_for_split = Engine(config=config)
+                split_count, _reports = engine_for_split._split_and_rewire(book, markers_by_href, details=False)
+
+        # Fresh analysis, reflecting any staged metadata/split changes
+        # applied above -- the repair modules below need to see the
+        # book as it actually is right now, not as it was when the
+        # Metadata/Review tabs were first opened.
+        analysis_report = EPUBAnalyzer().analyze(book)
+
+        engine = Engine(config=config)
+        reports_by_module, pass_num = engine.run_selected_repairs(book, engine.modules, analysis_report, max_passes=5)
+    engine_output = buf.getvalue()
+
+    output_path = _fixed_output_path(session_dir)
+    EPUBWriter().save(book, output_path)
+
+    _staged_metadata_path(session_dir).unlink(missing_ok=True)
+    _staged_review_path(session_dir).unlink(missing_ok=True)
+
+    module_summaries = [
+        {"name": name, "count": report.count}
+        for name, report in reports_by_module.items()
+        if report.count > 0
+    ]
+
+    modules = [
+        {"attr": attr, "label": label, "checked": attr in selected}
+        for attr, label in _REPAIR_MODULES
+    ]
+
+    return render_template(
+        "repair.html",
+        active_tab="repair",
+        session_id=session_id,
+        filename=filename,
+        modules=modules,
+        has_staged_metadata=False,
+        has_staged_review=False,
+        staged_field_count=0,
+        staged_boundary_count=0,
+        result={
+            "output_path": str(output_path),
+            "split_count": split_count,
+            "module_summaries": module_summaries,
+            "pass_count": pass_num,
+            "engine_output": engine_output,
         },
     )
 

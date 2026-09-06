@@ -40,6 +40,12 @@
     .review-notes { font-size: 0.8rem; color: #777; margin-top: 0.3rem; }
     .review-notes ul { margin: 0.2rem 0 0; padding-left: 1.2rem; }
     .empty-state { color: #666; }
+    .staged-banner { background: #ebf8ff; border: 1px solid #90cdf4; color: #2c5282; padding: 0.8rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.9rem; }
+    .module-list { border: 1px solid #ddd; border-radius: 10px; padding: 0.4rem 1.4rem; margin: 1rem 0 1.5rem; }
+    .module-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0; border-top: 1px solid #eee; }
+    .module-row:first-child { border-top: none; }
+    .result-summary { margin-top: 0.5rem; }
+    .result-summary ul { padding-left: 1.3rem; }
   </style>
 </head>
 <body>
@@ -48,6 +54,7 @@
     <a href="{{ url_for('book_analysis', session_id=session_id) }}" class="{{ 'active' if active_tab == 'analysis' else '' }}">Analysis</a>
     <a href="{{ url_for('book_metadata', session_id=session_id) }}" class="{{ 'active' if active_tab == 'metadata' else '' }}">Metadata</a>
     <a href="{{ url_for('book_review', session_id=session_id) }}" class="{{ 'active' if active_tab == 'review' else '' }}">Review</a>
+    <a href="{{ url_for('book_repair', session_id=session_id) }}" class="{{ 'active' if active_tab == 'repair' else '' }}">Repair</a>
     <a class="disabled">Before / After (coming soon)</a>
   </div>
   {% block content %}{% endblock %}

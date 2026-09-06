@@ -386,6 +386,56 @@ have:
   the combination is new even where each individual piece is already
   tested.
 
+**Done (2026-09-06).** Built essentially as scoped above. A few
+specifics worth recording:
+
+- `Engine` gained one more small public method alongside
+  `split_marked()`: `run_selected_repairs(book, modules,
+  analysis_report, max_passes=5)`, a thin wrapper around the existing
+  `_run_repair_passes()` (the CLI's own multi-pass convergence loop --
+  re-analyzes and re-runs the module list until a pass changes
+  nothing, capped at 5). Reusing this instead of writing a second
+  convergence loop means the GUI's Repair tab gets the exact same
+  "a fix can reveal a fresh, adjacent issue" handling `repair`/
+  `auto_fix` already have, for free.
+- Metadata's "Save Changes" is now "Stage Changes," and Review's
+  "Split Selected" is now "Stage Selected." Each just writes a small
+  JSON file into the session folder (`staged_metadata.json`,
+  `staged_review.json`) -- nothing touches the actual book until the
+  Repair tab's "Apply Everything." Revisiting either tab shows the
+  staged values/selections, not the original analysis, so a staged
+  edit doesn't quietly vanish from view.
+- The Review tab's staging step still re-validates the "2+ boundaries
+  per file" rule immediately (as a preview: "N files will split," not
+  silently deferred), even though the real check happens again at
+  apply time against a fresh candidate scan -- the boundaries staged
+  are re-derived from the book at apply time rather than trusted from
+  the moment they were checked, in case anything changed in between.
+- Apply order: staged metadata fields, then staged split boundaries
+  (via the engine's own `_split_and_rewire`, not `split_marked`, to
+  avoid an intermediate write nothing else needs), then a fresh
+  `EPUBAnalyzer` pass so the standard-repair modules see the book as
+  it actually is right now, then the checked modules via
+  `run_selected_repairs()`, then exactly one `EPUBWriter().save()`.
+  Both staged JSON files are deleted once applied, so the tabs read as
+  "nothing staged" again afterward.
+
+Tested against a constructed fake-Calibre-library book (same fixture
+as the earlier Calibre-detection fix): staged a metadata fix (title,
+publisher, series) and a chapter split in the same session, applied
+both plus every standard repair together, and confirmed the single
+resulting file has all of it -- the corrected title/publisher/series
+AND the physical split (13 files -> 23) -- and still passes `validate`.
+Ran a full "apply every module" pass across all 11 sample books (using
+scratch copies, not the real `examples/` folder, so this didn't leave
+`_fixed.epub` clutter in the repo): all 11 succeed, all 11 pass
+`validate`, and running Apply a second time against each already-fixed
+output makes zero further changes on every single one -- full
+idempotency held even through this much more complex, multi-source
+combined pass. Full CLI regression (`analyze` and `repair` on all 11
+samples) stayed clean throughout, confirming none of this touched the
+CLI's own path.
+
 ### Phase 5 -- Editable language field
 Language currently shows read-only on the Metadata tab, because the
 EPUB and Calibre sides are never a real disagreement (see

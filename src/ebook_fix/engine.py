@@ -1311,6 +1311,18 @@ class Engine:
 
         return split_count, [crossref_report, ncx_report, entry_report]
 
+    def run_selected_repairs(self, book, modules, analysis_report, max_passes=5):
+        """Public wrapper around _run_repair_passes, for a caller (the
+        GUI's Repair tab) that already has a book and a fresh analysis
+        in hand -- e.g. right after applying staged metadata edits or a
+        staged split -- and wants to run a specific module list without
+        going through the CLI-facing repair()'s own
+        load/resolve-source/write shell. Doesn't write anything;
+        that's the caller's job once every selected change is applied.
+        Returns (reports_by_module, pass_num), same as
+        _run_repair_passes."""
+        return self._run_repair_passes(book, modules, EPUBAnalyzer(), analysis_report, max_passes=max_passes)
+
     def split_marked(self, book, output, markers_by_href, details=False):
         """Applies chapter splits only at the exact boundaries given in
         markers_by_href (href -> list[SplitMarker]), then writes the

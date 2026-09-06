@@ -7,15 +7,21 @@
   as safe; anything weaker needs your own look first.
 </p>
 
+{% if is_staged %}
+<div class="staged-banner">
+  Selections staged. Go to the <a href="{{ url_for('book_repair', session_id=session_id) }}">Repair tab</a> to actually split anything.
+</div>
+{% endif %}
+
 {% if split_result %}
-  {% if split_result.saved_path %}
-  <div class="saved-banner">
-    Split {{ split_result.split_count }} file{{ 's' if split_result.split_count != 1 else '' }} at the boundaries you selected,
-    saved directly to <code>{{ split_result.saved_path }}</code>.
+  {% if split_result.would_split %}
+  <div class="staged-banner" style="background:#f0fff4;border-color:#9ae6b4;color:#22543d;">
+    {{ split_result.would_split }} file{{ 's' if split_result.would_split != 1 else '' }} will split once applied on the Repair tab.
+    {% if split_result.skipped_hrefs %}{{ split_result.skipped_hrefs|length }} file(s) only have one boundary picked and won't split &mdash; select at least two in the same file.{% endif %}
   </div>
   {% else %}
-  <div class="saved-banner" style="background:#fffaf0;border-color:#fbd38d;color:#7b341e;">
-    Nothing was split.
+  <div class="staged-banner" style="background:#fffaf0;border-color:#fbd38d;color:#7b341e;">
+    Nothing will split with this selection.
     {% if split_result.skipped_hrefs %}
     You picked only one boundary in {{ split_result.skipped_hrefs|length }} file(s) &mdash;
     select at least two in the same file to split it.
@@ -50,7 +56,7 @@
     {% endfor %}
   </div>
   {% endfor %}
-  <button type="submit" class="button">Split Selected</button>
+  <button type="submit" class="button">Stage Selected</button>
 </form>
 {% endif %}
 {% endblock %}
