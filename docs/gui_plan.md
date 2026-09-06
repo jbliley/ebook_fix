@@ -61,6 +61,20 @@ same posture the CLI already has with `--dry-run` / review-gated
 splits -- the GUI's job is to make the decision easier, not to change
 what's allowed to happen automatically.
 
+**Course correction (2026-09-06):** that last paragraph was the
+original intent, but Phase 2 and Phase 3 didn't actually build it that
+way -- Metadata's Save and Review's Split Selected each write their
+own output immediately, independently, which means using both in one
+session doesn't combine (whichever runs second overwrites the first --
+flagged honestly in both phases' write-ups above rather than hidden).
+Jacob confirmed this is a real problem, not just a rough edge: he
+wants metadata changes and the standard repair pipeline to end up in
+one output file, not several copies of the same book. Phases 4-6 below
+are about actually building the single-Apply design this section
+always described, plus two more things Jacob asked for directly: an
+editable language field, and an Analysis tab that reads like a report
+instead of a terminal transcript.
+
 ## Phases
 
 ### Phase 1 -- Backend scaffolding
@@ -328,7 +342,82 @@ own Windows machine to confirm, same caveat as before). Re-ran the
 full tab regression across all 11 sample books via path-based opening,
 plus a full CLI regression -- both clean.
 
-### Phase 4 -- Before / After tab
+### Phase 4 -- Unified Repair tab (Jacob's top priority)
+A new tab that's the actual single point of "make the changes real,"
+replacing the immediate-write behavior Metadata and Review currently
+have:
+
+- **Standard repairs, as checkboxes.** Every toggleable repair module
+  already has an `enabled` flag on `Config` (`WhitespaceRepairConfig`,
+  `GutenbergRepairConfig`, `CoverRepairConfig`, `IdentifierRepairConfig`,
+  `AuthorInitialsConfig`, and so on -- roughly 15 in total). The Repair
+  tab reads the project's own `ebook_fix.toml` (same file the CLI
+  already reads) and pre-checks each box to match it, rather than
+  inventing a second set of defaults the GUI has to keep in sync with
+  the config file by hand.
+- **Metadata and Review become staging, not writing.** Metadata's
+  "Save Changes" and Review's "Split Selected" stop writing a file
+  immediately -- they record what was chosen (edited field values;
+  accepted split-candidate ids) into the session folder instead, and
+  the Repair tab is what actually applies anything, in one pass:
+  staged metadata edits, staged split boundaries, and every checked
+  standard-repair module, ending in exactly one `EPUBWriter().save()`
+  call and one `<name>_fixed.epub` on disk. Both tabs' pages should
+  make clear a choice is staged, not yet applied, so this isn't a
+  surprise the first time someone hits it.
+- **Implementation shape:** `Engine.repair()` itself isn't the right
+  thing to call here as-is -- it loads its own fresh copy of the book
+  and writes at the end, with no way to hand it a book that already
+  has staged edits applied. Rather than reworking `repair()` itself
+  (CLI-facing, well-tested, no reason to touch it), the plan is to
+  call the same lower-level pieces directly, the same way Phase 2/3
+  already do: load the book once, apply staged metadata fields
+  (`write_core_field`) and staged split boundaries
+  (`Engine.split_marked`'s underlying pieces), then run whichever
+  `Engine(config=...).modules` came out of the checkboxes, each via
+  its own `.repair(book, analysis_report)`, then write once. This
+  reuses every module's real logic; it just orchestrates the call
+  order itself instead of going through `repair()`'s own shell.
+- **Regression bar:** this is the highest-stakes phase so far, since
+  it's the first thing actually composing several kinds of changes
+  into one file. Same standard as everything else in this project --
+  idempotent, valid, word-count parity where nothing should have
+  changed -- but worth being extra thorough here specifically, given
+  the combination is new even where each individual piece is already
+  tested.
+
+### Phase 5 -- Editable language field
+Language currently shows read-only on the Metadata tab, because the
+EPUB and Calibre sides are never a real disagreement (see
+`language_codes.py`) -- there's nothing to *resolve*. Jacob wants it
+editable anyway, as a dropdown, for the case where the language is
+just wrong outright, not merely formatted differently between the two
+sides. Small, self-contained: a dropdown of real language codes/names
+(a short well-known list -- doesn't need every ISO 639 code, just
+what's actually likely to come up), wired into the same staged-edit
+model Phase 4 introduces for the other fields, writing to the
+`dc:language` element the same way `write_core_field` already would if
+"language" weren't currently excluded from `_EDITABLE_FIELDS`.
+
+### Phase 6 -- Analysis tab rebuild
+Replaces the raw captured-CLI-text `<pre>` block from Phase 1 with an
+actual HTML report: real structure (headings, lists), and -- Jacob's
+specific ask -- **issues kept in their own section, separate from
+FYI-only information** like word count or chapter count, rather than
+interleaved the way the CLI's terminal-oriented output naturally is.
+
+This phase's real first task is an audit, not a layout exercise: going
+through everything `analyze()` currently reports (`summary`,
+`chapters`, `typography`, `css`, `frontmatter`, `merged_core_fields`,
+`merged_identifiers`, `calibre_context`, etc.) and sorting each piece
+into "a problem worth a person's attention" vs. "context, not a
+problem" -- that classification doesn't exist anywhere yet, since the
+CLI's plain-text report was never designed to make that distinction
+structurally. Once that's sorted, this talks to the analyzer directly
+for structured data, the same way the Metadata tab already does,
+rather than capturing printed text the way Phase 1 does today.
+
+### Phase 7 -- Before / After tab
 - Render a chapter/page from the original EPUB and its post-repair
   counterpart side by side.
 - Needs a page-matching approach for the split case specifically:
@@ -337,24 +426,27 @@ plus a full CLI regression -- both clean.
   1-to-1 page mapping. Scoping the exact matching logic is this
   phase's first task, not assumed up front.
 
-### Phase 5 -- Apply, polish, and packaging
-- A single "Apply all accepted changes" action across tabs, using the
-  same validation/idempotency guarantees the CLI already has.
-- Launch script (`.bat`) and a short setup note for running it.
+### Phase 8 -- Final polish and packaging
+- Launch script (`.bat`) and a short setup note for running it --
+  already exists (`run_gui.bat`/`run_gui.py`), so this is really just
+  making sure it still reflects however the app has grown by then.
 - Full regression pass across all sample books, same standard as
   every other feature in this project.
 
 ## Open questions
 
-- Exact page-matching approach for Phase 4's split case (see above) --
+- Exact page-matching approach for Phase 7's split case (see above) --
   deferred to that phase rather than guessed at now.
 - Whether the Review tab's cover-mismatch item shows the two cover
   images directly in that tab, or defers full visual comparison to
   the Before/After tab -- likely the latter, to avoid building two
   versions of the same comparison view, but not decided yet.
-- How much of the analysis report the Metadata/Review tabs need
-  reshaped into vs. reused as-is from what `analyzer.py` already
-  produces for the CLI.
+- Phase 4's exact wording/UI for "this is staged, not applied yet" on
+  the Metadata and Review tabs -- needs to be clear without being
+  annoying on every single visit to those tabs.
+- Phase 6's Issue-vs-FYI classification for each analyzer section --
+  genuinely not decided yet; that's the phase's own first task, not
+  something to guess at in this doc.
 
 ## Continuity note
 This file is the source of truth for the GUI's scope and phase order,
