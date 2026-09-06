@@ -43,6 +43,8 @@ from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.config import load_config
 from ebook_fix.engine import Engine
 from ebook_fix.parser import EPUBParser
+from ebook_fix.splitter import SplitMarker
+from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, iter_chapter_nodes
 from ebook_fix.writer import EPUBWriter
 from metadata.core_fields import write_core_field
 
@@ -83,6 +85,52 @@ def _load_analysis(session_dir: Path):
     book = EPUBParser().load(session_dir / "original.epub")
     analysis_report = EPUBAnalyzer().analyze(book)
     return book, analysis_report
+
+
+def _split_candidate_groups(book):
+    """Every chapter-start boundary worth showing a person, grouped by
+    the file it's in. A file needs 2+ candidates to be split at all
+    (a single boundary has nothing to cut it against) -- same gate
+    Engine.split_chapters() already uses -- so a file with just one is
+    left out of the list entirely; there's genuinely nothing to review
+    there yet.
+
+    Each item carries the live StructureNode (under "node") alongside
+    the template-facing fields, so save_review() below can rebuild the
+    exact same groups from a fresh copy of the book and match the
+    person's accepted checkbox ids back to real elements to split at
+    -- the node itself never round-trips through the browser."""
+    tree = analyze_structure(book)
+    by_href: dict[str, list] = {}
+    for node in iter_chapter_nodes(tree):
+        if node.evidence is None or node.evidence.confidence == SplitConfidence.NONE:
+            continue
+        by_href.setdefault(node.start_href, []).append(node)
+
+    groups = []
+    for href, nodes in by_href.items():
+        if len(nodes) < 2:
+            continue
+        candidates = []
+        for i, node in enumerate(nodes):
+            confidence = node.evidence.confidence
+            candidates.append({
+                "id": f"{href}::{i}",
+                "title": node.title or "(untitled)",
+                "confidence": confidence.value,
+                # CORROBORATED is the only level the project's own
+                # split-safety-bar considers safe to apply without a
+                # person looking (see docs/split_safety_bar.md) -- so
+                # it's the only one pre-checked. SEQUENCE_ONLY and
+                # NEEDS_REVIEW still show up, but require an active
+                # choice.
+                "auto_checked": confidence == SplitConfidence.CORROBORATED,
+                "notes": node.evidence.notes,
+                "preview": element_text_preview(node.evidence.candidate.element),
+                "node": node,
+            })
+        groups.append({"href": href, "candidates": candidates})
+    return groups
 
 
 @contextmanager
@@ -237,6 +285,70 @@ def download(session_id):
     original_name = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
     download_name = Path(original_name).stem + "_fixed.epub"
     return send_file(output_path, as_attachment=True, download_name=download_name)
+
+
+@app.route("/book/<session_id>/review")
+def book_review(session_id):
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    book = EPUBParser().load(session_dir / "original.epub")
+    groups = _split_candidate_groups(book)
+
+    return render_template(
+        "review.html",
+        active_tab="review",
+        session_id=session_id,
+        filename=filename,
+        groups=groups,
+        has_candidates=bool(groups),
+        split_result=None,
+    )
+
+
+@app.route("/book/<session_id>/review", methods=["POST"])
+def save_review(session_id):
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    book = EPUBParser().load(session_dir / "original.epub")
+    groups = _split_candidate_groups(book)
+
+    accepted_ids = set(request.form.getlist("accept"))
+
+    markers_by_href = {}
+    skipped_hrefs = []
+    for group in groups:
+        accepted_nodes = [item["node"] for item in group["candidates"] if item["id"] in accepted_ids]
+        if not accepted_nodes:
+            continue
+        if len(accepted_nodes) < 2:
+            # Splitting needs at least 2 boundaries in the same file --
+            # one accepted checkbox alone has nothing to cut against.
+            skipped_hrefs.append(group["href"])
+            continue
+        markers_by_href[group["href"]] = [
+            SplitMarker(element=node.evidence.candidate.element, title=node.title, number=node.evidence.candidate.number)
+            for node in accepted_nodes
+        ]
+
+    engine = Engine(config=load_config(None))
+    with _captured_output() as buf:
+        split_count, _reports = engine.split_marked(book, session_dir / "output.epub", markers_by_href, details=False)
+    output = buf.getvalue()
+
+    return render_template(
+        "review.html",
+        active_tab="review",
+        session_id=session_id,
+        filename=filename,
+        groups=_split_candidate_groups(EPUBParser().load(session_dir / "original.epub")),
+        has_candidates=bool(groups),
+        split_result={
+            "split_count": split_count,
+            "skipped_hrefs": skipped_hrefs,
+            "output": output,
+            "downloadable": split_count > 0,
+        },
+    )
 
 
 def _open_browser_soon():

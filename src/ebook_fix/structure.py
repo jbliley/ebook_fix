@@ -467,6 +467,23 @@ def iter_chapter_nodes(tree: BookStructure):
     yield from _walk_chapters(tree.nodes)
 
 
+def element_text_preview(el, word_limit: int = 25) -> str:
+    """A short snippet of an element's own text -- enough for a person
+    reviewing a detected boundary (e.g. the GUI's Review tab) to
+    recognize the spot without opening the book itself. Same idea as
+    case3_structural.py's own _preview_text, kept as a separate,
+    public copy here rather than shared, since that one is scoped to
+    a case3 divider specifically and this one needs to work for any
+    StructureNode's evidence.candidate.element."""
+    words = "".join(el.itertext()).split()
+    if not words:
+        return ""
+    snippet = " ".join(words[:word_limit])
+    if len(words) > word_limit:
+        snippet += "..."
+    return snippet
+
+
 def _candidate_ids(candidate: Any, max_ancestor_levels: int = 2) -> set:
     """id attributes on a candidate's own element and its nearest few
     ancestors. Checking ancestors too because a book's own id (the one

@@ -171,6 +171,66 @@ own path.
   that already exist (`split_chapters`, etc.), rather than inventing
   a parallel decision mechanism.
 
+**Mostly done (2026-09-05).** Turned out the plan's assumption above
+wasn't quite right: `split_chapters()` isn't actually review-gated
+yet -- its own docstring says so plainly ("NOT gated by the full
+split-safety-bar corroboration requirement yet... Treat any output
+from this command as a mechanics test, not a finished conversion").
+It auto-splits anything SEQUENCE_ONLY or better with no person
+involved at all, which is exactly the opposite of what a Review tab
+is for. Good news: `structure.py`'s `BoundaryEvidence` already tracks
+everything a person would need to judge a boundary --
+`confidence` (NONE / SEQUENCE_ONLY / NEEDS_REVIEW / CORROBORATED) and
+a `notes` list explicitly written, per its own docstring, "to surface
+directly in a review command/GUI, not just for debugging." That data
+just had nowhere to go before now.
+
+Two small additions, neither touching anything the CLI calls:
+- `structure.element_text_preview()`: a short text snippet from a
+  candidate's own element, for recognizing the spot without opening
+  the book. Same idea as `case3_structural.py`'s private
+  `_preview_text`, kept as its own public copy rather than shared,
+  since this one needs to work for any `StructureNode`, not just a
+  case3 divider.
+- `Engine.split_marked()`: applies a split only at the exact
+  boundaries given, rather than every eligible one automatically --
+  factors the existing split+rewire+write steps `split_chapters()`
+  already does into something a caller can point at a person-approved
+  subset. `split_chapters()` itself is untouched and still does what
+  it always did.
+
+The Review tab groups candidates by file (a file needs 2+ accepted
+boundaries to split at all -- one alone has nothing to cut against,
+same gate `split_chapters()` already used). CORROBORATED boundaries
+are pre-checked, since that's the one level the project's own safety
+bar already calls safe without a person watching; SEQUENCE_ONLY and
+NEEDS_REVIEW show up too, but require an active choice, each with its
+own preview snippet and notes. "Split Selected" applies only the
+accepted boundaries and offers the result as a download, same pattern
+as the Metadata tab.
+
+One correctness gap worth being upfront about, not silently papered
+over: Metadata's "Save" and Review's "Split Selected" each write their
+own `output.epub` independently from the *original* upload, so doing
+both in the same session doesn't currently combine into one file with
+both sets of changes -- whichever runs second simply overwrites the
+first's output. Building a single, cross-tab "apply everything" file
+is explicitly Phase 5's job (see above); this is worth flagging now so
+it doesn't look like an accidental data-loss bug later.
+
+Tested: detected real candidates across 8 of the 11 sample books (the
+other 3 have nothing to flag -- clean books with existing chapter
+markers and TOC entries that already line up, exactly Jacob's "case
+1" from the three-case framework). Accepted a real group of boundaries
+in `GutenbergText-ChapterSplit.epub`, confirmed the file count actually
+grew (15 -> 32 files) and the result still passes `validate`. Also
+confirmed selecting only one boundary in a file, or nothing at all,
+shows a clear "nothing was split" message rather than silently doing
+nothing or erroring. Ran all three tabs (Analysis/Metadata/Review)
+against all 11 sample books with no crashes, plus a full CLI
+regression (`analyze` and `split-structure` on all 11) to confirm the
+two additions above didn't touch the CLI's own behavior at all.
+
 ### Phase 4 -- Before / After tab
 - Render a chapter/page from the original EPUB and its post-repair
   counterpart side by side.

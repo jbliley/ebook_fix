@@ -1311,6 +1311,20 @@ class Engine:
 
         return split_count, [crossref_report, ncx_report, entry_report]
 
+    def split_marked(self, book, output, markers_by_href, details=False):
+        """Applies chapter splits only at the exact boundaries given in
+        markers_by_href (href -> list[SplitMarker]), then writes the
+        result -- the same split+rewire+write steps split_chapters()
+        performs below, factored out so a caller (the GUI's Review tab)
+        can supply a person-approved subset of candidates instead of
+        every SEQUENCE_ONLY-or-better boundary automatically. Doesn't
+        touch split_chapters() itself or anything the CLI calls.
+        Returns (split_count, reports) -- see _split_and_rewire."""
+        split_count, reports = self._split_and_rewire(book, markers_by_href, details=details)
+        if split_count > 0:
+            EPUBWriter().save(book, output)
+        return split_count, reports
+
     def split_chapters(self, epub, output, overwrite=False, details=False):
         """Phase 1 of the XHTML Recoder plan (see
         docs/xhtml_recoder_plan.md): a hands-on way to try the

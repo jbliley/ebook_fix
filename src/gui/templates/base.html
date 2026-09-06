@@ -26,6 +26,20 @@
     .field-block { margin-bottom: 0.5rem; }
     .saved-banner { background: #f0fff4; border: 1px solid #9ae6b4; color: #22543d; padding: 0.8rem 1rem; border-radius: 8px; margin-bottom: 1rem; }
     .details-toggle { font-size: 0.85rem; margin-bottom: 0.75rem; color: #555; }
+    .review-group { border: 1px solid #ddd; border-radius: 10px; padding: 1.2rem 1.4rem; margin-bottom: 1.2rem; }
+    .review-group h3 { font-size: 0.95rem; margin: 0 0 0.8rem; color: #444; word-break: break-word; }
+    .review-item { display: flex; gap: 0.6rem; padding: 0.7rem 0; border-top: 1px solid #eee; }
+    .review-item:first-of-type { border-top: none; }
+    .review-item input[type=checkbox] { margin-top: 0.3rem; }
+    .review-item .item-title { font-weight: 600; }
+    .confidence-tag { display: inline-block; border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.75rem; margin-left: 0.5rem; }
+    .confidence-corroborated { background: #f0fff4; color: #22543d; border: 1px solid #9ae6b4; }
+    .confidence-sequence-only { background: #fffaf0; color: #7b341e; border: 1px solid #fbd38d; }
+    .confidence-needs-review { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; }
+    .review-preview { font-size: 0.85rem; color: #555; margin-top: 0.3rem; font-style: italic; }
+    .review-notes { font-size: 0.8rem; color: #777; margin-top: 0.3rem; }
+    .review-notes ul { margin: 0.2rem 0 0; padding-left: 1.2rem; }
+    .empty-state { color: #666; }
   </style>
 </head>
 <body>
@@ -33,7 +47,7 @@
   <div class="tabs">
     <a href="{{ url_for('book_analysis', session_id=session_id) }}" class="{{ 'active' if active_tab == 'analysis' else '' }}">Analysis</a>
     <a href="{{ url_for('book_metadata', session_id=session_id) }}" class="{{ 'active' if active_tab == 'metadata' else '' }}">Metadata</a>
-    <a class="disabled">Review (coming soon)</a>
+    <a href="{{ url_for('book_review', session_id=session_id) }}" class="{{ 'active' if active_tab == 'review' else '' }}">Review</a>
     <a class="disabled">Before / After (coming soon)</a>
   </div>
   {% block content %}{% endblock %}

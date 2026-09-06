@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="details-toggle">
+  Detected chapter-start boundaries, grouped by the file each one is in. A file needs at least
+  two accepted boundaries to actually split it &mdash; one alone has nothing to cut against.
+  Corroborated boundaries are pre-checked since the project's own safety bar already treats those
+  as safe; anything weaker needs your own look first.
+</p>
+
+{% if split_result %}
+  {% if split_result.downloadable %}
+  <div class="saved-banner">
+    Split {{ split_result.split_count }} file{{ 's' if split_result.split_count != 1 else '' }} at the boundaries you selected.
+    <a href="{{ url_for('download', session_id=session_id) }}">Download the updated EPUB</a>.
+  </div>
+  {% else %}
+  <div class="saved-banner" style="background:#fffaf0;border-color:#fbd38d;color:#7b341e;">
+    Nothing was split.
+    {% if split_result.skipped_hrefs %}
+    You picked only one boundary in {{ split_result.skipped_hrefs|length }} file(s) &mdash;
+    select at least two in the same file to split it.
+    {% else %}
+    Select at least two boundaries in the same file, then try again.
+    {% endif %}
+  </div>
+  {% endif %}
+{% endif %}
+
+{% if not has_candidates %}
+<p class="empty-state">No chapter-start boundaries were detected in this book, or every file already has a TOC and chapter markers that line up &mdash; nothing here needs review.</p>
+{% else %}
+<form method="post" action="{{ url_for('save_review', session_id=session_id) }}">
+  {% for group in groups %}
+  <div class="review-group">
+    <h3>{{ group.href }}</h3>
+    {% for item in group.candidates %}
+    <div class="review-item">
+      <input type="checkbox" name="accept" value="{{ item.id }}" id="item-{{ loop.index0 }}-{{ group.href }}" {% if item.auto_checked %}checked{% endif %}>
+      <div>
+        <label for="item-{{ loop.index0 }}-{{ group.href }}" style="display:inline; font-weight:normal; margin:0;">
+          <span class="item-title">{{ item.title }}</span>
+          <span class="confidence-tag confidence-{{ item.confidence|replace(' ', '-') }}">{{ item.confidence }}</span>
+        </label>
+        {% if item.preview %}<div class="review-preview">&ldquo;{{ item.preview }}&rdquo;</div>{% endif %}
+        {% if item.notes %}
+        <div class="review-notes"><ul>{% for note in item.notes %}<li>{{ note }}</li>{% endfor %}</ul></div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  <button type="submit" class="button">Split Selected</button>
+</form>
+{% endif %}
+{% endblock %}
