@@ -284,6 +284,50 @@ hand-typing a long path) would be a nice next step here, but needs
 testing on Jacob's own Windows machine before it ships -- there's no
 way to verify a real desktop file dialog from this sandbox.
 
+### Follow-up -- single Browse button, path-only (2026-09-05)
+
+Jacob tested the fix above and confirmed it correctly detects both
+Calibre-managed and standalone books -- but rejected the two-box
+layout (a file picker and a separate typed-path field) outright:
+"having two boxes is not gonna work." He wanted one Browse button that
+gets the real path itself, the way any normal desktop program's Open
+dialog does.
+
+Built the native dialog that was flagged as a next step above: a new
+`/browse` route runs a short-lived `python -c` subprocess (kept out of
+Flask's own process, since tkinter's event loop doesn't mix well with
+Flask's request-handling threads) that opens a real OS file-picker via
+tkinter (ships with a standard Python install) and returns the chosen
+path as JSON. The homepage is now a single "Browse for a Book..."
+button; a small amount of JS calls `/browse`, then submits the
+resulting path to `/upload` automatically -- no visible path field at
+all in the normal case.
+
+Since path-based opening now works for every book Jacob tried, Calibre
+-managed or not, there was no remaining reason to keep the old
+browser-upload-by-bytes code path around at all -- removed it
+entirely rather than leaving two ways to open a book (one of which,
+per the whole point of the earlier fix, never worked as well as the
+other). This simplified more than just the homepage: every session is
+now guaranteed to have a real file location, so the earlier
+"uploaded vs. real-path session" branching throughout `app.py`
+(`_is_real_path_session`, the download-vs-save-to-disk fork in what
+was `_output_path_for`) collapsed into one path -- `_fixed_output_path()`
+always writes "<name>_fixed.epub" next to the real file, full stop.
+The `/book/<id>/download` route and its `send_file` import are gone
+too, since nothing produces a download-only file anymore.
+
+Tested: re-ran the full fake-Calibre-library scenario from the entry
+above against the simplified code and confirmed identical
+behavior (detection, MISMATCH flagging, save-to-disk location, and a
+valid resulting file). Confirmed `/browse` fails with a clear JSON
+error rather than crashing when no display is available to open a
+dialog on (this sandbox has none -- the success path itself, an
+actual dialog popping up and returning a path, still needs Jacob's
+own Windows machine to confirm, same caveat as before). Re-ran the
+full tab regression across all 11 sample books via path-based opening,
+plus a full CLI regression -- both clean.
+
 ### Phase 4 -- Before / After tab
 - Render a chapter/page from the original EPUB and its post-repair
   counterpart side by side.

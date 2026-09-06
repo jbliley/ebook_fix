@@ -8,12 +8,7 @@
 </p>
 
 {% if split_result %}
-  {% if split_result.downloadable %}
-  <div class="saved-banner">
-    Split {{ split_result.split_count }} file{{ 's' if split_result.split_count != 1 else '' }} at the boundaries you selected.
-    <a href="{{ url_for('download', session_id=session_id) }}">Download the updated EPUB</a>.
-  </div>
-  {% elif split_result.saved_path %}
+  {% if split_result.saved_path %}
   <div class="saved-banner">
     Split {{ split_result.split_count }} file{{ 's' if split_result.split_count != 1 else '' }} at the boundaries you selected,
     saved directly to <code>{{ split_result.saved_path }}</code>.

@@ -1,20 +1,29 @@
 """
 gui.app
 
-Phase 1 (analysis) and Phase 2 (Metadata tab) of the GUI -- see
+Phases 1-3 of the GUI (Analysis, Metadata, Review tabs) -- see
 docs/gui_plan.md. A local Flask app that runs entirely on your own
 machine (localhost); nothing here is sent over the internet. Launch
 it via run_gui.bat / run_gui.py at the repo root, or `python -m
 gui.app` once the package is installed.
 
-Session model: each uploaded book gets a session id (a folder name
-under the system temp directory) so the Analysis, Metadata, Review,
-and Before/After tabs can all work against the same book across
-several requests without re-uploading. There's no login and no
-cleanup job yet -- this is a single-user local tool, and an old
-session folder left in the temp directory is harmless clutter, not a
-real problem, but it's a known gap worth fixing before this goes much
-further (see docs/gui_plan.md).
+A book is opened by real file path -- picked via a native OS file
+dialog (see browse() below), never by browser upload. This isn't just
+a UI preference: a browser's own <input type="file"> can only ever
+hand the server raw bytes, never a real location, and Calibre
+detection needs that real location to walk up looking for
+metadata.db. See docs/gui_plan.md, "Bug fix -- Calibre detection and
+save location," for the full story of why this app doesn't support
+upload-by-bytes at all.
+
+Session model: each opened book gets a session id (a folder name
+under the system temp directory, holding just a pointer to the real
+file, never a copy of it) so the Analysis, Metadata, Review, and
+Before/After tabs can all work against the same book across several
+requests. There's no login and no cleanup job yet -- this is a
+single-user local tool, and an old session folder left in the temp
+directory is harmless clutter, not a real problem, but it's a known
+gap worth fixing before this goes much further (see docs/gui_plan.md).
 
 This calls the same building blocks the CLI already uses --
 ebook_fix.parser.EPUBParser, ebook_fix.analyzer.EPUBAnalyzer,
@@ -28,6 +37,8 @@ AnalysisReport object, not printed text.
 from __future__ import annotations
 
 import io
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -36,7 +47,7 @@ import webbrowser
 from contextlib import contextmanager
 from pathlib import Path
 
-from flask import Flask, abort, redirect, render_template, request, send_file, url_for
+from flask import Flask, abort, redirect, render_template, request, url_for
 
 from ebook_fix import series as series_metadata
 from ebook_fix.analyzer import EPUBAnalyzer
@@ -49,10 +60,6 @@ from ebook_fix.writer import EPUBWriter
 from metadata.core_fields import write_core_field
 
 app = Flask(__name__)
-# An EPUB can legitimately run well over 50MB (lots of embedded
-# images); 200MB is a generous ceiling that still catches someone
-# accidentally uploading the wrong kind of file.
-app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
 
 SESSIONS_ROOT = Path(tempfile.gettempdir()) / "ebook_fix_gui_sessions"
 
@@ -79,26 +86,17 @@ def _session_dir(session_id: str) -> Path:
 
 
 def _source_path(session_dir: Path) -> Path:
-    """Where to actually read the book from. A session opened by
-    typed/browsed path (real_path.txt present) reads straight from
-    that real location on disk -- this is what lets Calibre detection
-    work at all (it walks up from the book's own path looking for
-    metadata.db and Calibre's folder-naming convention, so a copy
-    sitting in a temp folder can never be recognized as Calibre-
-    managed, no matter what it contains). A session opened by browser
-    upload has no real location to speak of -- the browser only ever
-    hands over bytes, never a path (a deliberate browser security
-    restriction, not something this app can work around) -- so that
-    case reads from the copy this app made itself, and is always
-    "standalone" as far as Calibre detection goes."""
-    real_path_file = session_dir / "real_path.txt"
-    if real_path_file.exists():
-        return Path(real_path_file.read_text(encoding="utf-8"))
-    return session_dir / "original.epub"
-
-
-def _is_real_path_session(session_dir: Path) -> bool:
-    return (session_dir / "real_path.txt").exists()
+    """Every session is opened by a real file path now (the Browse
+    button gets one from a native OS dialog; see browse() below) --
+    a browser's own <input type="file"> can only ever hand over
+    bytes, never a real location, which is exactly why Calibre
+    detection couldn't work before this existed: calibre_detect.py
+    walks up from the book's own path looking for metadata.db and
+    Calibre's folder-naming convention, and a copy sitting in a temp
+    folder can never be recognized as Calibre-managed no matter what
+    it contains. See docs/gui_plan.md, "Bug fix -- Calibre detection
+    and save location"."""
+    return Path((session_dir / "real_path.txt").read_text(encoding="utf-8"))
 
 
 def _load_analysis(session_dir: Path):
@@ -110,19 +108,15 @@ def _load_analysis(session_dir: Path):
     return book, analysis_report
 
 
-def _output_path_for(session_dir: Path) -> tuple[str, Path]:
-    """Where a fix should be written: for a real-path session, right
-    next to the original file as "<name>_fixed.epub" -- the same
-    default the CLI's own repair command uses when no -o is given --
-    so it lands in the right folder without a browser download step
-    at all. For an uploaded session (no real location to write next
-    to), into the session folder instead, for the person to download
-    through the browser same as Phases 1-3 always worked. Returns
-    (mode, path) where mode is "saved_to_disk" or "download"."""
-    if _is_real_path_session(session_dir):
-        source = _source_path(session_dir)
-        return "saved_to_disk", source.with_name(source.stem + "_fixed" + source.suffix)
-    return "download", session_dir / "output.epub"
+def _fixed_output_path(session_dir: Path) -> Path:
+    """Where a fix gets written: right next to the original file as
+    "<name>_fixed.epub" -- the same default the CLI's own repair
+    command uses when no -o is given. Since every session now knows
+    the book's real location, this is the only path a fix is ever
+    written to -- no browser download step, the file's just already
+    in the right folder."""
+    source = _source_path(session_dir)
+    return source.with_name(source.stem + "_fixed" + source.suffix)
 
 
 def _split_candidate_groups(book):
@@ -208,36 +202,64 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/browse", methods=["POST"])
+def browse():
+    """Opens a real OS file-picker dialog on this machine and returns
+    the chosen path as JSON, so opening a book means one familiar
+    Browse button rather than a typed path -- a browser's own
+    <input type="file"> can never hand back a real path (a deliberate
+    browser security restriction), which is exactly why Calibre
+    detection couldn't work before this existed; see the "Bug fix --
+    Calibre detection and save location" entry in docs/gui_plan.md.
+
+    Runs the dialog in a short-lived subprocess (a plain `python -c`
+    call with tkinter, which ships with a standard Python install)
+    rather than in-process, since tkinter's own event loop doesn't mix
+    well with Flask's request-handling threads. If tkinter isn't
+    available at all, this fails with a clear message rather than a
+    silent hang."""
+    script = (
+        "import tkinter, tkinter.filedialog, sys\n"
+        "root = tkinter.Tk()\n"
+        "root.withdraw()\n"
+        "root.attributes('-topmost', True)\n"
+        "path = tkinter.filedialog.askopenfilename(\n"
+        "    title='Choose an EPUB file',\n"
+        "    filetypes=[('EPUB files', '*.epub'), ('All files', '*.*')],\n"
+        ")\n"
+        "sys.stdout.write(path)\n"
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True, timeout=180,
+        )
+    except Exception as exc:
+        return {"error": f"Couldn't open the file browser: {exc}"}
+
+    if result.returncode != 0:
+        return {"error": "Couldn't open the file browser -- is tkinter installed with your Python?"}
+
+    return {"path": result.stdout.strip()}
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     typed_path = request.form.get("path", "").strip().strip('"')
-    uploaded = request.files.get("epub_file")
+    if not typed_path:
+        return render_template("index.html", error="No file was chosen.")
 
-    if typed_path:
-        path_obj = Path(typed_path)
-        if not path_obj.is_file():
-            return render_template("index.html", error=f"Can't find that file: {typed_path}")
-        if path_obj.suffix.lower() != ".epub":
-            return render_template("index.html", error="That doesn't look like an EPUB file (expected a .epub).")
-
-        session_id = str(uuid.uuid4())
-        session_dir = SESSIONS_ROOT / session_id
-        session_dir.mkdir(parents=True, exist_ok=True)
-        (session_dir / "real_path.txt").write_text(str(path_obj.resolve()), encoding="utf-8")
-        (session_dir / "original_filename.txt").write_text(path_obj.name, encoding="utf-8")
-        return redirect(url_for("book_analysis", session_id=session_id))
-
-    if uploaded is None or uploaded.filename == "":
-        return render_template("index.html", error="Choose an EPUB file, or paste a path to one, first.")
-    if not uploaded.filename.lower().endswith(".epub"):
+    path_obj = Path(typed_path)
+    if not path_obj.is_file():
+        return render_template("index.html", error=f"Can't find that file: {typed_path}")
+    if path_obj.suffix.lower() != ".epub":
         return render_template("index.html", error="That doesn't look like an EPUB file (expected a .epub).")
 
     session_id = str(uuid.uuid4())
     session_dir = SESSIONS_ROOT / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
-    uploaded.save(session_dir / "original.epub")
-    (session_dir / "original_filename.txt").write_text(uploaded.filename, encoding="utf-8")
-
+    (session_dir / "real_path.txt").write_text(str(path_obj.resolve()), encoding="utf-8")
+    (session_dir / "original_filename.txt").write_text(path_obj.name, encoding="utf-8")
     return redirect(url_for("book_analysis", session_id=session_id))
 
 
@@ -330,22 +352,9 @@ def save_metadata(session_id):
                 series_index = None
         series_metadata.write(book, series_name, series_index)
 
-    mode, output_path = _output_path_for(session_dir)
+    output_path = _fixed_output_path(session_dir)
     EPUBWriter().save(book, output_path)
-    if mode == "saved_to_disk":
-        return redirect(url_for("book_metadata", session_id=session_id, saved="1", saved_path=str(output_path)))
-    return redirect(url_for("book_metadata", session_id=session_id, saved="1"))
-
-
-@app.route("/book/<session_id>/download")
-def download(session_id):
-    session_dir = _session_dir(session_id)
-    output_path = session_dir / "output.epub"
-    if not output_path.exists():
-        abort(404)
-    original_name = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
-    download_name = Path(original_name).stem + "_fixed.epub"
-    return send_file(output_path, as_attachment=True, download_name=download_name)
+    return redirect(url_for("book_metadata", session_id=session_id, saved="1", saved_path=str(output_path)))
 
 
 @app.route("/book/<session_id>/review")
@@ -392,7 +401,7 @@ def save_review(session_id):
         ]
 
     engine = Engine(config=load_config(None))
-    mode, output_path = _output_path_for(session_dir)
+    output_path = _fixed_output_path(session_dir)
     with _captured_output() as buf:
         split_count, _reports = engine.split_marked(book, output_path, markers_by_href, details=False)
     output = buf.getvalue()
@@ -408,8 +417,7 @@ def save_review(session_id):
             "split_count": split_count,
             "skipped_hrefs": skipped_hrefs,
             "output": output,
-            "downloadable": split_count > 0 and mode == "download",
-            "saved_path": str(output_path) if split_count > 0 and mode == "saved_to_disk" else "",
+            "saved_path": str(output_path) if split_count > 0 else "",
         },
     )
 
