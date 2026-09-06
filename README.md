@@ -1,186 +1,598 @@
 # ebook_fix
-An automated tool that will be able to detect and fix both common and uncommon issues with the structure and text of eBook files.
 
-The ultimate goal of this project is to allow any type of eBook file to be analyzed and fixed without the need of running it through AI, as they are often too large of a job for free usage. This idea is stemming from the many free eBook files online that are poorly converted from early PDF files, or those that were printed directly from HTML files from 20+ years ago. As this project is in its infancy, it can only analyze and repair .epub files so far.
+An automated tool that can detect and fix both common and uncommon issues with the structure, text, metadata, and other elements of eBook files.
 
-<h3>Installation</h3>
-<p>There are two ways to run ebook_fix, use whichever is easier for your setup.</p>
-<p><b>Option 1: Install it as a command (recommended)</b></p>
-<p>From the project's root folder, run this once:</p>
-<p>&emsp;<code>pip install -e .</code></p>
-<p>After that, use the <code>ebook-fix</code> command from any folder, on any book:</p>
-<p>&emsp;<code>ebook-fix analyze "C:/path/to/file/ebook title.epub"</code></p>
-<p>If Windows can't find the <code>ebook-fix</code> command right after installing, pip will print a warning during install with a folder path in it (something like <code>...Python\Scripts</code>). Add that folder to your PATH (search "Environment Variables" in Windows Settings) and reopen your terminal, and the command will work.</p>
-<p><b>Option 2: Run it without installing anything</b></p>
-<p>Every command also works by running the file directly from the <code>src</code> folder, with no install step and no PATH setup needed:</p>
-<p>&emsp;<code>python cli.py analyze "C:/path/to/file/ebook title.epub"</code></p>
-<p>Every command shown in this README works either way. Wherever you see <code>python cli.py</code> below, you can substitute <code>ebook-fix</code> once it's installed, or keep using <code>python cli.py</code> from the <code>src</code> folder if you'd rather skip installing.</p>
+The ultimate goal of this project is to allow eBook files to be analyzed and fixed without needing to run them through AI, as they are often too large of a job for free usage. This idea stems from the many free eBook files available online that were poorly converted from early PDF files or printed directly from HTML files 20+ years ago.
 
-<h3>Planned Software Capabilities</h3>
-<ul>
-<li>Analyze complete text and structure of eBook file</li>
-<li>Display analysis and detected issues in a detailed uniform summary</li>
-<li>Fix detected issues based on the analysis</li>
-<li>Base repairs to be done on config file (all on by default)</li>
-<li>Analyze/repair different types of eBooks besides EPUB</li>
-<li>Offer both GUI and CLI interfaces with bulk capabilities</li>
-</ul>
+The project is still under development and currently supports analysis and repair of **EPUB** files.
 
-<h3>Analysis</h3>
-Before the repair runs, it runs an analysis to map the structure and elements of the book, including:
-<ul>
-<li>Images</li>
-<li>Metadata/Version</li>
-<li>HTML Pages</li>
-<li>CSS Styles</li>
-<li>Chapter/Paragraph/Word Counts</li>
-<li>Common Text Issues</li>
-<li>Hyperlinks</li>
-<li>Table of Contents</li>
-<li>Typography</li>
-<li>Whitespace</li>
-<li>Ellipsis</li>
-<li>Apostrophes</li>
-</ul>
-<br>Book Metadata includes every identifier the book carries (ISBN, ASIN, a Calibre UUID, etc.), not just one, with each classified by type where recognizable, and shown together in one Identifiers list rather than a single headline value. It also reports whether the book is being read from inside a Calibre library or as a standalone file. When it's Calibre-managed, the book's own internal metadata is compared against Calibre's metadata.opf sidecar, and any field where they genuinely disagree (title, ISBN, series, etc.) is flagged rather than one silently overriding the other. Several known non-issues are recognized automatically instead of being flagged: Calibre's three-letter language code versus EPUB's two-letter one (eng vs en), an author name written in opposite order on each side (Smith, John vs John Smith) which is standardized to First Last, and a title that only differs in whitespace, straight vs curly punctuation, or ALL CAPS. A book's UUID is treated the same way, but for a different reason: it's completely normal for the EPUB's own UUID and Calibre's UUID to be different values, so UUIDs (including one that's mislabeled but still unmistakably UUID-shaped) are just listed together rather than ever compared against each other as a possible mismatch. A likely subtitle or series annotation on only one side (Sidewinders vs Sidewinders: A Western Novel) is still flagged, but with a note explaining the likely relationship instead of a bare disagreement, since keeping or dropping it is a real judgment call. For a Calibre-managed book, repair and auto-fix go a step further and actually write these confidently-resolved values back, into both the EPUB and the metadata.opf sidecar, so the fix persists rather than just being reported every time. A standalone EPUB with no metadata.opf to confirm against is left alone, still just flagged. Every identifier is also cleaned up on every book regardless of Calibre status: a garbled or missing scheme label gets corrected once the value's own shape (or an embedded label like "ISBN: ") confidently matches a known type, the value itself gets normalized, and an exact duplicate that results is dropped. An author's initials are standardized the same unconditional way, on every book: "AA Milne" and "A.A. Milne" both become "A. A. Milne", since that's unambiguous on its own and doesn't need a second source to confirm it. Running analyze just shows what's flagged in the moment; running repair or auto-fix on a book with anything genuinely flagged also appends it to a running identifier_review.csv in the current folder, so patterns across many books are easy to spot later.
-<br>This analysis runs automatically before running a repair. To run only the analysis without the repair (from the src folder):
-<p>&emsp;<b>Run analysis: </b><code>python cli.py analyze "C:/path/to/file/ebook title.epub"</code></p>
+## Table of Contents
 
-<h3>Repair</h3>
-After the analysis, the repair will automatically fix issues it finds. These fixes can be changed in the config file (see below). Besides the options in the config file, all repairs are done automatically without input. Nothing repaired should break the book, but if you find something does break it please pop it onto the Issues page.
-<p>&emsp;<b>Run repair: </b><code>python cli.py repair "C:/path/to/file/ebook title.epub"</code></p>
-Once the repair finishes, a Repair Report is printed listing only the fixes that were actually applied, grouped by module with a count for each issue type. Pass <code>--details</code> to see the full before/after list for every single change instead of just the counts.
-<p>&emsp;<b>Run repair with full detail: </b><code>python cli.py repair "C:/path/to/file/ebook title.epub" --details</code></p>
-One of the things repair checks is the book's cover: if there's exactly one clearly identifiable cover image (no ambiguity about which file it is), it renames that file to a standard <code>cover.jpg</code>/<code>cover.png</code>/etc. (matching whatever format the image already is, never converting it) and makes sure both the older and newer ways a book can declare its cover agree on it. A book with no cover declared at all, or with genuinely conflicting cover information, is reported rather than guessed at; use <code>replace-cover</code> below to fix those.
+* [Installation](#installation)
 
-<h3>Auto-Fix</h3>
-<p>For a single hands-off command, <code>auto-fix</code> runs everything the normal repair does, then also standardizes chapter-heading and body-text CSS classes (using only its highest-confidence guesses, applied immediately with no file left behind to review) and strips every hardcoded text color from the book so your ebook reader's own theme/night mode controls it instead.</p>
-<p>&emsp;<b>Run auto-fix: </b><code>python cli.py auto-fix "C:/path/to/file/ebook title.epub"</code></p>
-This is a trade of a little safety for convenience: unlike the reviewed class-mapping workflow below, nothing here is checked by a person first. If a book comes out of <code>auto-fix</code> looking wrong, the original file was never touched, so the normal <code>repair</code> command is still there to use instead.
+  * [Option 1: Install as a Command](#option-1-install-as-a-command-recommended)
+  * [Option 2: Run Without Installing](#option-2-run-without-installing)
+* [Web GUI](#web-gui)
+* [Analysis](#analysis)
+* [Repair](#repair)
+* [Auto-Fix](#auto-fix)
+* [Replace Cover](#replace-cover)
+* [Series Metadata](#series-metadata)
+* [File Integrity](#file-integrity)
+* [Config File](#config-file)
+* [Command Cheat Sheet](#command-cheat-sheet)
 
-<h3>Replace Cover</h3>
-<p>To swap in a new cover image, whether the book already has one or not, use <code>replace-cover</code> with either a local file path or a URL:</p>
-<p>&emsp;<b>From a local file: </b><code>python cli.py replace-cover "C:/path/to/file/ebook title.epub" "C:/path/to/new-cover.jpg"</code></p>
-<p>&emsp;<b>From a URL: </b><code>python cli.py replace-cover "C:/path/to/file/ebook title.epub" "https://example.com/new-cover.jpg"</code></p>
-<p>The image's actual format is checked by inspecting the file itself, not by trusting its name or extension, and it's kept as-is (never converted) but renamed to the same standard <code>cover.&lt;ext&gt;</code> filename repair uses. If the book already has a usable cover, this replaces it in place; if it doesn't, this adds one from scratch. Unlike repair, this never needs to guess since you're supplying the image directly, so it works even on a book repair would otherwise just report a cover problem on.</p>
+  * [`analyze`](#analyze)
+  * [`repair`](#repair)
+  * [`auto-fix`](#auto-fix)
+  * [`series`](#series)
+  * [`replace-cover`](#replace-cover)
+  * [`validate`](#validate)
+  * [`map-css`](#map-css)
+  * [`map-structure`](#map-structure)
+  * [`split-structure`](#split-structure)
+  * [`init-config`](#init-config)
 
-<h3>Series Metadata</h3>
-<p>Since a book's own content never reliably says what series it belongs to, this is the one piece of metadata you set by hand rather than something analysis detects on its own. Once set, it's written using both calibre's convention and EPUB3's official one, so it shows up correctly whether the book is opened in calibre, an e-reader, or anything else that reads either standard.</p>
-<p>&emsp;<b>Set a series: </b><code>python cli.py series "C:/path/to/file/ebook title.epub" --name "Mountain Man" --index 4</code></p>
-<p>Position can be a decimal like <code>3.5</code>, for a bonus or novella entry between two numbered books. Leave <code>--index</code> off entirely if the book only needs a series name and no number.</p>
-<p>If you leave off <code>--name</code> and/or <code>--index</code>, the command asks for whatever's missing right there in the console instead of erroring out, so you don't need to remember the exact flags:</p>
-<p>&emsp;<b>Set a series interactively: </b><code>python cli.py series "C:/path/to/file/ebook title.epub"</code></p>
-<p>Running this again on a book that already has series info updates it in place rather than adding a duplicate, so it's safe to correct a typo or bump the number later. Once <code>analyze</code> sees a book with series metadata already on it, it shows the series name and position under Book Metadata, purely for reference; that display doesn't need this command to have been run first, only for the metadata to already be there.</p>
+---
 
-<h3>File Integrity</h3>
-<p>Before <code>analyze</code> or <code>repair</code> touch a file, they first confirm it's actually a well-formed EPUB: readable, starts with the ZIP signature, opens as a ZIP, has an intact central directory, contains a META-INF/container.xml, and can locate its OPF package document. If any of these fail, the command stops there and reports which check failed instead of trying to work with a broken file.</p>
-<p>When the integrity check fails, <code>analyze</code> and <code>repair</code> automatically try a conservative, best-effort repair of the file's ZIP/EPUB structure before giving up. What it can fix with confidence:</p>
-<ul>
-<li>Junk bytes sitting before the start of the ZIP archive (e.g. from a bad copy or download).</li>
-<li>A missing or damaged central directory / end-of-file index, rebuilt from the individual entries — as long as none of them were written in "streaming" mode (size stored after the data instead of in the header), which can't be resolved safely.</li>
-<li>A missing or broken <code>META-INF/container.xml</code>, regenerated to point at the archive's OPF file — but only when there's exactly one unambiguous <code>.opf</code> file to point it at.</li>
-</ul>
-What it won't fix, and will instead report clearly:
-<ul>
-<li>A file with no ZIP signature anywhere in it — the structure itself is gone, not just damaged, so the data is most likely unrecoverable.</li>
-<li>Corrupted bytes inside an entry (CRC mismatch) — there's nothing to safely reconstruct them from.</li>
-<li>Streamed ZIP entries when the index is also missing.</li>
-<li>An ambiguous or missing OPF (zero or multiple <code>.opf</code> candidates).</li>
-</ul>
-If the container repair succeeds, the run continues normally on the repaired copy — content fixes are applied on top, and <code>repair</code> writes out one clean, fully-fixed file. Pass <code>--no-container-repair</code> to skip this and just report the problem instead.
-<p>&emsp;<b>Run file integrity: </b><code>python cli.py validate "C:/path/to/file/ebook title.epub"</code></p>
+## Installation
 
-<h3>Config File</h3>
-Every fix is on by default. To turn specific fixes off, generate a config file (if needed) and edit it:<br><br>
-<p>&emsp;<b>Create a config:</b><code>python cli.py init-config</code></p>
-This writes <code>ebook_fix.toml</code> in the current folder. Open it in any text editor and change <code>true</code> to <code>false</code> next to any fix you want to skip, then save.
-<p>&emsp;<b>Use it:</b> python cli.py analyze "C:/Books/ebook title.epub" --config ebook_fix.toml</p>
-If a file named <code>ebook_fix.toml</code> is sitting in the folder you run the command from, it's picked up automatically — you don't need to pass <code>--config</code> at all. Delete the file (or don't create one) to run with every fix enabled.
+There are several ways to run `ebook_fix`. Use whichever is easiest for your setup.
 
-<h3>Command Cheat Sheet</h3>
-Quick reference for every command and flag currently available. Run these from the <code>src</code> folder as <code>python cli.py &lt;command&gt; [options]</code>.
+### Option 1: Install as a Command (Recommended)
 
-<p><b>analyze</b> - Analyze an EPUB without modifying it.</p>
-<ul>
-<li><code>input</code> - Path to the EPUB file.</li>
-<li><code>--details</code> - Show the full line-by-line issue list instead of the category summary.</li>
-<li><code>--config FILE</code> - Path to a TOML config file controlling which fixes are enabled. Defaults to <code>ebook_fix.toml</code> if present, otherwise every fix runs.</li>
-<li><code>--no-container-repair</code> - Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem.</li>
-</ul>
+From the project's root folder, run:
 
-<p><b>repair</b> - Repair an EPUB.</p>
-<ul>
-<li><code>input</code> - Path to the EPUB file.</li>
-<li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_fixed.epub</code>.</li>
-<li><code>--dry-run</code> - Analyze repairs without writing a file.</li>
-<li><code>--details</code> - Show the full before/after list of every change instead of the category summary.</li>
-<li><code>--class-mapping FILE</code> - Apply a confirmed class-standardization mapping (from <code>map-css --write-mapping</code>, reviewed by hand) as part of this repair. Renames chapter-heading/body-text classes and standardizes their CSS.</li>
-<li><code>--case3-boundaries FILE</code> - Review and apply Case 3 chapter boundaries (books with no chapter-heading words and no existing table of contents). If <code>FILE</code> doesn't exist yet, detects every candidate boundary and writes it there for review, without touching the book. Delete a boundary you don't trust and re-run the same command to physically split on whatever's left.</li>
-<li><code>--verbose</code> - Verbose output.</li>
-<li><code>--config FILE</code> - Same as <code>analyze</code>.</li>
-<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
-<li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_fixed.epub</code>. You'll be asked to confirm before that happens.</li>
-</ul>
+```bash
+pip install -e .
+```
 
-<p><b>auto-fix</b> - One-command hands-off repair. Runs everything the normal repair does, plus high-confidence-only class standardization and book-wide text color removal, with no review step and no mapping file left behind.</p>
-<ul>
-<li><code>input</code> - Path to the EPUB file.</li>
-<li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_autofixed.epub</code>.</li>
-<li><code>--details</code> - Show the full before/after list of every change instead of the category summary.</li>
-<li><code>--verbose</code> - Verbose output.</li>
-<li><code>--config FILE</code> - Same as <code>analyze</code>.</li>
-<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
-<li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_autofixed.epub</code>. You'll be asked to confirm before that happens.</li>
-</ul>
+After that, you can use the `ebook-fix` command from any folder:
 
-<p><b>series</b> - Set (or update) a book's series name and position, written using both calibre's and EPUB3's conventions.</p>
-<ul>
-<li><code>input</code> - Path to the EPUB file.</li>
-<li><code>--name NAME</code> - Series name. If omitted, you're prompted for it.</li>
-<li><code>--index NUMBER</code> - Position within the series. Accepts decimals like <code>3.5</code> for a bonus/novella entry. If omitted, you're prompted for it.</li>
-<li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_series.epub</code>.</li>
-<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
-<li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_series.epub</code>. You'll be asked to confirm before that happens.</li>
-</ul>
+```bash
+ebook-fix analyze "C:/path/to/file/ebook title.epub"
+```
 
-<p><b>replace-cover</b> - Install a new cover image from a local file or a URL, replacing whatever cover the book currently has (if any).</p>
-<ul>
-<li><code>input</code> - Path to the EPUB file.</li>
-<li><code>source</code> - Path to a local image file, or an http(s) URL to download it from.</li>
-<li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_cover.epub</code>.</li>
-<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
-<li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_cover.epub</code>. You'll be asked to confirm before that happens.</li>
-</ul>
+If Windows can't find the `ebook-fix` command immediately after installing, pip will print a warning containing a folder path similar to:
 
-<p><b>validate</b> - Run the file-integrity check only, without analyzing or repairing.</p>
-<ul>
-<li><code>input</code> - Path to the EPUB file.</li>
-<li><code>--repair</code> - If the file fails validation, also try to repair its ZIP/EPUB container and report the result.</li>
-</ul>
+```text
+...Python\Scripts
+```
 
-<p><b>map-css</b> - Show a best-guess semantic role for every CSS class used in the book (for example, "calibre3" likely means body-text), for review before renaming.</p>
-<ul>
-<li><code>input</code> - Path to the EPUB file.</li>
-<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
-<li><code>--write-mapping FILE</code> - Also write an editable TOML mapping of high/medium-confidence chapter-heading and body-text classes to FILE, for review ahead of a future standardize/rename repair pass.</li>
-</ul>
+Add that folder to your PATH through **Windows Settings → Environment Variables**, then reopen your terminal.
 
-<p><b>map-structure</b> - Show the detected chapter structure and each boundary's split-confidence, for review before any physical splitting.</p>
-<ul>
-<li><code>input</code> - Path to the EPUB file.</li>
-<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
-</ul>
+### Option 2: Run Without Installing
 
-<p><b>split-structure</b> - Proof of concept: physically splits any file with 2+ detected chapter boundaries into standalone chapter files, rewrites any affected in-body cross-reference links, and updates the NCX (rewriting existing entries that pointed into the old file, adding new ones for pieces that had none). A mechanics test, not a finished conversion.</p>
-<ul>
-<li><code>input</code> - Path to the EPUB file.</li>
-<li><code>-o, --output FILE</code> - Output EPUB. Defaults to <code>&lt;input&gt;_split.epub</code>.</li>
-<li><code>--details</code> - Show the full before/after list of every cross-reference link rewritten, instead of the category summary.</li>
-<li><code>--no-container-repair</code> - Same as <code>analyze</code>.</li>
-<li><code>--overwrite</code> - Replace the output file if it already exists. Without <code>-o/--output</code>, this replaces the original file itself instead of writing <code>&lt;input&gt;_split.epub</code>. You'll be asked to confirm before that happens.</li>
-</ul>
+Every CLI command can also be run directly from the `src` folder without installing the package or changing your PATH:
 
-<p><b>init-config</b> - Write a default config file you can edit to turn fixes on/off.</p>
-<ul>
-<li><code>-o, --output FILE</code> - Where to write the config file. Defaults to <code>ebook_fix.toml</code>.</li>
-</ul>
+```bash
+python cli.py analyze "C:/path/to/file/ebook title.epub"
+```
+
+Every command shown in this README works either way. Wherever you see:
+
+```bash
+python cli.py
+```
+
+you can substitute:
+
+```bash
+ebook-fix
+```
+
+if you installed the command, or continue using `python cli.py` from the `src` folder.
+
+---
+
+## Web GUI
+
+`ebook_fix` now includes a browser-based GUI for users who would rather not work from the command line.
+
+### Starting the GUI on Windows
+
+From the project's root folder, simply **double-click**:
+
+```text
+run_gui.bat
+```
+
+The launcher starts the local web server and automatically opens the GUI in your default browser.
+
+The GUI is available at:
+
+```text
+http://127.0.0.1:5000
+```
+
+You do **not** need to install `ebook_fix` as a command to use the GUI.
+
+> **Important:** Leave the command window opened while using the GUI. Closing that window stops the GUI server.
+
+The GUI runs locally on your computer. Nothing is sent over the internet; it is simply a local application that uses your web browser as its interface.
+
+### Starting the GUI manually
+
+If you prefer to start it from a terminal, run this from the project root:
+
+```bash
+python run_gui.py
+```
+
+The browser should open automatically.
+
+---
+
+## Analysis
+
+Before a repair runs, `ebook_fix` analyzes the structure and elements of the book, including:
+
+* Images
+* Metadata and EPUB version
+* HTML pages
+* CSS styles
+* Chapter, paragraph, and word counts
+* Common text issues
+* Hyperlinks
+* Table of Contents
+* Typography
+* Whitespace
+* Ellipsis
+* Apostrophes
+
+### Book Metadata
+
+Metadata analysis includes every identifier the book carries, including:
+
+* ISBN
+* ASIN
+* Calibre UUID
+* Other recognized identifiers
+
+Identifiers are classified by type where possible and displayed together rather than selecting a single headline identifier.
+
+The analysis also determines whether the book is being read from inside a Calibre library or as a standalone EPUB.
+
+For Calibre-managed books, the EPUB's internal metadata is compared against Calibre's `metadata.opf` sidecar. Genuine disagreements in fields such as title, ISBN, series, etc. are flagged rather than silently allowing one source to override the other.
+
+Several known non-issues are automatically recognized, including:
+
+* Calibre's three-letter language code versus EPUB's two-letter code (`eng` vs `en`)
+* Author names written in opposite order (`Smith, John` vs `John Smith`)
+* Titles differing only by whitespace
+* Straight versus curly punctuation
+* Titles differing only because one is in ALL CAPS
+
+UUIDs are treated differently because it is completely normal for an EPUB's UUID and Calibre's UUID to be different. UUIDs are therefore listed together rather than treated as a possible mismatch.
+
+Likely subtitles or series annotations appearing on only one side are flagged with an explanation when appropriate, since keeping or removing them can require an actual judgment call.
+
+For Calibre-managed books, repair and auto-fix can write confidently resolved metadata values back to both the EPUB and the `metadata.opf` sidecar.
+
+Standalone EPUBs without a `metadata.opf` to compare against are left alone and simply have the issue reported.
+
+Identifiers are also cleaned up regardless of Calibre status. Garbled or missing scheme labels can be corrected when the value itself clearly identifies the type, identifier values are normalized, and exact duplicates are removed.
+
+Author initials are standardized as well. For example:
+
+```text
+AA Milne
+A.A. Milne
+```
+
+become:
+
+```text
+A. A. Milne
+```
+
+When `analyze` finds something that should be reviewed, it reports it without modifying the book. Running `repair` or `auto-fix` on a book with genuinely flagged issues also appends the information to `identifier_review.csv` in the current folder, making it possible to review patterns across larger collections.
+
+### Run Analysis
+
+Analysis is also performed automatically before a repair.
+
+To run analysis by itself:
+
+```bash
+python cli.py analyze "C:/path/to/file/ebook title.epub"
+```
+
+---
+
+## Repair
+
+After analysis, `repair` automatically fixes issues that it finds.
+
+Most repairs are enabled by default and can be controlled through the configuration file described in [Config File](#config-file).
+
+```bash
+python cli.py repair "C:/path/to/file/ebook title.epub"
+```
+
+Once the repair finishes, a **Repair Report** is printed showing only the fixes that were actually applied. The report is grouped by module with a count for each issue type.
+
+Use `--details` to see the complete before/after information for every individual change:
+
+```bash
+python cli.py repair "C:/path/to/file/ebook title.epub" --details
+```
+
+### Cover Handling During Repair
+
+Repair also checks the book's cover.
+
+If there is exactly one clearly identifiable cover image, `ebook_fix`:
+
+1. Renames the image to the standard `cover.jpg`, `cover.png`, etc.
+2. Keeps the image's existing format.
+3. Does not convert the image.
+4. Makes sure the older and newer EPUB cover declarations agree.
+
+If there is no declared cover or the cover information genuinely conflicts, the problem is reported rather than guessed at.
+
+Use [`replace-cover`](#replace-cover) when you want to explicitly provide a cover image.
+
+---
+
+## Auto-Fix
+
+`auto-fix` provides a single hands-off command.
+
+It runs everything that normal `repair` does, and also:
+
+* Standardizes chapter-heading and body-text CSS classes using only high-confidence guesses.
+* Applies those class changes immediately without creating a review file.
+* Removes hardcoded text colors throughout the book so the reader's own theme/night-mode settings can control text color.
+
+```bash
+python cli.py auto-fix "C:/path/to/file/ebook title.epub"
+```
+
+This trades some safety for convenience. Unlike the reviewed class-mapping workflow, there is no manual review step.
+
+The original EPUB is not modified unless you explicitly use `--overwrite`, so if the result does not look right, the original file remains available and the normal `repair` command can be used instead.
+
+---
+
+## Replace Cover
+
+To replace or add a cover image, use `replace-cover` with either a local image file or a URL.
+
+### Local Image
+
+```bash
+python cli.py replace-cover "C:/path/to/file/ebook title.epub" "C:/path/to/new-cover.jpg"
+```
+
+### Image URL
+
+```bash
+python cli.py replace-cover "C:/path/to/file/ebook title.epub" "https://example.com/new-cover.jpg"
+```
+
+The image's actual format is determined by inspecting the image itself rather than trusting its filename or extension.
+
+The original format is preserved and the image is renamed to the standard:
+
+```text
+cover.<ext>
+```
+
+If the book already has a usable cover, it is replaced. If it does not have one, a new cover is added.
+
+Unlike normal repair, `replace-cover` never needs to guess which image you intended because you explicitly provide it.
+
+---
+
+## Series Metadata
+
+A book's own content cannot reliably determine which series it belongs to, so series information is something you set manually.
+
+Once set, the series information is written using both Calibre's convention and EPUB3's official metadata, allowing it to display correctly in Calibre, e-readers, and other EPUB software.
+
+### Set a Series
+
+```bash
+python cli.py series "C:/path/to/file/ebook title.epub" --name "Mountain Man" --index 4
+```
+
+The series position can be a decimal:
+
+```text
+3.5
+```
+
+This can be useful for bonus books or novellas that fall between numbered entries.
+
+If the book only needs a series name, `--index` can be omitted.
+
+### Interactive Mode
+
+If `--name` and/or `--index` are omitted, the command prompts for the missing information:
+
+```bash
+python cli.py series "C:/path/to/file/ebook title.epub"
+```
+
+Running the command again on a book that already has series information updates the existing values rather than creating duplicates.
+
+When `analyze` encounters existing series metadata, it displays the series name and position under Book Metadata for reference.
+
+---
+
+## File Integrity
+
+Before `analyze` or `repair` works on an EPUB, the file is checked to make sure it is a valid EPUB.
+
+The integrity check verifies that the file:
+
+* Is readable
+* Starts with the ZIP signature
+* Can be opened as a ZIP archive
+* Has an intact central directory
+* Contains `META-INF/container.xml`
+* Can locate its OPF package document
+
+If any of these checks fail, the command reports the problem rather than blindly attempting to work with a broken file.
+
+### Automatic Container Repair
+
+When an integrity check fails, `analyze` and `repair` automatically attempt a conservative, best-effort repair of the EPUB's ZIP/container structure.
+
+Issues that can be repaired with confidence include:
+
+* Junk bytes before the start of the ZIP archive
+* A missing or damaged central directory/end-of-file index, when the entries contain enough information to rebuild it
+* A missing or broken `META-INF/container.xml`, when there is exactly one unambiguous `.opf` file
+
+Issues that cannot be safely repaired are reported instead, including:
+
+* A file with no ZIP signature anywhere in it
+* Corrupted bytes inside an entry, such as a CRC mismatch
+* Streamed ZIP entries when the index is also missing
+* An ambiguous or missing OPF file
+
+If container repair succeeds, the normal analysis and repair process continues on the repaired copy.
+
+Use `--no-container-repair` to skip the automatic container-repair attempt and only report the integrity problem.
+
+### Run File Integrity Check
+
+```bash
+python cli.py validate "C:/path/to/file/ebook title.epub"
+```
+
+---
+
+## Config File
+
+Every repair is enabled by default.
+
+To disable specific repairs, generate a configuration file:
+
+```bash
+python cli.py init-config
+```
+
+This creates:
+
+```text
+ebook_fix.toml
+```
+
+in the current folder.
+
+Open the file in a text editor and change `true` to `false` for any repair you want to disable.
+
+### Using a Config File
+
+```bash
+python cli.py analyze "C:/Books/ebook title.epub" --config ebook_fix.toml
+```
+
+If a file named `ebook_fix.toml` exists in the folder from which you run the command, it is automatically detected. You do not need to pass `--config`.
+
+Delete the config file, or don't create one, to run with every repair enabled.
+
+---
+
+# Command Cheat Sheet
+
+Quick reference for the commands and flags currently available.
+
+Run these from the `src` folder as:
+
+```bash
+python cli.py <command> [options]
+```
+
+If you installed `ebook_fix` as a command, you can use:
+
+```bash
+ebook-fix <command> [options]
+```
+
+## `analyze`
+
+Analyze an EPUB without modifying it.
+
+```bash
+python cli.py analyze "C:/path/to/file/ebook title.epub"
+```
+
+Options:
+
+* `input` — Path to the EPUB file.
+* `--details` — Show the full line-by-line issue list instead of the category summary.
+* `--config FILE` — Path to a TOML config file controlling which fixes are enabled. Defaults to `ebook_fix.toml` if present.
+* `--no-container-repair` — Don't attempt to automatically repair a corrupted ZIP/EPUB container.
+
+---
+
+## `repair`
+
+Repair an EPUB.
+
+```bash
+python cli.py repair "C:/path/to/file/ebook title.epub"
+```
+
+Options:
+
+* `input` — Path to the EPUB file.
+* `-o, --output FILE` — Output EPUB. Defaults to `<input>_fixed.epub`.
+* `--dry-run` — Analyze repairs without writing a file.
+* `--details` — Show the full before/after list of every change.
+* `--class-mapping FILE` — Apply a confirmed CSS class-standardization mapping.
+* `--case3-boundaries FILE` — Review and apply Case 3 chapter boundaries.
+* `--verbose` — Verbose output.
+* `--config FILE` — Configuration file.
+* `--no-container-repair` — Disable automatic container repair.
+* `--overwrite` — Replace the output file if it already exists. Without `-o`, this replaces the original file after confirmation.
+
+---
+
+## `auto-fix`
+
+Run a hands-off repair with high-confidence CSS class standardization and hardcoded text-color removal.
+
+```bash
+python cli.py auto-fix "C:/path/to/file/ebook title.epub"
+```
+
+Options:
+
+* `input` — Path to the EPUB file.
+* `-o, --output FILE` — Output EPUB. Defaults to `<input>_autofixed.epub`.
+* `--details` — Show the full before/after list of every change.
+* `--verbose` — Verbose output.
+* `--config FILE` — Configuration file.
+* `--no-container-repair` — Disable automatic container repair.
+* `--overwrite` — Replace the output file if it already exists. Without `-o`, this replaces the original file after confirmation.
+
+---
+
+## `series`
+
+Set or update a book's series name and position.
+
+```bash
+python cli.py series "C:/path/to/file/ebook title.epub" --name "Mountain Man" --index 4
+```
+
+Options:
+
+* `input` — Path to the EPUB file.
+* `--name NAME` — Series name. If omitted, you're prompted for it.
+* `--index NUMBER` — Series position. Supports decimals such as `3.5`.
+* `-o, --output FILE` — Output EPUB. Defaults to `<input>_series.epub`.
+* `--no-container-repair` — Disable automatic container repair.
+* `--overwrite` — Replace the output file if it already exists. Without `-o`, this replaces the original file after confirmation.
+
+---
+
+## `replace-cover`
+
+Install a new cover image from a local file or URL.
+
+```bash
+python cli.py replace-cover "C:/path/to/file/ebook title.epub" "C:/path/to/new-cover.jpg"
+```
+
+Options:
+
+* `input` — Path to the EPUB file.
+* `source` — Local image path or HTTP/HTTPS URL.
+* `-o, --output FILE` — Output EPUB. Defaults to `<input>_cover.epub`.
+* `--no-container-repair` — Disable automatic container repair.
+* `--overwrite` — Replace the output file if it already exists. Without `-o`, this replaces the original file after confirmation.
+
+---
+
+## `validate`
+
+Run the file-integrity check without analyzing or repairing the EPUB.
+
+```bash
+python cli.py validate "C:/path/to/file/ebook title.epub"
+```
+
+Options:
+
+* `input` — Path to the EPUB file.
+* `--repair` — If validation fails, also attempt to repair the ZIP/EPUB container.
+
+---
+
+## `map-css`
+
+Show a best-guess semantic role for every CSS class used in the book.
+
+For example, a class such as `calibre3` may be identified as likely body text.
+
+```bash
+python cli.py map-css "C:/path/to/file/ebook title.epub"
+```
+
+Options:
+
+* `input` — Path to the EPUB file.
+* `--no-container-repair` — Disable automatic container repair.
+* `--write-mapping FILE` — Write an editable TOML mapping of high/medium-confidence chapter-heading and body-text classes for review.
+
+---
+
+## `map-structure`
+
+Show the detected chapter structure and each boundary's split confidence.
+
+```bash
+python cli.py map-structure "C:/path/to/file/ebook title.epub"
+```
+
+Options:
+
+* `input` — Path to the EPUB file.
+* `--no-container-repair` — Disable automatic container repair.
+
+---
+
+## `split-structure`
+
+Proof-of-concept command that physically splits files with two or more detected chapter boundaries into standalone chapter files.
+
+It also:
+
+* Rewrites affected in-body cross-reference links
+* Updates the NCX
+* Rewrites existing NCX entries that pointed into the old file
+* Adds new entries for pieces that did not have one
+
+This is currently a mechanics test rather than a finished conversion workflow.
+
+```bash
+python cli.py split-structure "C:/path/to/file/ebook title.epub"
+```
+
+Options:
+
+* `input` — Path to the EPUB file.
+* `-o, --output FILE` — Output EPUB. Defaults to `<input>_split.epub`.
+* `--details` — Show the full before/after list of every cross-reference link rewritten.
+* `--no-container-repair` — Disable automatic container repair.
+* `--overwrite` — Replace the output file if it already exists. Without `-o`, this replaces the original file after confirmation.
+
+---
+
+## `init-config`
+
+Create a default configuration file that can be edited to enable or disable repairs.
+
+```bash
+python cli.py init-config
+```
+
+Options:
+
+* `-o, --output FILE` — Where to write the config file. Defaults to `ebook_fix.toml`.
