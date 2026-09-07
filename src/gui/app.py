@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import io
 import json
+import mimetypes
 import subprocess
 import sys
 import tempfile
@@ -46,10 +47,11 @@ import threading
 import time
 import uuid
 import webbrowser
+import zipfile
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from flask import Flask, abort, redirect, render_template, request, url_for
+from flask import Flask, Response, abort, redirect, render_template, request, url_for
 
 from ebook_fix import series as series_metadata
 from ebook_fix.analyzer import EPUBAnalyzer
@@ -199,6 +201,16 @@ def _staged_metadata_path(session_dir: Path) -> Path:
 
 def _staged_review_path(session_dir: Path) -> Path:
     return session_dir / "staged_review.json"
+
+
+def _split_mapping_path(session_dir: Path) -> Path:
+    """Original href -> list of resulting hrefs, written by
+    apply_repair() whenever a staged split actually runs -- see the
+    Phase 7a scoping note in docs/gui_plan.md for why this can't be
+    reconstructed after the fact from the fixed EPUB alone. GUI-only
+    bookkeeping, same as staged_metadata.json/staged_review.json;
+    the CLI's own split commands never touch this file."""
+    return session_dir / "split_mapping.json"
 
 
 def _read_staged(path: Path):
@@ -610,6 +622,7 @@ def apply_repair(session_id):
     # could have invalidated it) and applies only the ones that still
     # meet the 2-per-file bar.
     split_count = 0
+    new_hrefs_by_origin = {}
     with _captured_output() as buf:
         staged_review = _read_staged(_staged_review_path(session_dir))
         if staged_review is not None:
@@ -626,7 +639,7 @@ def apply_repair(session_id):
                 ]
             if markers_by_href:
                 engine_for_split = Engine(config=config)
-                split_count, _reports = engine_for_split._split_and_rewire(book, markers_by_href, details=False)
+                split_count, _reports, new_hrefs_by_origin = engine_for_split._split_and_rewire(book, markers_by_href, details=False)
 
         # Fresh analysis, reflecting any staged metadata/split changes
         # applied above -- the repair modules below need to see the
@@ -640,6 +653,16 @@ def apply_repair(session_id):
 
     output_path = _fixed_output_path(session_dir)
     EPUBWriter().save(book, output_path)
+
+    # Persisted purely for the Before/After tab (Phase 7b,
+    # docs/gui_plan.md) -- a new chapter_004.xhtml's own filename never
+    # reveals which original chapter it came from (see the Phase 7a
+    # scoping note), so this is the one place that mapping actually
+    # exists and the only chance to save it. Written even when empty,
+    # overwriting any mapping left over from a previous Apply on this
+    # same session, so Before/After never shows stale split info from
+    # an earlier run that a person has since re-applied differently.
+    _split_mapping_path(session_dir).write_text(json.dumps(new_hrefs_by_origin), encoding="utf-8")
 
     _staged_metadata_path(session_dir).unlink(missing_ok=True)
     _staged_review_path(session_dir).unlink(missing_ok=True)
@@ -673,6 +696,125 @@ def apply_repair(session_id):
             "engine_output": engine_output,
         },
     )
+
+
+@app.route("/book/<session_id>/before-after")
+def book_before_after(session_id):
+    """Compares the original book against the most recent
+    "<n>_fixed.epub", chapter by chapter -- see docs/gui_plan.md,
+    Phase 7a, for the three-case scoping this route implements:
+    unchanged (same href both sides), split (one original href, one or
+    more resulting hrefs -- see split_mapping.json), and removed
+    (dropped entirely by a repair like Gutenberg Boilerplate Removal's
+    whole-file cleanup, detected here by simple href-set diffing since
+    that case needs no persisted mapping at all)."""
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+
+    fixed_path = _fixed_output_path(session_dir)
+    if not fixed_path.exists():
+        return render_template(
+            "before_after.html",
+            active_tab="before_after",
+            session_id=session_id,
+            filename=filename,
+            has_fixed=False,
+        )
+
+    original_book = EPUBParser().load(_source_path(session_dir))
+    fixed_book = EPUBParser().load(fixed_path)
+    fixed_hrefs = {c.href for c in fixed_book.chapters}
+
+    split_mapping = {}
+    mapping_path = _split_mapping_path(session_dir)
+    if mapping_path.exists():
+        split_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+
+    chapters = []
+    for c in original_book.chapters:
+        if c.href in split_mapping:
+            after_options = [c.href] + split_mapping[c.href]
+            status = "split"
+        elif c.href not in fixed_hrefs:
+            after_options = []
+            status = "removed"
+        else:
+            after_options = [c.href]
+            status = "unchanged"
+        chapters.append({
+            "href": c.href,
+            "title": c.title or c.href,
+            "status": status,
+            "after_options": after_options,
+        })
+
+    if not chapters:
+        return render_template(
+            "before_after.html",
+            active_tab="before_after",
+            session_id=session_id,
+            filename=filename,
+            has_fixed=True,
+            chapters=[],
+        )
+
+    requested_href = request.args.get("href")
+    selected = next((c for c in chapters if c["href"] == requested_href), chapters[0])
+
+    requested_after = request.args.get("after_href")
+    if requested_after in selected["after_options"]:
+        after_href = requested_after
+    else:
+        after_href = selected["after_options"][0] if selected["after_options"] else None
+
+    return render_template(
+        "before_after.html",
+        active_tab="before_after",
+        session_id=session_id,
+        filename=filename,
+        has_fixed=True,
+        chapters=chapters,
+        selected=selected,
+        after_href=after_href,
+    )
+
+
+@app.route("/book/<session_id>/asset/<side>/<path:href>")
+def book_asset(session_id, side, href):
+    """Serves one file's raw bytes straight out of the original
+    ("before") or fixed ("after") EPUB's own zip archive -- used as the
+    src for the Before/After tab's two <iframe>s. href is resolved
+    relative to that archive's own OPF directory, the same convention
+    every href elsewhere in this project already follows (see
+    parser.py's _read_toc for the same `base / href` idiom), which is
+    what lets a chapter's own relative <img src="../images/x.jpg"> or
+    <link href="../css/y.css"> resolve back through this exact route
+    automatically -- the browser does that relative-path resolution
+    against the iframe's own URL before ever asking the server for
+    anything, so this route never needs to know in advance which
+    assets belong to which chapter. Read-only, and only ever reads
+    from a session's own two known files (the original and its
+    "_fixed.epub"), never an arbitrary path."""
+    if side not in ("before", "after"):
+        abort(404)
+
+    session_dir = _session_dir(session_id)
+    epub_path = _source_path(session_dir) if side == "before" else _fixed_output_path(session_dir)
+    if not epub_path.exists():
+        abort(404)
+
+    book = EPUBParser().load(epub_path)
+    base = PurePosixPath(book.package_path).parent
+    full_path = str(base / href) if str(base) != "." else href
+
+    try:
+        with zipfile.ZipFile(epub_path, "r") as archive:
+            data = archive.read(full_path)
+    except KeyError:
+        abort(404)
+
+    media_type = mimetypes.guess_type(href)[0] or "application/octet-stream"
+    return Response(data, mimetype=media_type)
 
 
 def _open_browser_soon():

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+{% if not has_fixed %}
+<p class="empty-state">
+  No repaired file yet for this book. Run a repair on the
+  <a href="{{ url_for('book_repair', session_id=session_id) }}">Repair tab</a> first, then come back
+  here to compare before and after.
+</p>
+{% elif not chapters %}
+<p class="empty-state">This book has no chapters to compare.</p>
+{% else %}
+<form method="get" action="{{ url_for('book_before_after', session_id=session_id) }}" style="margin-bottom:1rem;">
+  <label for="chapter-select" style="margin-top:0;">Chapter</label>
+  <select id="chapter-select" name="href" onchange="this.form.submit()">
+    {% for c in chapters %}
+    <option value="{{ c.href }}" {% if c.href == selected.href %}selected{% endif %}>
+      {{ c.title }}{% if c.status == 'split' %} (split into {{ c.after_options|length }} pages){% elif c.status == 'removed' %} (removed by repair){% endif %}
+    </option>
+    {% endfor %}
+  </select>
+
+  {% if selected.status == 'split' %}
+  <label for="after-select">After page</label>
+  <select id="after-select" name="after_href" onchange="this.form.submit()">
+    {% for opt in selected.after_options %}
+    <option value="{{ opt }}" {% if opt == after_href %}selected{% endif %}>{{ opt }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+</form>
+
+{% if selected.status == 'removed' %}
+<p class="empty-state">
+  This page was removed entirely during repair (e.g. Gutenberg Boilerplate Removal dropping a
+  whole trailing back-matter file with no content of its own left) &mdash; there's no "after"
+  version to show.
+</p>
+<div class="before-after-grid before-after-single">
+  <div>
+    <h3>Before</h3>
+    <iframe src="{{ url_for('book_asset', session_id=session_id, side='before', href=selected.href) }}" sandbox=""></iframe>
+  </div>
+</div>
+{% else %}
+<div class="before-after-grid">
+  <div>
+    <h3>Before</h3>
+    <iframe src="{{ url_for('book_asset', session_id=session_id, side='before', href=selected.href) }}" sandbox=""></iframe>
+  </div>
+  <div>
+    <h3>After</h3>
+    <iframe src="{{ url_for('book_asset', session_id=session_id, side='after', href=after_href) }}" sandbox=""></iframe>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -813,6 +813,66 @@ GUI's own `apply_repair()` -- the CLI's `split_chapters`/`repair
 this file is GUI-only bookkeeping, same as `staged_metadata.json`/
 `staged_review.json` already are, not a new precedent.
 
+#### Phase 7b -- build (2026-09-07)
+
+Built against the 7a scoping above, no changes to the plan itself.
+
+- `_split_and_rewire()` in `engine.py` now returns a 3-tuple
+  (`split_count, reports, new_hrefs_by_origin`) instead of 2 -- all
+  four call sites updated (three in `engine.py` that don't need the
+  mapping, `apply_repair()` in `app.py` that does). `split_marked()`'s
+  own public return signature is untouched; nothing calls it from the
+  GUI, so it just discards the new value internally.
+- `apply_repair()` writes `split_mapping.json` unconditionally after
+  every Apply (even an empty `{}` when nothing split), so a re-applied
+  session never shows a stale mapping left over from an earlier run.
+- New `gui/analysis_view`-style route pair in `app.py`:
+  `book_before_after()` (the tab itself) and `book_asset()` (serves
+  one file's raw bytes out of either the original or `_fixed.epub`
+  archive, for use as an `<iframe src>`). `book_asset()` resolves the
+  requested path relative to that archive's own OPF directory -- the
+  same `base / href` convention every other href in this project
+  already follows -- which is what lets a chapter's own relative
+  `<img src="../images/x.jpg">` or `<link href="../css/y.css">`
+  resolve back through this same route automatically: the browser
+  does that relative resolution against the iframe's current URL
+  before ever asking the server for anything, so the route never
+  needs to know in advance which images/stylesheets belong to which
+  chapter.
+- `before_after.html`: a chapter dropdown (sourced from the original
+  book's reading order), a second dropdown that only appears for a
+  split chapter (choosing among its resulting pages, defaulting to
+  the first), and two side-by-side sandboxed `<iframe>`s. A removed
+  chapter collapses to a single "before"-only pane with an
+  explanation instead of a blank "after" side. Both dropdowns
+  auto-submit a plain GET form (`onchange="this.form.submit()"`, same
+  idiom already used elsewhere in this project) rather than needing
+  any new JS.
+- Nav link in `base.html` switched from the "coming soon" disabled
+  placeholder to a real link, plus `.before-after-grid`/iframe CSS
+  matching the existing card-based styling.
+
+Tested against `GutenbergText-ChapterSplit.epub` specifically, since
+it's the one sample book that exercises all three cases in a single
+real run: staged and applied a full split (17+18 boundaries across its
+two source files) together with every repair module including
+Gutenberg Boilerplate Removal, which drops a whole trailing
+back-matter file on this book. Confirmed `split_mapping.json` came out
+non-empty and correct, confirmed the tab's dropdown correctly labels
+the split chapter and the file Gutenberg repair actually dropped,
+confirmed the removed-chapter view shows the single-pane explanation
+instead of erroring, and confirmed the asset route serves real,
+non-empty, and *different* bytes for the before and after sides of an
+edited chapter (verified separately against `MM21.epub`, which has no
+splits at all, to isolate the plain unchanged-file case). Ran the
+before-after tab's "no fixed file yet" state across all 11 sample
+books. Verified the OPF-relative path resolution logic directly for
+both a root-level `content.opf` (what all 11 samples actually use) and
+a synthetic nested `OEBPS/content.opf` case, since none of the samples
+exercise a subdirectory OPF on their own. Full CLI regression across
+all 11 samples, plus `split-structure` and `auto-fix` specifically (to
+exercise the three updated `engine.py` call sites), all stayed clean.
+
 #### Small addition, same session: Select All / Unselect All on the Repair tab (2026-09-06)
 
 Jacob asked for this "in case it ever comes up" -- two small buttons
@@ -837,9 +897,9 @@ disturbed.
 ## Open questions
 
 - Exact page-matching approach for Phase 7's split case -- resolved in
-  the Phase 7a scoping above (persisted `split_mapping.json` for the
-  split case, direct diffing for the removed-file case); Phase 7b
-  still needs to actually build the tab against this.
+  the Phase 7a scoping and built in Phase 7b (persisted
+  `split_mapping.json` for the split case, direct diffing for the
+  removed-file case).
 - Whether the Review tab's cover-mismatch item shows the two cover
   images directly in that tab, or defers full visual comparison to
   the Before/After tab -- likely the latter, to avoid building two

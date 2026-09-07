@@ -54,6 +54,10 @@
     .analysis-issue { border-color: #feb2b2; background: #fffafa; }
     .analysis-manual { border-color: #fbd38d; background: #fffdf7; }
     .analysis-fyi { border-color: #e2e8f0; background: #fafbfc; }
+    .before-after-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .before-after-grid.before-after-single { grid-template-columns: 1fr; max-width: 50%; }
+    .before-after-grid h3 { font-size: 0.9rem; margin: 0 0 0.4rem; color: #444; }
+    .before-after-grid iframe { width: 100%; height: 70vh; border: 1px solid #ddd; border-radius: 8px; background: #fff; }
   </style>
 </head>
 <body>
@@ -63,7 +67,7 @@
     <a href="{{ url_for('book_metadata', session_id=session_id) }}" class="{{ 'active' if active_tab == 'metadata' else '' }}">Metadata</a>
     <a href="{{ url_for('book_review', session_id=session_id) }}" class="{{ 'active' if active_tab == 'review' else '' }}">Review</a>
     <a href="{{ url_for('book_repair', session_id=session_id) }}" class="{{ 'active' if active_tab == 'repair' else '' }}">Repair</a>
-    <a class="disabled">Before / After (coming soon)</a>
+    <a href="{{ url_for('book_before_after', session_id=session_id) }}" class="{{ 'active' if active_tab == 'before_after' else '' }}">Before / After</a>
   </div>
   {% block content %}{% endblock %}
 </body>

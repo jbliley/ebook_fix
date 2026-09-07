@@ -1265,8 +1265,16 @@ class Engine:
         split cleanly.
 
         Returns (split_count, [crossref_report, ncx_report,
-        entry_report]) -- an empty list for the reports if
-        split_count is 0, since there's nothing to rewire.
+        entry_report], new_hrefs_by_origin) -- an empty list for the
+        reports if split_count is 0, since there's nothing to rewire.
+        new_hrefs_by_origin (original href -> list of new hrefs it
+        produced) is returned even when split_count is 0 (empty dict
+        in that case) so every caller can unpack the same 3-tuple
+        unconditionally -- added for the GUI's Before/After tab (Phase
+        7b, docs/gui_plan.md), which needs this exact mapping to know
+        which post-repair file(s) a given original chapter became; no
+        other caller had a use for it before, so it was never returned
+        until now.
         """
         split_count = 0
         split_hrefs = set()
@@ -1299,7 +1307,7 @@ class Engine:
                 )
 
         if split_count == 0:
-            return 0, []
+            return 0, [], {}
 
         refs = find_links_into(book, split_hrefs, current_href_origin)
         crossref_report = rewrite_links(refs, href_by_id_by_origin)
@@ -1309,7 +1317,7 @@ class Engine:
 
         entry_report = generate_missing_ncx_entries(book, split_hrefs, new_hrefs_by_origin)
 
-        return split_count, [crossref_report, ncx_report, entry_report]
+        return split_count, [crossref_report, ncx_report, entry_report], new_hrefs_by_origin
 
     def run_selected_repairs(self, book, modules, analysis_report, max_passes=5):
         """Public wrapper around _run_repair_passes, for a caller (the
@@ -1332,7 +1340,7 @@ class Engine:
         every SEQUENCE_ONLY-or-better boundary automatically. Doesn't
         touch split_chapters() itself or anything the CLI calls.
         Returns (split_count, reports) -- see _split_and_rewire."""
-        split_count, reports = self._split_and_rewire(book, markers_by_href, details=details)
+        split_count, reports, _new_hrefs_by_origin = self._split_and_rewire(book, markers_by_href, details=details)
         if split_count > 0:
             EPUBWriter().save(book, output)
         return split_count, reports
@@ -1415,7 +1423,7 @@ class Engine:
                     for node in nodes
                 ]
 
-            split_count, reports = self._split_and_rewire(book, markers_by_href, details=details)
+            split_count, reports, _new_hrefs_by_origin = self._split_and_rewire(book, markers_by_href, details=details)
             if split_count == 0:
                 self.log("No file in this book has 2+ chapter boundaries to split.")
                 return
@@ -1792,7 +1800,7 @@ class Engine:
 
         total = sum(len(m) for m in markers_by_href.values())
         self.log(f"Applying {total} reviewed Case 3 boundary(ies) across {len(markers_by_href)} file(s)...")
-        split_count, reports = self._split_and_rewire(book, markers_by_href, details=details)
+        split_count, reports, _new_hrefs_by_origin = self._split_and_rewire(book, markers_by_href, details=details)
         if split_count:
             crossref_report, ncx_report, entry_report = reports
             self.log("")
