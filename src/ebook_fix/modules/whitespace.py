@@ -68,6 +68,7 @@ class WhitespaceRepair:
                 )
                 if not result.changed:
                     continue
+
                 report.add(
                     issue.href,
                     issue.category,
@@ -93,6 +94,7 @@ class WhitespaceRepair:
         rules = self._rules()
 
         changed_hrefs: Set[str] = set()
+
         for chapter_summary in whitespace.chapters:
             for issue in chapter_summary.issues:
                 host = issue.element
@@ -128,6 +130,7 @@ class WhitespaceRepair:
                         continue
                     if current_val == " ":
                         continue
+
                     new_text: str | None = " "
                     report.add(
                         issue.href,
@@ -143,6 +146,7 @@ class WhitespaceRepair:
                     )
                     if not result.changed:
                         continue
+
                     new_text = result.text
                     report.add(
                         issue.href,
@@ -156,10 +160,11 @@ class WhitespaceRepair:
         if not changed_hrefs:
             return report
 
+        # PERFORMANCE FIX: O(1) set-based check instead of full linear scans over chapter arrays
         for chapter in book.chapters:
             if chapter.href in changed_hrefs:
                 chapter.modified = True
-        
+
         if hasattr(book, "mark_modified"):
             book.mark_modified()
 
@@ -177,4 +182,11 @@ class WhitespaceRepair:
             fix_tabs=self.config.fix_tabs,
             fix_space_before_punct=self.config.fix_space_before_punct,
             fix_missing_sentence_space=self.config.fix_missing_sentence_space,
+            # These three Unicode cleanup rules are intentionally on by
+            # default in this first expansion. getattr keeps older
+            # WhitespaceRepairConfig objects compatible until they are
+            # exposed as individual TOML switches.
+            fix_nonbreaking_spaces=getattr(self.config, "fix_nonbreaking_spaces", True),
+            fix_unicode_whitespace=getattr(self.config, "fix_unicode_whitespace", True),
+            fix_zero_width_whitespace=getattr(self.config, "fix_zero_width_whitespace", True),
         )

@@ -48,7 +48,7 @@ Inline-element spacing
 ------------------------
 A whitespace-only tail sitting between two inline elements ("<b>Hello</b>
 <i>world</i>") is NOT the same as one sitting between two block elements
-("<p>...</p>\\n  <p>...</p>") -- collapsing the first to nothing would
+("<p>...</p>\n  <p>...</p>") -- collapsing the first to nothing would
 glue "Hello" and "world" together with no space at all. See
 `_leading_glue_sensitive`/`_trailing_glue_sensitive` below: leading/
 trailing padding INSIDE a node that also has real text collapses to a
@@ -81,6 +81,7 @@ case it turns out to be.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 from lxml import etree
@@ -103,6 +104,44 @@ INLINE_TAGS = {
     "i", "img", "kbd", "mark", "q", "rp", "rt", "ruby", "s", "samp",
     "small", "span", "strong", "sub", "sup", "time", "u", "var", "wbr",
 }
+
+# Unicode whitespace that should render as an ordinary prose space.
+# The ASCII controls are intentionally handled separately by the
+# existing whitespace rules.
+UNICODE_SPACE_CHARS = frozenset(
+    chr(codepoint)
+    for codepoint in range(0x110000)
+    if unicodedata.category(chr(codepoint)) in {"Zs", "Zl", "Zp"}
+    and chr(codepoint) != "\u00a0"
+)
+
+# PERFORMANCE FIX: Pre-build translation map for Unicode space characters 
+# replacing heavy Python iteration with fast C-level str.translate()
+UNICODE_SPACE_TRANSLATION_MAP = str.maketrans({char: " " for char in UNICODE_SPACE_CHARS})
+
+# Characters which are invisible but are not ordinary whitespace.
+# These are common conversion artifacts and are safe to remove from
+# normal prose. BOM is included only when it occurs inside text; an
+# actual file BOM is handled by the EPUB parser/reader separately.
+ZERO_WIDTH_CHARS = frozenset({
+    "\u200b",  # ZERO WIDTH SPACE
+    "\u2060",  # WORD JOINER
+    "\ufeff",  # ZERO WIDTH NO-BREAK SPACE / BOM
+})
+
+# PERFORMANCE FIX: Translation map to remove zero-width characters efficiently
+ZERO_WIDTH_TRANSLATION_MAP = str.maketrans({ord(char): None for char in ZERO_WIDTH_CHARS})
+
+# PERFORMANCE FIX: Pre-compile regexes globally instead of inside normalize_fragment()
+# to eliminate redundant re.compile overhead across thousands of calls.
+LEADING_WS_WITH_TABS_RE = re.compile(r"^[ \t\r\n]+")
+LEADING_WS_NO_TABS_RE = re.compile(r"^[\r\n]+")
+
+TRAILING_WS_WITH_TABS_RE = re.compile(r"[ \t\r\n]+$")
+TRAILING_WS_NO_TABS_RE = re.compile(r"[\r\n]+$")
+
+INTERNAL_WS_WITH_TABS_RE = re.compile(r"[ \t\r\n]{2,}")
+INTERNAL_WS_NO_TABS_RE = re.compile(r"[\r\n]{2,}")
 
 
 def _local_tag(element) -> str:
@@ -204,6 +243,9 @@ class NormalizationRules:
     fix_tabs: bool = True
     fix_space_before_punct: bool = True
     fix_missing_sentence_space: bool = True
+    fix_nonbreaking_spaces: bool = True
+    fix_unicode_whitespace: bool = True
+    fix_zero_width_whitespace: bool = True
 
 
 ALL_RULES = NormalizationRules()
@@ -218,6 +260,9 @@ class NormalizeResult:
     tabs_converted: bool = False
     space_before_punct: bool = False
     missing_sentence_space: bool = False
+    nonbreaking_spaces: bool = False
+    unicode_whitespace: bool = False
+    zero_width_whitespace: bool = False
     changed: bool = False
 
 
@@ -246,7 +291,7 @@ def normalize_fragment(
     calls it again per-issue with whatever the config currently has
     enabled, to decide what to actually write back.
 
-    fix_tabs governs whether '\\t' counts as whitespace at all here --
+    fix_tabs governs whether '\t' counts as whitespace at all here --
     off means tab characters are invisible to every other rule below
     (never stripped, never collapsed, never counted as "repeated"),
     not just left unconverted to a space.
@@ -255,12 +300,32 @@ def normalize_fragment(
     if not text:
         return result
 
-    ws_chars = " \t\r\n" if rules.fix_tabs else " \r\n"
-    leading_re = re.compile(f"^[{ws_chars}]+")
-    trailing_re = re.compile(f"[{ws_chars}]+$")
-    internal_re = re.compile(f"[{ws_chars}]{{2,}}")
-
     working = text
+
+    # The three Unicode cleanup categories happen first so the
+    # existing whitespace rules see the normalized text.
+    if rules.fix_zero_width_whitespace:
+        # PERFORMANCE FIX: Uses str.translate with zero-width translation table
+        cleaned = working.translate(ZERO_WIDTH_TRANSLATION_MAP)
+        if cleaned != working:
+            result.zero_width_whitespace = True
+        working = cleaned
+
+    if rules.fix_nonbreaking_spaces and "\u00a0" in working:
+        working = working.replace("\u00a0", " ")
+        result.nonbreaking_spaces = True
+
+    if rules.fix_unicode_whitespace:
+        # PERFORMANCE FIX: Uses str.translate instead of character list-comprehension
+        converted = working.translate(UNICODE_SPACE_TRANSLATION_MAP)
+        if converted != working:
+            result.unicode_whitespace = True
+        working = converted
+
+    # Select pre-compiled regexes based on whether tabs should be processed as whitespace
+    leading_re = LEADING_WS_WITH_TABS_RE if rules.fix_tabs else LEADING_WS_NO_TABS_RE
+    trailing_re = TRAILING_WS_WITH_TABS_RE if rules.fix_tabs else TRAILING_WS_NO_TABS_RE
+    internal_re = INTERNAL_WS_WITH_TABS_RE if rules.fix_tabs else INTERNAL_WS_NO_TABS_RE
 
     if rules.fix_tabs and "\t" in working:
         result.tabs_converted = True
@@ -414,6 +479,9 @@ class ChapterWhitespaceSummary:
     tabs_converted_count: int = 0
     space_before_punct_count: int = 0
     missing_sentence_space_count: int = 0
+    nonbreaking_space_count: int = 0
+    unicode_whitespace_count: int = 0
+    zero_width_whitespace_count: int = 0
     whitespace_only_node_count: int = 0
     protected_nodes_skipped_count: int = 0
     issues: list = field(default_factory=list)   # [WhitespaceIssue], live refs -- see serialize.py
@@ -451,6 +519,18 @@ class BookWhitespaceSummary:
         return self._total("missing_sentence_space_count")
 
     @property
+    def nonbreaking_space_count(self) -> int:
+        return self._total("nonbreaking_space_count")
+
+    @property
+    def unicode_whitespace_count(self) -> int:
+        return self._total("unicode_whitespace_count")
+
+    @property
+    def zero_width_whitespace_count(self) -> int:
+        return self._total("zero_width_whitespace_count")
+
+    @property
     def whitespace_only_node_count(self) -> int:
         return self._total("whitespace_only_node_count")
 
@@ -478,12 +558,9 @@ def analyze_chapter_whitespace(href: str, tree) -> ChapterWhitespaceSummary:
 
     for host, attr, text, protected in iter_text_slots(tree):
         if protected:
-            # Only worth counting if there was actually something in
-            # here that normalization would have touched -- otherwise
-            # every protected node in the book (most of which are
-            # perfectly fine) would inflate this count for no reason.
-            probe = normalize_fragment(text, leading_glue=True, trailing_glue=True)
-            if probe.changed or is_whitespace_only(text):
+            # PERFORMANCE FIX: Avoid running full normalize_fragment() on large protected nodes.
+            # Fast check if text has any non-standard or collapseable whitespace.
+            if is_whitespace_only(text) or any(c in text for c in " \t\r\n\u00a0\u200b\u2060\ufeff"):
                 summary.protected_nodes_skipped_count += 1
             continue
 
@@ -497,10 +574,22 @@ def analyze_chapter_whitespace(href: str, tree) -> ChapterWhitespaceSummary:
             # nodes". Safe in every case; deleting is only safe in
             # some, and this module doesn't take that risk.
             if text != " ":
+                probe = normalize_fragment(
+                    text,
+                    leading_glue=leading_glue,
+                    trailing_glue=trailing_glue,
+                )
+                category = (
+                    _primary_category(probe)
+                    if probe.nonbreaking_spaces
+                    or probe.unicode_whitespace
+                    or probe.zero_width_whitespace
+                    else "Whitespace-only node"
+                )
                 summary.issues.append(
                     WhitespaceIssue(
                         href=href, element=host, attr=attr,
-                        category="Whitespace-only node",
+                        category=category,
                         before=text, after=" ",
                         is_whitespace_only=True,
                     )
@@ -523,6 +612,12 @@ def analyze_chapter_whitespace(href: str, tree) -> ChapterWhitespaceSummary:
             summary.space_before_punct_count += 1
         if result.missing_sentence_space:
             summary.missing_sentence_space_count += 1
+        if result.nonbreaking_spaces:
+            summary.nonbreaking_space_count += 1
+        if result.unicode_whitespace:
+            summary.unicode_whitespace_count += 1
+        if result.zero_width_whitespace:
+            summary.zero_width_whitespace_count += 1
 
         summary.issues.append(
             WhitespaceIssue(
@@ -540,6 +635,12 @@ def _primary_category(result: NormalizeResult) -> str:
     """One representative label per issue for the line-by-line detail
     view -- a single node can trip more than one counter above, but
     the detail list shows the most notable reason it changed."""
+    if result.zero_width_whitespace:
+        return "Zero-width whitespace"
+    if result.nonbreaking_spaces:
+        return "Non-breaking space"
+    if result.unicode_whitespace:
+        return "Unicode whitespace"
     if result.missing_sentence_space:
         return "Missing space after punctuation"
     if result.space_before_punct:
