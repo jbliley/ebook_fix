@@ -520,6 +520,126 @@ structurally. Once that's sorted, this talks to the analyzer directly
 for structured data, the same way the Metadata tab already does,
 rather than capturing printed text the way Phase 1 does today.
 
+#### Phase 6 audit -- Issue vs. FYI, section by section (2026-09-06)
+
+Went through `Engine.analyze()` (`src/ebook_fix/engine.py`, lines
+249-964) line by line, since that's the only place this report is
+fully assembled today -- the GUI's Analysis tab currently just
+captures its printed text wholesale (see Phase 1). The CLI itself
+already separates its output into two top-level comment blocks, "1.
+ANALYSIS & OVERVIEW" and "2. ISSUES & FINDINGS", which lines up with
+Jacob's Issue-vs-FYI split more closely than expected -- but it's not
+a clean 1:1, and a few spots genuinely need a decision before Phase 6
+proper starts writing HTML.
+
+**FYI (context, not a problem) -- from "1. ANALYSIS & OVERVIEW":**
+- `[Book Metadata]`: Library (Calibre-managed/standalone), and every
+  core field line (Title/Author/Language/Publisher/Date/Rights,
+  Identifiers, Subjects, Description, Series) *when it isn't flagged
+  MISMATCH*. EPUB Version, including the "will be upgraded" note.
+- `[File Contents]`: every count (HTML pages, spine entries, TOC
+  entries + source, CSS/image/font/audio/video/other file counts,
+  total word count, cover status line).
+- `[Book Structure Overview]`: Total Paragraphs/Images/Links,
+  Divisions/Parts, Chapters Detected, Front/Back Matter counts.
+- `[Typography Overview]`: every raw count (quote styles, apostrophe
+  styles, dash counts, ellipsis counts, sentence-spacing counts).
+- `[CSS Overview]`: stylesheet/rule/`!important`/class counts.
+- `[Detailed Chapter Structure]` (the `--details` per-chapter dump):
+  entirely drill-down FYI, not findings.
+
+**Issue (worth a person's attention) -- from "2. ISSUES & FINDINGS":**
+- `[Structure]`: thin/empty chapters, heading hierarchy issues.
+- `[Table of Contents]`: no TOC found, broken TOC links, chapters
+  missing from TOC.
+- `[Cover Image]`: no cover declared, dangling `<meta name="cover">`,
+  declared cover missing from archive, wrong media-type, mismatched
+  declarations.
+- `[Span Soup]`: nested wrapper chains, empty spans, no-op classes.
+- `[Typography]` (the issues block, distinct from the Overview
+  counts above): inconsistent/mixed quote or apostrophe styles,
+  mojibake, stray BOM, zero-width spaces, soft hyphens, control
+  characters, ALL-CAPS runs, repeated punctuation.
+- `[Paragraphs]`: junk/watermark paragraphs, empty paragraphs,
+  mid-sentence splits.
+- `[Images]`: broken image references, manifest entries pointing at
+  missing images.
+- `[Ellipsis]`: ASCII and spaced-dot ellipsis.
+- `[Scene Breaks]`: mid-chapter `<hr>`, chapter-edge `<hr>`.
+
+**A third bucket, not just Issue/FYI -- flagged for manual review
+only:**
+- `[Possessive Candidates -- Manual Review]` is already its own thing
+  in the CLI, on purpose (see the comment right above it in
+  engine.py) -- genuinely ambiguous, never auto-repaired, exists so a
+  person can review by hand. This should stay a visibly distinct
+  third section in the GUI too, not get folded into "Issues" as if it
+  were auto-fixable like everything else there.
+
+**Spots that need a decision, not just a classification:**
+
+1. **Metadata mismatches are already owned by the Metadata tab.** A
+   MISMATCH on title/author/publisher/date/rights/description/series/
+   identifiers/subjects is a real issue, but Phase 2 already gives it
+   a dedicated side-by-side picker there. Showing the same mismatch
+   again as a duplicate line in the Analysis tab's Issues section
+   seems redundant -- more useful might be a single rollup line
+   ("N metadata field(s) need review -- see Metadata tab") rather than
+   repeating each one. Needs Jacob's call before Phase 6 build starts.
+2. **The apostrophe count is reported twice.** `apo.total_match_count`
+   ("Missing apostrophes (contraction split by a space)") appears
+   once in `[Typography Overview]`'s FYI counts and again as its own
+   `[Apostrophes]` issue line lower down -- same number, same book, no
+   difference between them. The GUI version should only show this
+   once, as an issue, and drop it from the Overview counts.
+3. **Project Gutenberg Boilerplate doesn't fit Issue or FYI cleanly.**
+   This section only prints at all when `gb.detected` is already
+   true, so most of what it says is closer to FYI ("yes, this is
+   Gutenberg-sourced, here's what repair will strip") -- except when
+   `front_found`/`back_found` comes back false for a book that's
+   otherwise Gutenberg-detected, which means the boilerplate is only
+   partially findable and repair may not fully clean it. That
+   half-found case reads more like an issue. Leaning toward: FYI when
+   both halves are found, issue when either half isn't -- but this is
+   a judgment call worth Jacob confirming rather than me deciding
+   solo.
+4. **A few CSS findings are observations about existing, possibly
+   intentional CSS, not problems.** "Page-break rules declared,"
+   "Forced height/max-height rules," and "Inline `<style>` blocks in
+   chapter HTML" (the last of which explicitly counts blocks
+   `ebook_fix` itself added) currently sit in `[CSS]` alongside actual
+   problems like unbalanced braces or unreadable stylesheets. A book
+   can have deliberate page-break CSS and that's not wrong. These
+   three probably belong in an FYI/observation bucket rather than
+   Issues, but splitting one analyzer section (`css`) across both
+   buckets is more surgery than the rest of this audit needed, so
+   flagging rather than deciding.
+5. **"Protected nodes skipped" isn't a problem, it's a reassurance.**
+   Inside `[Whitespace]`, `ws.protected_nodes_skipped_count` is
+   explicitly "we deliberately didn't touch these (pre/code/script/
+   style/svg/math), here's how many" -- that's FYI, not an issue,
+   even though the rest of `[Whitespace]` is a clean Issue list.
+6. **`[Module Checks]` isn't analyzer data at all.** Every other
+   section reads off `analysis_report`, which is exactly what
+   `_load_analysis()` already gives every other GUI tab. This section
+   is different: it loops over `self.modules` (the CLI's *configured,
+   enabled* repair modules) and calls each one's own `.analyze(book,
+   analysis_report)`. The GUI's `_load_analysis()` doesn't build or
+   hold a module list the way `Engine` does, and each module's count
+   likely just re-derives from the same `analysis_report` fields
+   already itemized above anyway. Rather than plumbing a second,
+   separate module-instantiation path into the GUI to reproduce this
+   section verbatim, Phase 6 should probably just drop it as
+   redundant -- but confirming that assumption with Jacob before
+   writing the template, since it's the one section this audit
+   couldn't map onto anything already covered.
+
+No code changed this session -- next session picks up Phase 6 proper
+once the six items above are settled, building the actual template
+against `analysis_report` directly (`_load_analysis()`, same pattern
+Metadata already uses) instead of capturing `engine.analyze()`'s
+printed text.
+
 ### Phase 7 -- Before / After tab
 - Render a chapter/page from the original EPUB and its post-repair
   counterpart side by side.
