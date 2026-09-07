@@ -37,12 +37,12 @@
 {% endif %}
 
 <form method="post" action="{{ url_for('apply_repair', session_id=session_id) }}">
-  <label style="margin-bottom:0.3rem;">Standard repairs to include (pre-checked from your ebook_fix.toml)</label>
+  <label style="margin-bottom:0.3rem;">Standard repairs to include (pre-checked from your ebook_fix.toml, but unchecked when this book has nothing for that repair to do)</label>
   <div class="module-list">
     {% for m in modules %}
     <div class="module-row">
       <input type="checkbox" name="modules" value="{{ m.attr }}" id="mod-{{ m.attr }}" {% if m.checked %}checked{% endif %}>
-      <label for="mod-{{ m.attr }}" style="display:inline; font-weight:normal; margin:0;">{{ m.label }}</label>
+      <label for="mod-{{ m.attr }}" style="display:inline; font-weight:normal; margin:0;">{{ m.label }}{% if m.count %} ({{ m.count }} issue{{ 's' if m.count != 1 else '' }}){% endif %}</label>
     </div>
     {% endfor %}
   </div>

@@ -640,6 +640,107 @@ against `analysis_report` directly (`_load_analysis()`, same pattern
 Metadata already uses) instead of capturing `engine.analyze()`'s
 printed text.
 
+#### Phase 6 build (2026-09-06)
+
+Jacob's calls on all six audit items: metadata mismatches shown in
+full detail (like the Metadata tab does, not a one-line rollup),
+apostrophe count dropped from Overview, Gutenberg split FYI/issue on
+whether both halves were found, the three CSS observational counts
+moved to Overview, "Protected nodes skipped" moved to Overview, and
+`[Module Checks]` dropped entirely.
+
+- New `gui/analysis_view.py`: `build_overview()`, `build_issues()`,
+  and `build_manual_review()`, each returning a list of `Section`
+  (title + plain-text lines) straight from `analysis_report` -- no
+  more `Engine.analyze()`/`_captured_output()` involved in this tab at
+  all. `book_analysis()` in `app.py` calls these three and hands the
+  results to a rebuilt `book.html`: three headed groups (Issues,
+  Needs Manual Review, Book Overview), each section rendered as its
+  own bordered block, color-coded by bucket (red-tinted for issues,
+  amber for manual review, neutral gray for overview) via new
+  `.analysis-section`/`.analysis-issue`/`.analysis-manual`/
+  `.analysis-fyi` rules in `base.html`.
+- Metadata mismatches: `_metadata_mismatch_lines()` walks the same
+  core fields, subjects, series, and identifier-conflict groups the
+  CLI's own mismatch detection already covers, formatting each as
+  "EPUB value vs. metadata.opf value" -- the same two values the
+  Metadata tab's picker shows -- under one "Metadata Mismatches" issue
+  section, ending with a line pointing over to the Metadata tab to
+  actually resolve it. This is informational only; the Metadata tab
+  stays the one place that's actually editable, so there's still only
+  one surface a person needs to remember to check for a given field.
+- Gutenberg: shown in Overview (both halves found, i.e. "repair will
+  strip this cleanly") or Issues (either half missing, i.e. "repair
+  may not fully strip this") depending on `gb.front_found and
+  gb.back_found`, never both.
+- The three CSS observations moved to Overview as one consolidated
+  count each, combining the plain-stylesheet, embedded-`<style>`, and
+  inline-`style=`-attribute variants of "page-break rule" and "forced
+  height" into a single number per pair, rather than three separate
+  lines -- worth flagging in case Jacob wanted only the plain
+  stylesheet-level ones moved and the embedded/inline variants left as
+  Issues; easy to split back out if so.
+- Dropped the `--details` per-item drill-down this tab used to be able
+  to show (individual broken TOC links, individual whitespace fixes
+  per chapter, etc.) -- out of scope for what this audit covered, and
+  a genuinely separate chunk of work (structured per-category
+  drill-down data, not just re-sorting headline counts). Flagging as a
+  clear candidate for a future increment rather than silently losing
+  it.
+- The GUI's Analysis tab no longer calls `Engine.analyze()` at all, so
+  it no longer writes the `.ebookfix-analysis.json` cache file next to
+  the book the way the CLI's own `analyze` command does -- the
+  Metadata and Review tabs already didn't write this either (they've
+  used `_load_analysis()` since Phase 2/3), so this actually makes all
+  four GUI tabs consistent with each other rather than introducing a
+  new gap.
+
+**Follow-up, same session: Repair tab now shows each module's own
+issue count and auto-unchecks anything with nothing to do.** Not part
+of the original Phase 6 scope, but Jacob asked for it right alongside
+the audit answers, and it reuses the exact same
+module-instantiate-and-`.analyze()` mechanism the audit's item #6 had
+just decided to drop from the Analysis tab -- turns out that
+mechanism's real home was the Repair tab's own checkboxes all along,
+not a second readout on the Analysis tab.
+
+- New `_REPAIR_MODULE_CLASSES` dict in `app.py`: `_REPAIR_MODULES`'
+  attr -> the same module class `Engine._build_modules()` would
+  instantiate for it. Deliberately its own dict rather than reusing
+  `Engine.modules`, since `Engine` only ever builds the modules
+  currently *enabled* in `ebook_fix.toml` -- this needs a count for
+  every module regardless of whether it's checked, so a disabled
+  module still shows its count if a person considers checking it on.
+- `book_repair()` now loads the book's analysis (same
+  `_load_analysis()` every other tab uses) and calls each module's own
+  `.analyze(book, analysis_report).count` -- the identical call the
+  CLI's `[Module Checks]` section made, just per-module now instead of
+  a loop building one combined block of text.
+- A module starts checked only when it's both enabled in config AND
+  found something to do (`count > 0`) -- so a book that's already
+  EPUB 3 starts with "EPUB 3 Upgrade" unchecked instead of running a
+  no-op pass, same idea generalized to all fifteen modules, not just
+  that one. Still toggleable by hand either way; this only changes the
+  starting checkbox state, never removes the checkbox.
+- `repair.html`'s label for each module now appends "(N issue(s))"
+  whenever count > 0, and stays plain when there's nothing to report.
+
+Tested: ran both the Analysis and Repair tabs against all 11 sample
+books end to end with no errors. Confirmed against
+`GutenbergText-ChapterSplit.epub` specifically that Gutenberg shows in
+Overview (both halves found), the apostrophe count appears exactly
+once (Issues only, not duplicated in the Typography Overview), the
+three CSS observations sit in Overview rather than Issues, and
+"Protected nodes skipped" doesn't leak into the Whitespace issue list.
+Confirmed the two already-EPUB3 sample books
+(`The Call of Cthulhu by H. P. Lovecraft.epub`, `WarPeace-GoodCopy.epub`)
+render "EPUB 3 Upgrade" unchecked on the Repair tab, and a book with
+real whitespace issues shows the count in the checkbox label (e.g.
+"Whitespace Normalizer (290 issues)"). Ran a full metadata-stage +
+apply-everything pass afterward to confirm `book_repair()`'s changes
+didn't disturb `apply_repair()`. Full CLI `analyze` regression across
+all 11 samples stayed clean throughout.
+
 ### Phase 7 -- Before / After tab
 - Render a chapter/page from the original EPUB and its post-repair
   counterpart side by side.
@@ -665,11 +766,20 @@ printed text.
   the Before/After tab -- likely the latter, to avoid building two
   versions of the same comparison view, but not decided yet.
 - Phase 4's exact wording/UI for "this is staged, not applied yet" on
-  the Metadata and Review tabs -- needs to be clear without being
-  annoying on every single visit to those tabs.
-- Phase 6's Issue-vs-FYI classification for each analyzer section --
-  genuinely not decided yet; that's the phase's own first task, not
-  something to guess at in this doc.
+  the Metadata and Review tabs -- resolved in the Phase 4 build (the
+  `.staged-banner`/no-staged-yet banners on the Repair tab); revisit
+  only if it turns out to be more or less noisy than expected in
+  practice.
+- A structured drill-down view for the Analysis tab (the individual
+  broken links, per-chapter whitespace fixes, etc. that `--details`
+  used to surface on the CLI) -- deferred out of Phase 6's build, not
+  decided against, just not yet scoped.
+- Whether the Repair tab's CSS-observation consolidation (page-break/
+  forced-height/embedded-`<style>` counts combined across stylesheet,
+  embedded, and inline-attribute variants into one number each) is
+  what Jacob actually wanted, or whether only the plain
+  stylesheet-level counts should have moved to Overview -- flagged in
+  the Phase 6 build write-up, not yet confirmed either way.
 
 ## Continuity note
 This file is the source of truth for the GUI's scope and phase order,

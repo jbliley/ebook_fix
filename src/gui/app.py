@@ -28,11 +28,12 @@ gap worth fixing before this goes much further (see docs/gui_plan.md).
 This calls the same building blocks the CLI already uses --
 ebook_fix.parser.EPUBParser, ebook_fix.analyzer.EPUBAnalyzer,
 ebook_fix.writer.EPUBWriter, metadata.core_fields.write_core_field --
-rather than reimplementing any of it. The Analysis tab specifically
-still goes through ebook_fix.engine.Engine.analyze() for its printed
-summary (see _captured_output() below); the Metadata tab talks to the
-parser/analyzer/writer directly, since it needs the structured
-AnalysisReport object, not printed text.
+rather than reimplementing any of it. Every tab, including Analysis
+(see gui.analysis_view, Phase 6), talks to the parser/analyzer/writer
+directly via _load_analysis() below, working from the structured
+AnalysisReport object rather than Engine.analyze()'s printed text.
+_captured_output() still exists for the Repair tab's own summary of
+what a repair pass actually changed.
 """
 from __future__ import annotations
 
@@ -58,6 +59,22 @@ from ebook_fix.parser import EPUBParser
 from ebook_fix.splitter import SplitMarker
 from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, iter_chapter_nodes
 from ebook_fix.writer import EPUBWriter
+from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
+from ebook_fix.modules.paragraph import ParagraphRepair
+from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
+from ebook_fix.modules.toc_generation import TocGenerationRepair
+from ebook_fix.modules.images import ImageRepair
+from ebook_fix.modules.cover_repair import CoverRepair
+from ebook_fix.modules.running_title_repair import RunningTitleRepair
+from ebook_fix.modules.metadata_repair import MetadataSyncRepair
+from ebook_fix.modules.identifier_repair import IdentifierStandardizeRepair
+from ebook_fix.modules.author_initials_repair import AuthorInitialsRepair
+from ebook_fix.modules.whitespace import WhitespaceRepair
+from ebook_fix.modules.gutenberg_repair import GutenbergRepair
+from ebook_fix.modules.ellipsis_repair import EllipsisRepair
+from ebook_fix.modules.scene_break_repair import SceneBreakRepair
+from ebook_fix.modules.apostrophe_repair import ApostropheRepair
+from gui import analysis_view
 from metadata.core_fields import write_core_field
 from metadata.language_codes import language_options
 
@@ -99,6 +116,32 @@ _REPAIR_MODULES = [
     ("identifier_repair", "Identifier Standardize"),
     ("author_initials", "Author Initials"),
 ]
+
+# attr (from _REPAIR_MODULES above) -> the same module class
+# Engine._build_modules() would instantiate for it. Used by the
+# Repair tab (Phase 6 follow-up) to show each module's own .analyze()
+# count next to its checkbox and auto-uncheck anything that found
+# nothing to do -- built as its own dict here rather than reusing
+# Engine.modules, since Engine only builds the modules that are
+# currently *enabled* in config, and this needs a count for every
+# module regardless of its checked state.
+_REPAIR_MODULE_CLASSES = {
+    "gutenberg_repair": GutenbergRepair,
+    "running_title_repair": RunningTitleRepair,
+    "paragraph_repair": ParagraphRepair,
+    "chapter_markup": ChapterMarkupRepair,
+    "epub3_upgrade": EPUB3UpgradeRepair,
+    "toc_generation": TocGenerationRepair,
+    "scene_break_repair": SceneBreakRepair,
+    "image_repair": ImageRepair,
+    "cover_repair": CoverRepair,
+    "ellipsis_repair": EllipsisRepair,
+    "apostrophe_repair": ApostropheRepair,
+    "whitespace_repair": WhitespaceRepair,
+    "metadata_repair": MetadataSyncRepair,
+    "identifier_repair": IdentifierStandardizeRepair,
+    "author_initials": AuthorInitialsRepair,
+}
 
 
 def _session_dir(session_id: str) -> Path:
@@ -312,29 +355,22 @@ def upload():
 def book_analysis(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
-    details = request.args.get("details") == "1"
 
-    config = load_config(None)
-    engine = Engine(config=config)
-    with _captured_output() as buf:
-        engine.analyze(_source_path(session_dir), details=details)
-    output = buf.getvalue()
-
-    # analyze() writes its cache file next to whatever path it's given.
-    # For an uploaded session that's inside the session folder,
-    # harmless to leave. For a real-path session, that's a real
-    # ".ebookfix-analysis.json" sitting next to the actual book on
-    # disk -- exactly the same file the CLI's own `analyze` command
-    # already leaves behind next to any book it's pointed at, so this
-    # isn't new GUI-only clutter, just the existing convention.
+    book, analysis_report = _load_analysis(session_dir)
+    overview = analysis_view.build_overview(analysis_report)
+    issues = analysis_view.build_issues(analysis_report)
+    manual_review = analysis_view.build_manual_review(analysis_report)
+    issue_count = sum(len(section.lines) for section in issues)
 
     return render_template(
         "book.html",
         active_tab="analysis",
         session_id=session_id,
         filename=filename,
-        output=output,
-        details=details,
+        overview=overview,
+        issues=issues,
+        manual_review=manual_review,
+        issue_count=issue_count,
     )
 
 
@@ -491,10 +527,32 @@ def book_repair(session_id):
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
     config = load_config(None)
 
-    modules = [
-        {"attr": attr, "label": label, "checked": getattr(config, attr).enabled}
-        for attr, label in _REPAIR_MODULES
-    ]
+    # A book's own analysis, so each module's checkbox can show how
+    # many issues it actually found in THIS book (not just whether
+    # it's enabled in ebook_fix.toml) -- see docs/gui_plan.md, Phase 6
+    # follow-up. Reusing the module classes here rather than
+    # Engine.modules, since that only ever builds the ones already
+    # enabled; a disabled module's count still needs to show up if a
+    # person decides to check it on.
+    book, analysis_report = _load_analysis(session_dir)
+
+    modules = []
+    for attr, label in _REPAIR_MODULES:
+        module_config = getattr(config, attr)
+        module_cls = _REPAIR_MODULE_CLASSES[attr]
+        count = module_cls(module_config).analyze(book, analysis_report).count
+        modules.append({
+            "attr": attr,
+            "label": label,
+            "count": count,
+            # Pre-checked from config, same as before -- but only when
+            # there's actually something for it to do against this
+            # book. A module config-enabled but with nothing to fix
+            # (e.g. EPUB 3 Upgrade on a book that's already EPUB 3)
+            # starts unchecked instead of running a no-op pass; still
+            # toggleable by hand either way.
+            "checked": module_config.enabled and count > 0,
+        })
 
     staged_metadata = _read_staged(_staged_metadata_path(session_dir))
     staged_review = _read_staged(_staged_review_path(session_dir))

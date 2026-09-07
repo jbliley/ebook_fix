@@ -1,14 +1,49 @@
 {% extends "base.html" %}
 {% block content %}
 <p class="details-toggle">
-  {% if details %}
-    Showing full detail (slower on a large book).
-    <a href="{{ url_for('book_analysis', session_id=session_id) }}">Switch to the summary view</a>
+  {% if issue_count %}
+    {{ issue_count }} issue(s) found below. Standard repairs on the Repair tab handle most of
+    these automatically&mdash;each checkbox there shows how many it found.
   {% else %}
-    Showing the summary view.
-    <a href="{{ url_for('book_analysis', session_id=session_id) }}?details=1">Show full details instead</a>
+    No issues found.
   {% endif %}
 </p>
-<pre>{{ output }}</pre>
+
+{% if issues %}
+<h2>Issues</h2>
+{% for section in issues %}
+<div class="analysis-section analysis-issue">
+  <h3>{{ section.title }}</h3>
+  <ul>
+    {% for line in section.lines %}<li>{{ line }}</li>{% endfor %}
+  </ul>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if manual_review %}
+<h2>Needs Manual Review</h2>
+<p class="details-toggle">Flagged for a person to judge&mdash;ambiguous enough that no repair
+  module will touch these automatically.</p>
+{% for section in manual_review %}
+<div class="analysis-section analysis-manual">
+  <h3>{{ section.title }}</h3>
+  <ul>
+    {% for line in section.lines %}<li>{{ line }}</li>{% endfor %}
+  </ul>
+</div>
+{% endfor %}
+{% endif %}
+
+<h2>Book Overview</h2>
+{% for section in overview %}
+<div class="analysis-section analysis-fyi">
+  <h3>{{ section.title }}</h3>
+  <ul>
+    {% for line in section.lines %}<li>{{ line }}</li>{% endfor %}
+  </ul>
+</div>
+{% endfor %}
+
 <a class="button secondary" href="/">Analyze another book</a>
 {% endblock %}
