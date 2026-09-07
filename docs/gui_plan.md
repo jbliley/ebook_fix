@@ -750,6 +750,83 @@ all 11 samples stayed clean throughout.
   1-to-1 page mapping. Scoping the exact matching logic is this
   phase's first task, not assumed up front.
 
+#### Phase 7a -- page-matching scope (2026-09-06)
+
+Went looking for what data is actually available to match an original
+page to its post-repair counterpart, rather than assuming a design up
+front. Three cases, not two -- a whole chapter file can flat-out
+disappear during repair, not just split:
+
+- **Unchanged** (the common case): same href before and after.
+  Nothing to match -- direct lookup.
+- **Split**: one original href becomes itself (trimmed to segment 0)
+  plus one or more new `chapter_NNN.xhtml` files (see
+  `splitter.py`'s `generate_split_hrefs`).
+- **Removed entirely**: found this case while checking whether it
+  could happen at all -- `gutenberg_repair.py`'s
+  `_remove_whole_chapter` drops a trailing back-matter file completely
+  (out of `book.chapters`, the manifest, the spine, and into
+  `book.removed_files` so the writer drops it from the archive too).
+  `cover_repair.py` uses the same `book.removed_files` mechanism when
+  renaming a cover image. A Before/After tab that only knew
+  "unchanged" and "split" would either crash or silently show a blank
+  pane for one of these -- it needs to show something like "removed
+  by repair" instead.
+
+**How each case gets detected, and why they need different
+approaches:**
+
+- **Removed** needs no new plumbing at all. At the point the
+  Before/After tab actually renders, both the original file and
+  `_fixed.epub` already sit on disk -- loading both and diffing their
+  chapter href sets directly tells you everything the "removed" case
+  needs, with nothing to capture ahead of time.
+- **Split** is the opposite: it genuinely can't be reconstructed after
+  the fact. A new `chapter_004.xhtml` file's name alone doesn't say
+  which original chapter it came from -- the naming convention is the
+  same generic `chapter_NNN` pattern regardless of source file (see
+  `generate_split_hrefs`'s docstring), and nothing in the new file's
+  own content marks its origin either. The one place this mapping
+  genuinely exists is `_split_and_rewire()` in `engine.py`, which
+  already builds it internally as `new_hrefs_by_origin` (original href
+  -> list of new hrefs) -- it's just never returned to the caller
+  today. Chosen approach: add it as a third item in
+  `_split_and_rewire()`'s return tuple, and have `apply_repair()`
+  persist it as a small new session file (`split_mapping.json`,
+  original href -> resulting hrefs) right when a split happens,
+  alongside the fixed EPUB it already writes. This is the one actual
+  code change this scoping surfaces -- small and additive, returning
+  data `_split_and_rewire` already computes rather than computing
+  anything new.
+
+**Planned 7b behavior** (not built yet): the tab's chapter selector is
+sourced from the *original* book's reading order. For whichever
+chapter is selected: if it's in the removed set, show "removed by
+repair" instead of an after-pane; if it's a split origin (per
+`split_mapping.json`), show segment 0 by default with a small
+secondary selector for the additional resulting pages; otherwise, pull
+the same href directly from the final book.
+
+**Worth flagging:** `split_mapping.json` only ever gets written by the
+GUI's own `apply_repair()` -- the CLI's `split_chapters`/`repair
+--case3-boundaries` commands don't go through a GUI session at all, so
+this file is GUI-only bookkeeping, same as `staged_metadata.json`/
+`staged_review.json` already are, not a new precedent.
+
+#### Small addition, same session: Select All / Unselect All on the Repair tab (2026-09-06)
+
+Jacob asked for this "in case it ever comes up" -- two small buttons
+above the module checklist in `repair.html`, each calling a
+`setAllRepairModules(checked)` JS function that walks every
+`input[name="modules"]` checkbox and sets it. Plain inline `<script>`,
+same style `index.html`'s own browse-button JS already uses -- no
+framework, nothing new introduced. Doesn't touch the auto-uncheck
+logic from the Phase 6 follow-up at all; it's just a bulk override a
+person can apply on top of whatever the page loaded with. Tested
+across all 11 sample books (buttons render, no template errors) and
+confirmed with a full CLI regression pass that nothing else was
+disturbed.
+
 ### Phase 8 -- Final polish and packaging
 - Launch script (`.bat`) and a short setup note for running it --
   already exists (`run_gui.bat`/`run_gui.py`), so this is really just
@@ -759,8 +836,10 @@ all 11 samples stayed clean throughout.
 
 ## Open questions
 
-- Exact page-matching approach for Phase 7's split case (see above) --
-  deferred to that phase rather than guessed at now.
+- Exact page-matching approach for Phase 7's split case -- resolved in
+  the Phase 7a scoping above (persisted `split_mapping.json` for the
+  split case, direct diffing for the removed-file case); Phase 7b
+  still needs to actually build the tab against this.
 - Whether the Review tab's cover-mismatch item shows the two cover
   images directly in that tab, or defers full visual comparison to
   the Before/After tab -- likely the latter, to avoid building two

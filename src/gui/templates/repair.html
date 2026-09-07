@@ -38,6 +38,10 @@
 
 <form method="post" action="{{ url_for('apply_repair', session_id=session_id) }}">
   <label style="margin-bottom:0.3rem;">Standard repairs to include (pre-checked from your ebook_fix.toml, but unchecked when this book has nothing for that repair to do)</label>
+  <div style="margin-bottom:0.5rem;">
+    <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllRepairModules(true)">Select All</button>
+    <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllRepairModules(false)">Unselect All</button>
+  </div>
   <div class="module-list">
     {% for m in modules %}
     <div class="module-row">
@@ -48,4 +52,12 @@
   </div>
   <button type="submit" class="button">Apply Everything</button>
 </form>
+
+<script>
+  function setAllRepairModules(checked) {
+    document.querySelectorAll('input[name="modules"]').forEach(function (box) {
+      box.checked = checked;
+    });
+  }
+</script>
 {% endblock %}
