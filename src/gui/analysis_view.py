@@ -328,10 +328,18 @@ def build_issues(analysis_report) -> list[Section]:
         typo_issues.append(f"Mixed apostrophe styles within same file ({len(t.mixed_apostrophe_chapters)} chapters)")
     if t.chapters_with_mojibake:
         typo_issues.append(f"Possible Encoding Corruption (mojibake): {t.total_mojibake} instance(s) in {len(t.chapters_with_mojibake)} chapter(s)")
-    if t.chapters_with_bom:
-        typo_issues.append(f"Stray BOM characters in {len(t.chapters_with_bom)} chapter(s)")
-    if t.total_zero_width_space:
-        typo_issues.append(f"Zero-width spaces: {t.total_zero_width_space}")
+    # t.chapters_with_bom and t.total_zero_width_space deliberately
+    # excluded here -- whitespace_repair's own Unicode cleanup (see
+    # the Whitespace section below) now actually fixes overlapping
+    # characters (BOM/zero-width space are both part of its
+    # zero_width_whitespace count), and Jacob's call was to show this
+    # once, under Whitespace, "as it falls under that more" rather
+    # than duplicating it here. Typography's own counts aren't
+    # identical -- it also separately tracks zero-width NON-joiner,
+    # U+200C, which whitespace_repair doesn't touch -- but the overlap
+    # on the common case was worth resolving in favor of one place to
+    # look, at the small cost of U+200C on its own no longer getting
+    # its own line here.
     if t.total_soft_hyphen:
         typo_issues.append(f"Soft hyphens: {t.total_soft_hyphen}")
     if t.total_control_chars:
@@ -407,6 +415,12 @@ def build_issues(analysis_report) -> list[Section]:
         whitespace_issues.append(f"Space before punctuation: {ws.space_before_punct_count}")
     if ws.missing_sentence_space_count:
         whitespace_issues.append(f"Missing space after punctuation: {ws.missing_sentence_space_count}")
+    if ws.nonbreaking_space_count:
+        whitespace_issues.append(f"Non-breaking spaces: {ws.nonbreaking_space_count}")
+    if ws.unicode_whitespace_count:
+        whitespace_issues.append(f"Other Unicode whitespace characters: {ws.unicode_whitespace_count}")
+    if ws.zero_width_whitespace_count:
+        whitespace_issues.append(f"Zero-width/invisible characters (zero-width space, word joiner, stray BOM): {ws.zero_width_whitespace_count}")
     if ws.whitespace_only_node_count:
         whitespace_issues.append(f"Whitespace-only text nodes: {ws.whitespace_only_node_count}")
     # ws.protected_nodes_skipped_count deliberately excluded -- moved

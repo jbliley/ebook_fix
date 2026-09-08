@@ -887,6 +887,89 @@ across all 11 sample books (buttons render, no template errors) and
 confirmed with a full CLI regression pass that nothing else was
 disturbed.
 
+#### Whitespace module expansion -- ripple-effect fixes (2026-09-07)
+
+Jacob added new functionality directly to `whitespace.py` (the
+analyzer) and `modules/whitespace.py` (the repair module) outside a
+session with me -- three new Unicode cleanup rules folded into the
+same `normalize_fragment()` pipeline every other whitespace rule
+already runs through: non-breaking spaces, other Unicode whitespace
+characters (en/em space, thin space, and similar), and zero-width/
+invisible characters (zero-width space, word joiner, a BOM sitting
+inside the text itself). Asked to audit what else needed to change as
+a result; three concrete gaps, plus one real overlap needing a call
+Jacob made this session ("count once, under Whitespace, since it falls
+under that more"):
+
+- **`config.py`**: `WhitespaceRepairConfig` didn't have fields for the
+  three new rules at all -- the module was falling back to
+  `getattr(self.config, "...", True)`, so it worked, but there was no
+  way to turn any of them off via `ebook_fix.toml`. Added all three as
+  real dataclass fields (default `True`, matching the module's own
+  default), added matching entries with comments to the hand-written
+  default TOML template right below `collapse_whitespace_only_nodes`,
+  and simplified `modules/whitespace.py`'s `_rules()` back to plain
+  attribute access now that the fields genuinely exist.
+  `_apply_section()`'s TOML loading is fully reflection-based
+  (`dataclasses.fields()`), so nothing else needed touching for the
+  new options to actually work as real `ebook_fix.toml` switches.
+- **`engine.py`'s CLI `[Whitespace]` summary** and **`gui/
+  analysis_view.py`'s Whitespace issue section**: both had the same
+  gap -- three new counts the analyzer now tracks
+  (`nonbreaking_space_count`, `unicode_whitespace_count`,
+  `zero_width_whitespace_count`) with no line anywhere in either
+  summary to show them. The CLI's own `--details` per-issue dump
+  already surfaced them fine (it just prints `issue.category`
+  generically), so this was specifically a "headline count" gap, not a
+  "the data doesn't exist" gap. Added matching lines to both places.
+- **Overlap with `typography.py`**: it already independently tracked
+  zero-width spaces (U+200B + U+200C) and stray BOM characters
+  (U+FEFF) anywhere in chapter text, for the Analysis tab's Typography
+  section -- and it's analysis-only, nothing ever repaired what it
+  found. The new whitespace code covers an overlapping-but-not-
+  identical set (U+200B + U+2060 + U+FEFF) and, unlike typography.py,
+  actually fixes them. Jacob's call: show this once, under Whitespace,
+  since it now falls under that more than Typography. Removed the
+  "Stray BOM characters"/"Zero-width spaces" lines from Typography's
+  issue list in both `engine.py` and `analysis_view.py` -- the
+  underlying `typography.py` fields (`chapters_with_bom`,
+  `total_zero_width_space`) are untouched, just no longer displayed in
+  either summary, so nothing else that might read them breaks. One
+  side effect flagged in both places' comments: `typography.py` also
+  separately tracks zero-width NON-joiner (U+200C) as part of that
+  same combined count, which `whitespace_repair` doesn't touch at all
+  -- so U+200C on its own no longer gets its own line anywhere. Worth
+  a dedicated line of its own later if that specific character turns
+  out to matter in practice; not reintroduced now since that's a
+  narrower, different fix than "stop double-reporting the overlap."
+- Confirmed `report.py` (no fixed category whitelist -- accepts any
+  string, so the three new issue categories and the Repair tab's
+  per-module issue counts needed no changes at all) and `serialize.py`
+  (fully reflection-based via `dataclasses.fields()`, so the new
+  summary fields flow through the analysis cache automatically) needed
+  no changes. No module-ordering concerns either -- the new rules run
+  inside the same `normalize_fragment()` call every other whitespace
+  rule already goes through, in the same pass, at the same point in
+  the pipeline.
+
+Tested: confirmed the three new config fields are real, independently
+toggleable `ebook_fix.toml` options (set two to `false`, confirmed
+`load_config()` honored both while the third stayed at its default).
+Confirmed `init-config` writes the new options with their comments.
+Full `analyze` regression across all 11 samples confirmed the old
+"Zero-width spaces"/"Stray BOM characters" Typography lines are gone
+everywhere and the new Whitespace lines appear on the two sample books
+that actually have non-breaking spaces
+(`ChaptersNotAligned-New.epub`: 52-54 depending on exact count basis,
+`WarPeace-GoodCopy.epub`: 5) -- confirmed the same on the GUI's
+Analysis tab for both. Ran a real repair against
+`ChaptersNotAligned-New.epub`: confirmed "Non-breaking space: 54"
+actually gets fixed and counted, then ran a second repair pass against
+that output and confirmed zero further changes and byte-identical
+archive contents (this project's standard idempotency check). Full
+CLI regression (`analyze` and `auto-fix`) across all 11 samples stayed
+clean throughout.
+
 ### Phase 8 -- Final polish and packaging
 - Launch script (`.bat`) and a short setup note for running it --
   already exists (`run_gui.bat`/`run_gui.py`), so this is really just

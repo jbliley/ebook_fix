@@ -63,6 +63,9 @@ class WhitespaceRepairConfig:
     fix_space_before_punct: bool = True
     fix_missing_sentence_space: bool = True
     collapse_whitespace_only_nodes: bool = True
+    fix_nonbreaking_spaces: bool = True
+    fix_unicode_whitespace: bool = True
+    fix_zero_width_whitespace: bool = True
 
 
 @dataclass(slots=True)
@@ -411,6 +414,22 @@ fix_missing_sentence_space = true
 # block-level tags -- see the module docstring, "Standalone
 # whitespace-only nodes", for why that's the safe default.
 collapse_whitespace_only_nodes = true
+
+# Replace a non-breaking space (U+00A0) with an ordinary space.
+fix_nonbreaking_spaces = true
+
+# Replace other Unicode space characters (en/em space, thin space,
+# ideographic space, and similar Zs/Zl/Zp-category characters) with an
+# ordinary space. Doesn't affect the non-breaking space above -- that
+# has its own switch since it's the far more common case.
+fix_unicode_whitespace = true
+
+# Remove invisible zero-width characters that sometimes turn up as
+# conversion artifacts (zero-width space, word joiner, and a stray
+# byte-order-mark sitting inside the text itself, not the one at the
+# very start of a file, which the EPUB reader already handles
+# separately).
+fix_zero_width_whitespace = true
 
 # ---------------------------------------------------------------------
 # Gutenberg Boilerplate Removal

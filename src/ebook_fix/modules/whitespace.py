@@ -182,11 +182,7 @@ class WhitespaceRepair:
             fix_tabs=self.config.fix_tabs,
             fix_space_before_punct=self.config.fix_space_before_punct,
             fix_missing_sentence_space=self.config.fix_missing_sentence_space,
-            # These three Unicode cleanup rules are intentionally on by
-            # default in this first expansion. getattr keeps older
-            # WhitespaceRepairConfig objects compatible until they are
-            # exposed as individual TOML switches.
-            fix_nonbreaking_spaces=getattr(self.config, "fix_nonbreaking_spaces", True),
-            fix_unicode_whitespace=getattr(self.config, "fix_unicode_whitespace", True),
-            fix_zero_width_whitespace=getattr(self.config, "fix_zero_width_whitespace", True),
+            fix_nonbreaking_spaces=self.config.fix_nonbreaking_spaces,
+            fix_unicode_whitespace=self.config.fix_unicode_whitespace,
+            fix_zero_width_whitespace=self.config.fix_zero_width_whitespace,
         )
