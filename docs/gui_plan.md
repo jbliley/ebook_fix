@@ -977,12 +977,33 @@ clean throughout.
 - Full regression pass across all sample books, same standard as
   every other feature in this project.
 
+**Done (2026-09-07).** Both items checked, nothing needed changing:
+
+- `run_gui.py`/`run_gui.bat` still work exactly as documented --
+  confirmed the "no install step needed" claim in both the script's
+  own docstring and the README specifically, by uninstalling the
+  `ebook-fix` package entirely and confirming `gui.app` still imports
+  cleanly and registers all 13 routes through `run_gui.py`'s own
+  `sys.path` insertion alone. README's Web GUI section doesn't
+  enumerate individual tabs/features by name, so nothing there went
+  stale as tabs were added across Phases 1-7b -- no changes needed.
+- Full regression: every one of the 11 sample books through the
+  complete GUI workflow in one pass -- Analysis tab, Metadata tab
+  (GET and a stage POST), Review tab (GET, plus a stage POST on the
+  books with real split candidates), Repair tab (GET for the
+  count/auto-uncheck display, then Apply Everything with every
+  module checked), Before/After tab, and the asset-serving route.
+  Every book produced a loadable, `ebook-fix validate`-clean fixed
+  EPUB. This is the same standard every phase before it was already
+  held to individually; this pass is the first to exercise all of
+  them together, back to back, on every book, in one run.
+
+All eight phases of this plan are done as of this session. What's left
+of the GUI isn't a numbered phase so much as it is what's still open
+below.
+
 ## Open questions
 
-- Exact page-matching approach for Phase 7's split case -- resolved in
-  the Phase 7a scoping and built in Phase 7b (persisted
-  `split_mapping.json` for the split case, direct diffing for the
-  removed-file case).
 - Whether the Review tab's cover-mismatch item shows the two cover
   images directly in that tab, or defers full visual comparison to
   the Before/After tab -- likely the latter, to avoid building two
