@@ -327,18 +327,24 @@ def browse():
         "    title='Choose an EPUB file',\n"
         "    filetypes=[('EPUB files', '*.epub'), ('All files', '*.*')],\n"
         ")\n"
+        "sys.stdout.reconfigure(encoding='utf-8')\n"
         "sys.stdout.write(path)\n"
     )
     try:
         result = subprocess.run(
             [sys.executable, "-c", script],
-            capture_output=True, text=True, timeout=180,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=180,
         )
     except Exception as exc:
         return {"error": f"Couldn't open the file browser: {exc}"}
 
     if result.returncode != 0:
-        return {"error": "Couldn't open the file browser -- is tkinter installed with your Python?"}
+        error = result.stderr.strip() or "The file browser process failed."
+        return {"error": f"Couldn't open the file browser: {error}"}
 
     return {"path": result.stdout.strip()}
 
