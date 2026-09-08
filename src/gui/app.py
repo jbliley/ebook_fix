@@ -327,24 +327,18 @@ def browse():
         "    title='Choose an EPUB file',\n"
         "    filetypes=[('EPUB files', '*.epub'), ('All files', '*.*')],\n"
         ")\n"
-        "sys.stdout.reconfigure(encoding='utf-8')\n"
         "sys.stdout.write(path)\n"
     )
     try:
         result = subprocess.run(
             [sys.executable, "-c", script],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=180,
+            capture_output=True, text=True, timeout=180,
         )
     except Exception as exc:
         return {"error": f"Couldn't open the file browser: {exc}"}
 
     if result.returncode != 0:
-        error = result.stderr.strip() or "The file browser process failed."
-        return {"error": f"Couldn't open the file browser: {error}"}
+        return {"error": "Couldn't open the file browser -- is tkinter installed with your Python?"}
 
     return {"path": result.stdout.strip()}
 
@@ -659,6 +653,19 @@ def apply_repair(session_id):
 
     output_path = _fixed_output_path(session_dir)
     EPUBWriter().save(book, output_path)
+
+    # Calibre sync (metadata.opf always, metadata.db only if
+    # sync_calibre_db is turned on) -- reuses Engine's own private
+    # methods rather than duplicating this logic a second time. This
+    # was a real, pre-existing gap: engine.repair()/auto_fix() (the
+    # CLI's own entry points) already called _sync_metadata_opf, but
+    # the GUI's Apply Everything went through run_selected_repairs()
+    # directly and never called it at all -- so Calibre sync silently
+    # never happened from the GUI, for any book, until now. Only ever
+    # called after the write above, same rule these two methods
+    # already enforce themselves.
+    engine._sync_metadata_opf(analysis_report)
+    engine._sync_metadata_db(analysis_report)
 
     # Persisted purely for the Before/After tab (Phase 7b,
     # docs/gui_plan.md) -- a new chapter_004.xhtml's own filename never

@@ -321,6 +321,91 @@ a lock.
   and confirm the regenerated `metadata.opf` matches what this
   project would have written itself.
 
+### Phases 1-2 build (2026-09-07)
+
+- **New `metadata/calibredb_write.py`.** `find_calibredb()` checks
+  PATH first, then a couple of well-known Windows install locations
+  (`C:\Program Files\Calibre2\calibredb.exe` and the `(x86)` variant)
+  for the case where Calibre didn't register itself on PATH.
+  `sync_metadata_db(library_root, book_id, updates, subjects)` takes
+  the exact same `MergedCoreFields.calibre_updates()` /
+  `.subjects_for_calibre()` shapes `calibre_write.py`'s OPF sync
+  already consumes -- no new confidence logic, this is purely a
+  second write target for values metadata.merge already vetted.
+  Builds one `calibredb set_metadata --with-library <root> <id>
+  --field name:value ...` call per book (calibredb's own interface
+  takes repeated `--field` args, not a batch payload). Field-name
+  mapping: `title`->`title`, `author`->`authors`, `publisher`->
+  `publisher`, `date`->`pubdate`, `description`->`comments`,
+  `series`/`series_index` pass through as-is, subjects ->
+  `tags` (comma-joined). `rights` has no standard calibredb field --
+  Calibre has no built-in license/rights column, only custom columns,
+  and this project has no way to know the name of one a person may or
+  may not have added -- so it's silently dropped rather than guessed
+  at; every other field still gets written normally.
+- Returns a `CalibreDbWriteResult` (attempted/succeeded/
+  fields_written/error) instead of raising for anything
+  calibredb-specific -- not found, non-zero exit, timeout. Those are
+  expected, recoverable conditions when running against someone
+  else's live install, not bugs. A non-zero exit whose stderr mentions
+  "lock" gets an extra "close Calibre and try again" appended, since
+  that's the one failure mode Jacob specifically flagged as a real
+  risk above -- calibredb's own error wording is otherwise surfaced
+  as-is rather than re-worded, since it's normally specific enough to
+  act on directly.
+- **New `sync_calibre_db` config option**, alongside `sync_calibre_opf`
+  in `[metadata_repair]` -- **off by default**, unlike
+  `sync_calibre_opf`. Deliberate: `sync_calibre_opf` writes a
+  standalone XML sidecar this project can inspect and verify itself;
+  `sync_calibre_db` shells out to an external program against a live
+  database it can't inspect, and Phase 3 (below) hasn't happened yet.
+  Turn it on once that's confirmed to behave well.
+- **Wired into `engine.py`**: new `Engine._sync_metadata_db()`,
+  mirroring `_sync_metadata_opf()`'s structure, called right alongside
+  it in both `repair()` and `auto_fix()`. Gated on
+  `calibre_context.book_id is not None` (silently does nothing
+  without it, same as `_sync_metadata_opf` does for a
+  non-Calibre-managed book).
+- **Also wired into the GUI's `apply_repair()`**, which turned out to
+  have a real, pre-existing gap found while doing this: it calls
+  `Engine.run_selected_repairs()` directly rather than going through
+  `repair()`/`auto_fix()`, so it had never called
+  `_sync_metadata_opf()` at all -- meaning Calibre OPF sync silently
+  never happened from the GUI, for any book, before this fix. Now
+  calls both `_sync_metadata_opf()` and `_sync_metadata_db()` right
+  after saving the repaired EPUB, same as the CLI's own two entry
+  points.
+
+Tested without a real Calibre install (Phase 3 still needs Jacob's
+actual library, see below): confirmed `find_calibredb()` returns
+`None` cleanly with nothing on PATH. Confirmed `sync_metadata_db()`
+against a fake `calibredb` script -- a success case (verified the
+exact command line built: `set_metadata --with-library <path> <id>
+--field title:... --field authors:... --field pubdate:... --field
+tags:...`, and confirmed `rights` was correctly dropped from the
+call), a bad-book-id case (non-zero exit surfaced verbatim), and a
+locked-library case (non-zero exit with "lock" in stderr gets the
+"close Calibre" hint appended). Confirmed `sync_calibre_db` defaults
+to `False` via `load_config()`. Full CLI regression (`auto-fix`
+across all 11 samples) and the full GUI workflow regression (every
+tab, every book, from Phase 8) both stayed clean -- none of the 11
+sample books are Calibre-managed, so `_sync_metadata_db()` should be
+(and was confirmed to be) a silent no-op for all of them.
+
+**Phase 3 still needs Jacob, live, against a real Calibre library** --
+this can't be verified any other way. Specifically: confirm
+`find_calibredb()` actually finds calibredb on his Windows machine
+(the PATH-first, then-known-install-locations logic above is a
+best-effort guess, not something tested against a real Windows
+Calibre install), confirm a `set_metadata` call actually shows up in
+Calibre's UI without a restore/re-add step, confirm the
+locked-library behavior when Calibre's GUI is open at the same time
+fails the way this module expects (a non-zero exit with "lock"
+somewhere in stderr -- calibredb's exact wording for this case hasn't
+been confirmed), and confirm the field-name mapping above (especially
+`author`->`authors` for a multi-author book, and `date`->`pubdate`'s
+expected date format) actually round-trips correctly.
+
 ## Session update (2026-09-02): identifier/core-field reading migrated into analysis
 
 The identifier and title/author/etc. reading that used to live inline

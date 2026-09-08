@@ -157,6 +157,14 @@ class MetadataRepairConfig:
     # metadata.db -- see modules/metadata_repair.py and
     # metadata/calibre_write.py.
     sync_calibre_opf: bool = True
+    # Also write the same values into Calibre's own metadata.db via
+    # the calibredb command-line tool, so Calibre's library view
+    # reflects the correction without needing a re-scan. Off by
+    # default -- unlike sync_calibre_opf above, this hasn't been
+    # verified against a real Calibre library yet (needs calibredb on
+    # the machine running this, and a live library to test against).
+    # See docs/metadata_plan.md and metadata/calibredb_write.py.
+    sync_calibre_db: bool = False
 
 
 @dataclass(slots=True)
@@ -563,6 +571,15 @@ enabled = true
 # itself (not just the EPUB), so the correction shows up in Calibre
 # and Calibre-Web too, not only in the repaired EPUB file.
 sync_calibre_opf = true
+
+# Also write the same values into Calibre's own metadata.db via the
+# calibredb command-line tool, so Calibre's library view reflects the
+# correction immediately, without a re-scan. Off by default --
+# requires calibredb to be installed and on PATH (or in one of the
+# usual Windows install locations), and hasn't been verified yet
+# against a real Calibre library. Turn this on once that's confirmed
+# to work well on your machine -- see docs/metadata_plan.md.
+sync_calibre_db = false
 
 # ---------------------------------------------------------------------
 # Identifier Standardize

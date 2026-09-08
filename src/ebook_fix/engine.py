@@ -15,6 +15,7 @@ from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
 from metadata import review
 from metadata import calibre_write
+from metadata import calibredb_write
 from ebook_fix.serialize import save_report
 from ebook_fix.class_map import (
     build_class_profiles,
@@ -1536,6 +1537,41 @@ class Engine:
                     f"{calibre_context.metadata_opf_path}"
                 )
 
+    def _sync_metadata_db(self, analysis_report) -> None:
+        """The metadata.db counterpart to _sync_metadata_opf above --
+        writes the same already-vetted values into Calibre's own
+        database via calibredb, so Calibre's library view reflects
+        the correction without a re-scan. See
+        metadata/calibredb_write.py; off by default
+        (config.metadata_repair.sync_calibre_db) until verified
+        against a real Calibre library. Requires calibre_context.book_id
+        (resolved from metadata.opf's own calibre:id <meta>, see
+        metadata/calibre_detect.py) -- silently does nothing without
+        it, same as _sync_metadata_opf silently does nothing for a
+        non-Calibre-managed book."""
+        calibre_context = analysis_report.calibre_context
+        if not calibre_context.is_calibre_managed or calibre_context.book_id is None:
+            return
+
+        metadata_config = getattr(self.config, "metadata_repair", None)
+        if metadata_config is None or not metadata_config.enabled or not metadata_config.sync_calibre_db:
+            return
+
+        merged = analysis_report.merged_core_fields
+        result = calibredb_write.sync_metadata_db(
+            calibre_context.library_root,
+            calibre_context.book_id,
+            merged.calibre_updates(),
+            merged.subjects_for_calibre(),
+        )
+        if result.error:
+            self.log(f"\nWarning: {result.error}")
+        elif result.fields_written:
+            self.log(
+                f"Synced {len(result.fields_written)} field(s) to metadata.db "
+                f"({', '.join(result.fields_written)}): book id {calibre_context.book_id}"
+            )
+
     def _print_repair_summary(self, repair_reports, details: bool = False) -> None:
         """Prints what was actually changed, module by module -- only
         modules that made a change are listed at all. By default each
@@ -1728,6 +1764,7 @@ class Engine:
             writer.save(book, output)
             self.log(f"\nSaved: {output}")
             self._sync_metadata_opf(analysis_report)
+            self._sync_metadata_db(analysis_report)
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
@@ -1915,6 +1952,7 @@ class Engine:
             writer.save(book, output)
             self.log(f"\nSaved: {output}")
             self._sync_metadata_opf(analysis_report)
+            self._sync_metadata_db(analysis_report)
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
