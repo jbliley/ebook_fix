@@ -1002,6 +1002,74 @@ All eight phases of this plan are done as of this session. What's left
 of the GUI isn't a numbered phase so much as it is what's still open
 below.
 
+#### Post-plan addition: replace-original-file, and Calibre sync visibility (2026-09-08)
+
+Jacob's repair result wasn't touching metadata.opf or metadata.db and
+there was no way to tell why from the GUI -- and separately, he raised
+a real workflow gap: the GUI always writes a `<name>_fixed.epub`
+alongside the original, which means Calibre (pointed at the original's
+exact filename) never sees the fix without a person manually renaming
+files themselves. Two related fixes:
+
+- **Calibre sync visibility.** `Engine._sync_metadata_opf()` and
+  `._sync_metadata_db()` now return a small status dict (attempted,
+  changed_fields, message) instead of only logging internally -- the
+  CLI still sees everything via the console, but the GUI has no
+  console to read, so `apply_repair()` now surfaces this same status
+  directly in the Repair tab's own result banner ("Calibre
+  metadata.opf: ...", "Calibre metadata.db: ..."), with a specific
+  reason whenever nothing happened (not Calibre-managed, config
+  disabled, nothing needed updating, calibredb not found, etc.)
+  instead of silence. This should directly answer "why didn't it
+  write" the next time it comes up, without needing to dig through
+  logs.
+- **New "Replace original file" button** on the Repair tab, shown once
+  a `_fixed.epub` exists. Does exactly what Jacob proposed: renames
+  the untouched original to `<name>_original.epub` (a backup, never
+  auto-deleted) and renames the repaired file onto the original's own
+  name and location -- two same-filesystem renames, atomic on every OS
+  this project supports, not a copy-then-delete. Refuses (rather than
+  overwriting) if a backup already exists at that name, since that
+  almost always means this book was already replaced once and
+  overwriting would lose whichever version came before that.
+- The Repair and Before/After tabs both track this via a small
+  `replaced.flag` file in the session folder, so neither tab keeps
+  pretending the file at the original name is still the pre-repair
+  original once it's been swapped -- the Repair tab shows a persistent
+  note and hides the button, and Before/After shows a specific message
+  instead of its generic "no repair yet" one.
+
+Tested: full round-trip on a throwaway copy -- applied a repair,
+confirmed the button appears, clicked it, and verified by hash that
+the backup file is byte-identical to the true original and the
+original-named file now holds the repaired content. Confirmed a
+second replace attempt is refused without touching the existing
+backup. Confirmed both tabs show the right persistent messaging
+afterward. For the sync-visibility fix, confirmed the "not attempted"
+reason renders correctly for a non-Calibre book, and directly
+exercised every Calibre-managed branch (no metadata.opf found, no
+book id resolved, config disabled, sync off by default, calibredb not
+found) with a mocked Calibre context, since none of the 11 sample
+books are Calibre-managed. Caught and fixed one small bug of my own
+in this pass: `_sync_metadata_db`'s error branch was reporting
+`attempted=False` on a calibredb-not-found error even though the sync
+had genuinely been attempted (config allowed it, all the gating
+checks passed) -- it was reusing `calibredb_write.py`'s own narrower
+`attempted` flag (whether a subprocess call was actually made) instead
+of its own. Full GUI workflow regression and CLI regression (`analyze`
++ `auto-fix`) across all 11 samples stayed clean throughout.
+
+Jacob's original report (found the description from Calibre, but
+metadata.opf/metadata.db weren't touched) still isn't root-caused --
+most likely explanation given the defaults: `sync_calibre_db` is off
+by default, so metadata.db not changing is expected unless that's
+been turned on in `ebook_fix.toml`; the metadata.opf side needs
+checking against the actual new result-banner message next time this
+runs, since before this fix there was no way to tell whether it was
+"nothing needed updating" (the values already agreed) versus
+something not firing correctly. Next run's result banner should say
+definitively which.
+
 ## Open questions
 
 - Whether the Review tab's cover-mismatch item shows the two cover

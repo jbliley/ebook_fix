@@ -33,7 +33,49 @@
   {% elif not result.split_count %}
   <div class="result-summary">No standard repairs found anything to change.</div>
   {% endif %}
+  {% if result.opf_sync and result.opf_sync.attempted %}
+  <div class="result-summary">Calibre metadata.opf: {{ result.opf_sync.message or 'synced.' }}</div>
+  {% elif result.opf_sync %}
+  <div class="result-summary">Calibre metadata.opf: not attempted &mdash; {{ result.opf_sync.message }}</div>
+  {% endif %}
+  {% if result.db_sync and result.db_sync.attempted %}
+  <div class="result-summary">Calibre metadata.db: {{ result.db_sync.message or 'synced.' }}</div>
+  {% elif result.db_sync %}
+  <div class="result-summary">Calibre metadata.db: not attempted &mdash; {{ result.db_sync.message }}</div>
+  {% endif %}
 </div>
+{% endif %}
+
+{% if replace_error %}
+<div class="staged-banner" style="background:#fff5f5;border-color:#feb2b2;color:#742a2a;">
+  {{ replace_error }}
+</div>
+{% endif %}
+
+{% if replaced_path %}
+<div class="saved-banner">
+  Replaced. <code>{{ replaced_path }}</code> now holds the repaired book &mdash; Calibre (or
+  anything else pointed at that exact path) will pick it up as-is, no renaming needed on your
+  end. The pre-repair file was kept as <code>{{ replaced_backup }}</code>.
+</div>
+{% elif already_replaced %}
+<p class="details-toggle">
+  This book's original file was already replaced with the repaired version. The pre-repair file
+  is kept at <code>{{ replaced_backup }}</code>. Applying again below will re-run repairs against
+  the file currently sitting at the original name (the already-repaired one), not the original
+  pre-repair content.
+</p>
+{% endif %}
+
+{% if has_fixed and not already_replaced %}
+<form method="post" action="{{ url_for('replace_original', session_id=session_id) }}" style="margin-bottom:1.2rem;">
+  <button type="submit" class="button secondary">Replace original file with repaired version</button>
+  <p class="details-toggle" style="margin-top:0.4rem;">
+    Renames the original to "&lt;name&gt;_original.epub" as a backup, then renames the repaired
+    file to the original's own name and location &mdash; so Calibre's own copy is the fixed one,
+    without you renaming anything by hand.
+  </p>
+</form>
 {% endif %}
 
 <form method="post" action="{{ url_for('apply_repair', session_id=session_id) }}">

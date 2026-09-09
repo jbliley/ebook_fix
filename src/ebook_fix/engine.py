@@ -1489,7 +1489,7 @@ class Engine:
         if review_rows:
             self.log(f"Logged {review_rows} item(s) needing review to {review.default_review_path()}")
 
-    def _sync_metadata_opf(self, analysis_report) -> None:
+    def _sync_metadata_opf(self, analysis_report) -> dict:
         """Writes the same confidently-resolved core-field values
         MetadataSyncRepair already wrote into the EPUB back into its
         Calibre metadata.opf sidecar too, so the correction shows up
@@ -1501,13 +1501,29 @@ class Engine:
         this runs even for a book with nothing else to sync). Only
         ever called after the repaired book has actually been saved to
         disk (never during a --dry-run), and only touches a
-        Calibre-managed book's metadata.opf, never metadata.db."""
+        Calibre-managed book's metadata.opf, never metadata.db.
+
+        Returns a small status dict (attempted, changed_fields,
+        message) in addition to logging -- the CLI already sees
+        everything via self.log(), but the GUI has no console to read,
+        so apply_repair() in gui/app.py surfaces this same status
+        directly in its own result banner instead of leaving a person
+        to guess whether anything happened."""
         calibre_context = analysis_report.calibre_context
-        if not calibre_context.is_calibre_managed or not calibre_context.metadata_opf_path:
-            return
+        if not calibre_context.is_calibre_managed:
+            return {"attempted": False, "changed_fields": [], "message": "Not a Calibre-managed book."}
+        if not calibre_context.metadata_opf_path:
+            return {"attempted": False, "changed_fields": [], "message": "Calibre-managed, but no metadata.opf found next to it."}
+
+        changed = []
+        messages = []
 
         metadata_config = getattr(self.config, "metadata_repair", None)
-        if metadata_config is not None and metadata_config.enabled and metadata_config.sync_calibre_opf:
+        if metadata_config is None or not metadata_config.enabled:
+            messages.append("metadata_repair is disabled in config.")
+        elif not metadata_config.sync_calibre_opf:
+            messages.append("sync_calibre_opf is turned off in config.")
+        else:
             merged = analysis_report.merged_core_fields
             try:
                 changed = calibre_write.sync_metadata_opf(
@@ -1517,27 +1533,43 @@ class Engine:
                 )
             except calibre_write.MetadataOpfWriteError as exc:
                 self.log(f"\nWarning: {exc}")
-                changed = []
+                messages.append(f"Error writing metadata.opf: {exc}")
             if changed:
                 self.log(
                     f"Synced {len(changed)} field(s) to metadata.opf ({', '.join(changed)}): "
                     f"{calibre_context.metadata_opf_path}"
                 )
+                messages.append(f"Synced: {', '.join(changed)}.")
+            elif not messages:
+                # Attempted, config allowed it, calibre_write ran --
+                # there was simply nothing to write. Common and
+                # expected: it means the EPUB and metadata.opf already
+                # agreed on every field metadata.merge resolves
+                # confidently, not that anything failed.
+                messages.append("Nothing needed updating (EPUB and metadata.opf already agreed).")
 
         identifier_config = getattr(self.config, "identifier_repair", None)
+        id_changes = []
         if identifier_config is not None and identifier_config.enabled:
             try:
                 id_changes = calibre_write.clean_metadata_opf_identifiers(calibre_context.metadata_opf_path)
             except calibre_write.MetadataOpfWriteError as exc:
                 self.log(f"\nWarning: {exc}")
-                id_changes = []
+                messages.append(f"Error cleaning identifiers: {exc}")
             if id_changes:
                 self.log(
                     f"Cleaned up {len(id_changes)} identifier(s) in metadata.opf: "
                     f"{calibre_context.metadata_opf_path}"
                 )
+                messages.append(f"Cleaned up {len(id_changes)} identifier(s).")
 
-    def _sync_metadata_db(self, analysis_report) -> None:
+        return {
+            "attempted": True,
+            "changed_fields": changed,
+            "message": " ".join(messages) if messages else None,
+        }
+
+    def _sync_metadata_db(self, analysis_report) -> dict:
         """The metadata.db counterpart to _sync_metadata_opf above --
         writes the same already-vetted values into Calibre's own
         database via calibredb, so Calibre's library view reflects
@@ -1550,12 +1582,16 @@ class Engine:
         it, same as _sync_metadata_opf silently does nothing for a
         non-Calibre-managed book."""
         calibre_context = analysis_report.calibre_context
-        if not calibre_context.is_calibre_managed or calibre_context.book_id is None:
-            return
+        if not calibre_context.is_calibre_managed:
+            return {"attempted": False, "changed_fields": [], "message": "Not a Calibre-managed book."}
+        if calibre_context.book_id is None:
+            return {"attempted": False, "changed_fields": [], "message": "Calibre-managed, but couldn't resolve this book's Calibre id."}
 
         metadata_config = getattr(self.config, "metadata_repair", None)
-        if metadata_config is None or not metadata_config.enabled or not metadata_config.sync_calibre_db:
-            return
+        if metadata_config is None or not metadata_config.enabled:
+            return {"attempted": False, "changed_fields": [], "message": "metadata_repair is disabled in config."}
+        if not metadata_config.sync_calibre_db:
+            return {"attempted": False, "changed_fields": [], "message": "sync_calibre_db is turned off in config (off by default -- see docs/metadata_plan.md)."}
 
         merged = analysis_report.merged_core_fields
         result = calibredb_write.sync_metadata_db(
@@ -1566,11 +1602,25 @@ class Engine:
         )
         if result.error:
             self.log(f"\nWarning: {result.error}")
-        elif result.fields_written:
+            # attempted=True here regardless of calibredb_write's own
+            # narrower "attempted" (whether a subprocess call actually
+            # ran) -- from this method's perspective, every gate above
+            # (Calibre-managed, book_id resolved, config enabled) has
+            # already passed, so the sync flow itself was genuinely
+            # attempted even when the underlying call couldn't run
+            # (e.g. calibredb not found).
+            return {"attempted": True, "changed_fields": [], "message": result.error}
+        if result.fields_written:
             self.log(
                 f"Synced {len(result.fields_written)} field(s) to metadata.db "
                 f"({', '.join(result.fields_written)}): book id {calibre_context.book_id}"
             )
+            return {
+                "attempted": True,
+                "changed_fields": result.fields_written,
+                "message": f"Synced: {', '.join(result.fields_written)}.",
+            }
+        return {"attempted": True, "changed_fields": [], "message": "Nothing needed updating."}
 
     def _print_repair_summary(self, repair_reports, details: bool = False) -> None:
         """Prints what was actually changed, module by module -- only

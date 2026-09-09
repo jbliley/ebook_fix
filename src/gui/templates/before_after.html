@@ -1,11 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
 {% if not has_fixed %}
+{% if already_replaced %}
+<p class="empty-state">
+  This book's original file was already replaced with its repaired version (the pre-repair file
+  was kept as <code>{{ replaced_backup }}</code>). There's no separate "_fixed" file left to
+  compare against anymore &mdash; open the book again from the Analysis tab if you'd like to
+  review it fresh, or check the kept backup directly.
+</p>
+{% else %}
 <p class="empty-state">
   No repaired file yet for this book. Run a repair on the
   <a href="{{ url_for('book_repair', session_id=session_id) }}">Repair tab</a> first, then come back
   here to compare before and after.
 </p>
+{% endif %}
 {% elif not chapters %}
 <p class="empty-state">This book has no chapters to compare.</p>
 {% else %}

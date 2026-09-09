@@ -195,6 +195,25 @@ def _fixed_output_path(session_dir: Path) -> Path:
     return source.with_name(source.stem + "_fixed" + source.suffix)
 
 
+def _original_backup_path(session_dir: Path) -> Path:
+    """Where replace_original() moves the pre-repair file to, so a
+    Calibre-managed book can end up back under its own original
+    filename (what Calibre's own database points at) without ever
+    losing the untouched original outright. See replace_original()."""
+    source = _source_path(session_dir)
+    return source.with_name(source.stem + "_original" + source.suffix)
+
+
+def _replaced_flag_path(session_dir: Path) -> Path:
+    """Marks that this session has already gone through
+    replace_original() -- the session's own real_path.txt still
+    points at the same filename, but that file now holds the repaired
+    content, not the original. Every tab that reads "before" content
+    off _source_path() checks this flag first, so nothing silently
+    treats post-replace content as the pre-repair original."""
+    return session_dir / "replaced.flag"
+
+
 def _staged_metadata_path(session_dir: Path) -> Path:
     return session_dir / "staged_metadata.json"
 
@@ -571,6 +590,9 @@ def book_repair(session_id):
     staged_field_count = len(staged_metadata["fields"]) if staged_metadata else 0
     staged_boundary_count = len(staged_review["accepted_ids"]) if staged_review else 0
 
+    replaced_flag = _replaced_flag_path(session_dir)
+    already_replaced = replaced_flag.exists()
+
     return render_template(
         "repair.html",
         active_tab="repair",
@@ -582,6 +604,9 @@ def book_repair(session_id):
         staged_field_count=staged_field_count,
         staged_boundary_count=staged_boundary_count,
         result=None,
+        has_fixed=_fixed_output_path(session_dir).exists(),
+        already_replaced=already_replaced,
+        replaced_backup=replaced_flag.read_text(encoding="utf-8") if already_replaced else None,
     )
 
 
@@ -664,8 +689,8 @@ def apply_repair(session_id):
     # never happened from the GUI, for any book, until now. Only ever
     # called after the write above, same rule these two methods
     # already enforce themselves.
-    engine._sync_metadata_opf(analysis_report)
-    engine._sync_metadata_db(analysis_report)
+    opf_sync_status = engine._sync_metadata_opf(analysis_report)
+    db_sync_status = engine._sync_metadata_db(analysis_report)
 
     # Persisted purely for the Before/After tab (Phase 7b,
     # docs/gui_plan.md) -- a new chapter_004.xhtml's own filename never
@@ -707,7 +732,86 @@ def apply_repair(session_id):
             "module_summaries": module_summaries,
             "pass_count": pass_num,
             "engine_output": engine_output,
+            "opf_sync": opf_sync_status,
+            "db_sync": db_sync_status,
         },
+        has_fixed=True,
+        already_replaced=_replaced_flag_path(session_dir).exists(),
+    )
+
+
+@app.route("/book/<session_id>/replace-original", methods=["POST"])
+def replace_original(session_id):
+    """Swaps a repaired book back onto its own original filename, so
+    Calibre (or anything else pointed at that exact path) picks up the
+    fix without a person manually renaming anything themselves. Two
+    plain os-level renames, in this order: the untouched original ->
+    "<name>_original.epub" (a backup, never deleted automatically),
+    then "<name>_fixed.epub" -> the original filename. Both files
+    already live in the same folder, so each rename is a same-
+    filesystem move -- atomic on every OS this project supports,
+    never a copy-then-delete that could leave things half-done if
+    interrupted.
+
+    Refuses if a backup already exists at that name rather than
+    overwriting it -- a leftover "_original.epub" almost always means
+    this session already replaced once before, and silently
+    overwriting it would throw away whichever version came before
+    that. A person can rename or delete the old backup by hand and
+    retry if that's genuinely what they want."""
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+
+    fixed_path = _fixed_output_path(session_dir)
+    if not fixed_path.exists():
+        abort(404)
+
+    source_path = _source_path(session_dir)
+    backup_path = _original_backup_path(session_dir)
+    if backup_path.exists():
+        return render_template(
+            "repair.html",
+            active_tab="repair",
+            session_id=session_id,
+            filename=filename,
+            modules=[
+                {"attr": attr, "label": label, "checked": False}
+                for attr, label in _REPAIR_MODULES
+            ],
+            has_staged_metadata=False,
+            has_staged_review=False,
+            staged_field_count=0,
+            staged_boundary_count=0,
+            result=None,
+            has_fixed=True,
+            replace_error=(
+                f"A backup already exists at {backup_path} -- not overwriting it. "
+                "Move or delete that file first if you're sure you want to replace again."
+            ),
+        )
+
+    source_path.rename(backup_path)
+    fixed_path.rename(source_path)
+    _replaced_flag_path(session_dir).write_text(str(backup_path), encoding="utf-8")
+
+    return render_template(
+        "repair.html",
+        active_tab="repair",
+        session_id=session_id,
+        filename=filename,
+        modules=[
+            {"attr": attr, "label": label, "checked": False}
+            for attr, label in _REPAIR_MODULES
+        ],
+        has_staged_metadata=False,
+        has_staged_review=False,
+        staged_field_count=0,
+        staged_boundary_count=0,
+        result=None,
+        has_fixed=False,
+        already_replaced=True,
+        replaced_path=str(source_path),
+        replaced_backup=str(backup_path),
     )
 
 
@@ -723,6 +827,17 @@ def book_before_after(session_id):
     that case needs no persisted mapping at all)."""
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+
+    if _replaced_flag_path(session_dir).exists():
+        return render_template(
+            "before_after.html",
+            active_tab="before_after",
+            session_id=session_id,
+            filename=filename,
+            has_fixed=False,
+            already_replaced=True,
+            replaced_backup=_replaced_flag_path(session_dir).read_text(encoding="utf-8"),
+        )
 
     fixed_path = _fixed_output_path(session_dir)
     if not fixed_path.exists():
