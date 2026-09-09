@@ -6,6 +6,11 @@ role ebook_fix.analyzer plays for EPUB -- open the file, read it
 once, hand back a structured result. Analysis only: nothing here
 modifies or writes a MOBI file. See docs/format_support_plan.md for
 the phased plan this is Phase 0/1 of.
+
+Generation detection is confirmed against real samples for both
+MOBI7 and pure KF8/AZW3. The hybrid case (a MOBI7 part and a KF8 part
+bundled in the same file) is still unconfirmed -- no real hybrid
+sample exists yet.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -49,18 +54,20 @@ class MobiAnalysisReport:
 
 
 def _detect_generation(file_version: int, exth_records) -> tuple[str, bool]:
-    """Returns (label, confirmed). MOBI7 (file_version < 8) is
-    confirmed against a real sample; the two KF8 cases are written
-    from documented field layouts only -- flagged unconfirmed until a
-    real AZW3 sample exists to check against (see
-    docs/format_support_plan.md)."""
+    """Returns (label, confirmed). MOBI7 (file_version < 8) and pure
+    KF8/AZW3 (file_version >= 8, no boundary tag) are both confirmed
+    against real samples. The hybrid case (file_version >= 8 WITH an
+    EXTH 121 boundary tag, meaning a MOBI7 part and a KF8 part are
+    both present in the same file) is still written from documented
+    field layouts only -- flagged unconfirmed until a real hybrid
+    sample exists (see docs/format_support_plan.md)."""
     if file_version < 8:
         return "MOBI7 (classic Mobipocket)", True
 
     has_boundary = any(r.record_type == 121 for r in exth_records)
     if has_boundary:
         return "KF8 hybrid (MOBI7 + KF8)", False
-    return "KF8/AZW3", False
+    return "KF8/AZW3", True
 
 
 def analyze_mobi(path: Path) -> MobiAnalysisReport:

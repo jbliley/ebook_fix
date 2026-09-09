@@ -1,9 +1,10 @@
 # Other Format Support -- Planning Doc
 
-**Status:** Phase 0 and Phase 1 done for MOBI7. Phase 3 (CLI wiring)
-also done alongside Phase 1, since there wasn't a reason to hold it
-back once metadata reading worked. KF8/AZW3 handling exists but is
-unconfirmed -- see "What a MOBI file actually is" below.
+**Status:** Phase 0 and Phase 1 done for MOBI7 and pure KF8/AZW3
+(hybrid KF8 still unconfirmed -- no real hybrid sample). Phase 3 (CLI
+wiring) also done alongside Phase 1. FB2 support added separately --
+see "FB2 (FictionBook) support" below; it's a much simpler format
+than MOBI so it didn't need its own multi-phase plan.
 **Started:** carved out of analysis_roadmap.md's "Noted for the master
 plan, not scoped yet" section, at Jacob's request to start actually
 planning the MOBI piece while it's on his mind.
@@ -86,15 +87,19 @@ PalmDB records, 29 EXTH metadata tags:
   opening tag above being plain HTML, not XML-declared. `lxml`'s
   XHTML-oriented parsing likely won't apply directly once Phase 2
   gets to actual content, as suspected.
-- **Not yet confirmed:** newer AZW3/KF8 files are documented as often
-  being a hybrid -- a MOBI7 part for backward compatibility plus a
-  separate KF8 part closer to real EPUB3/XHTML internally, detectable
-  via EXTH tag 121 (a "KF8 boundary" record index) when present, or a
-  MOBI header `file_version` of 8+ with no such tag for a pure-KF8
-  file. `analyzer.py`'s `_detect_generation()` implements this and
-  labels its own output "unconfirmed" whenever it fires, since no real
-  AZW3 sample has been tested against it yet. Getting one into
-  `examples/` is the main remaining item here.
+- **Confirmed for pure KF8/AZW3, still not confirmed for the hybrid
+  case:** a second real sample, `examples/AZW3-Example.azw3` ("Arliss
+  Cutter 7: Dead Line" by Marc Cameron, `file_version` 8, no EXTH 121
+  tag), confirmed the pure-KF8 detection path -- metadata extraction
+  (title, author, publisher, ISBN, ASIN, cover) worked identically to
+  the MOBI7 sample with no changes needed. Newer AZW3/KF8 files are
+  documented as *sometimes* being a hybrid instead -- a MOBI7 part for
+  backward compatibility plus a separate KF8 part closer to real
+  EPUB3/XHTML internally, detectable via EXTH tag 121 (a "KF8
+  boundary" record index). That hybrid path is still unconfirmed;
+  this sample simply didn't have one, so `_detect_generation()` in
+  `analyzer.py` still labels its own output "unconfirmed" only when
+  it detects the hybrid case specifically, not for plain KF8 anymore.
 
 ## Tools & resources -- decided
 
@@ -109,8 +114,9 @@ Jacob's own draft `mobi_analyzer.py` script already used.
 Phase 0 gets a real file to look at)
 
 - **Phase 0 -- Get a real sample and confirm the format basics. DONE**
-  for MOBI7 (`examples/MOBI-Example.mobi`). Not done for AZW3/KF8 --
-  no sample exists yet; that generation's handling is still
+  for MOBI7 (`examples/MOBI-Example.mobi`) and pure KF8/AZW3
+  (`examples/AZW3-Example.azw3`). Not done for the KF8 hybrid case --
+  no hybrid sample exists yet; that specific sub-case is still
   unconfirmed (see background section above).
 - **Phase 1 -- Minimal container-level parsing. DONE.**
   `ebook_fix/mobi/palmdb.py` reads the PalmDB container, `mobi_header.py`
@@ -150,10 +156,8 @@ Phase 0 gets a real file to look at)
   (MOBI-to-EPUB or the reverse) -- that's an entirely different, much
   larger feature that hasn't been discussed.
 - No AZW3/KF8-specific analysis beyond "detect that it's this
-  generation" (and even that detection is unconfirmed -- see
-  background section) until a real AZW3 sample exists and it's clear
-  how much of Phase 2 applies to it directly versus needing its own
-  path.
+  generation" for the still-unconfirmed hybrid case (see background
+  section) until a real hybrid sample exists.
 
 ## Open questions -- resolved this session
 - Hand-rolled binary parsing versus a MOBI-parsing dependency: hand-rolled,
@@ -168,14 +172,56 @@ Phase 0 gets a real file to look at)
   a clear error if a `.mobi`-named file isn't really one.
 
 ## Still open
-- No real AZW3/KF8 sample exists yet, so that generation's detection
-  and handling remain unconfirmed (see background section above).
-  Getting one into `examples/` is the main next step for this feature.
+- No real KF8-hybrid sample exists yet (a file with both a MOBI7 part
+  and a KF8 part bundled together), so that specific sub-case's
+  detection and handling remain unconfirmed (see background section
+  above). Plain MOBI7 and plain KF8/AZW3 are both confirmed now.
 - Phase 2 (actual PalmDOC/LZ77 decompression and content-level
   analysis) hasn't been scoped in any detail yet -- the phased sketch
   above is still a rough placeholder for it.
+- FB2: only the FictionBook 2.0 namespace has been tested. A
+  2.1-namespaced file, or a zipped `.fb2.zip`, would need a real
+  sample before trusting either case -- see "FB2 (FictionBook)
+  support" below.
 
-## Continuity note
+## FB2 (FictionBook) support
+
+Added in the same session the AZW3 sample confirmed the MOBI KF8
+path, after Jacob added `examples/FB2-Example.fb2` (Harper Lee's "To
+Kill a Mockingbird") to the repo. Much simpler than MOBI, so this
+didn't get its own phased plan -- it's one module
+(`ebook_fix/fb2.py`), confirmed and done in one pass rather than
+staged.
+
+**What FB2 actually is (confirmed against the real sample):** a
+single well-formed XML document, not a zip archive and not a binary
+format -- `lxml` parses it directly with no container layer in front
+of it, the same library this project already depends on for EPUB's
+OPF. Metadata lives under a namespaced `<description><title-info>`
+block (title, author, language, genre, annotation), roughly
+analogous to OPF `<metadata>`. Chapters are nested `<section>`
+elements under `<body>` (this sample: 2 top-level parts, 33 sections
+total once nested chapters are counted). A cover image, when present,
+is referenced from `<title-info><coverpage>` by an XLink `href` and
+stored inline as base64 inside a matching `<binary>` element,
+confirmed by decoding it and finding a real JPEG at the resulting
+bytes.
+
+**What's confirmed:** the FictionBook 2.0 namespace
+(`http://www.gribuser.ru/xml/fictionbook/2.0`) only, which is what
+this one sample declares. FB2 2.1 is documented as using a different
+namespace URI -- `analyze_fb2()` still attempts the parse and reports
+the namespace it actually found either way, but flags the result
+"untested" whenever it isn't the confirmed 2.0 URI, rather than
+refusing outright or assuming 2.1 behaves identically.
+
+**Not covered:** `.fb2.zip` (a zipped FB2, which does show up in the
+wild) isn't handled -- `analyze_fb2()` expects a plain XML file on
+disk. Would need its own real sample and a small amount of
+`zipfile` handling in front of the existing XML parsing if this comes
+up later. No repair or writing, same analysis-only scope as MOBI.
+
+
 Same as the recoder plan: this file is the source of truth for where
 this stands, more reliable than conversation memory across sessions.
 Update it at the end of each session that touches this feature.

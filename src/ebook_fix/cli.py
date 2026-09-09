@@ -11,6 +11,7 @@ from ebook_fix.config import (
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.mobi.analyzer import MOBI_EXTENSIONS, analyze_mobi, print_mobi_report
+from ebook_fix.fb2 import FB2_EXTENSIONS, analyze_fb2, print_fb2_report
 
 def build_parser():
 
@@ -23,11 +24,11 @@ def build_parser():
     # Analyze
     analyze = sub.add_parser(
         "analyze",
-        help="Analyze an EPUB (or MOBI/AZW/AZW3/PRC) without modifying it."
+        help="Analyze an EPUB (or MOBI/AZW/AZW3/PRC/FB2) without modifying it."
     )
     analyze.add_argument(
         "input",
-        help="Input EPUB, or MOBI/AZW/AZW3/PRC for a metadata-level report."
+        help="Input EPUB, or MOBI/AZW/AZW3/PRC/FB2 for a metadata-level report."
     )
     analyze.add_argument(
         "--details",
@@ -339,6 +340,11 @@ def main():
     if args.command == "analyze" and epub.suffix.lower() in MOBI_EXTENSIONS:
         report = analyze_mobi(epub)
         print_mobi_report(report)
+        sys.exit(1 if report.error else 0)
+
+    if args.command == "analyze" and epub.suffix.lower() in FB2_EXTENSIONS:
+        report = analyze_fb2(epub)
+        print_fb2_report(report)
         sys.exit(1 if report.error else 0)
 
     if args.command == "validate":
