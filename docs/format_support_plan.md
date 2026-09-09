@@ -1,6 +1,9 @@
 # Other Format Support -- Planning Doc
 
-**Status:** Not started. This is a planning doc only -- no code yet.
+**Status:** Phase 0 and Phase 1 done for MOBI7. Phase 3 (CLI wiring)
+also done alongside Phase 1, since there wasn't a reason to hold it
+back once metadata reading worked. KF8/AZW3 handling exists but is
+unconfirmed -- see "What a MOBI file actually is" below.
 **Started:** carved out of analysis_roadmap.md's "Noted for the master
 plan, not scoped yet" section, at Jacob's request to start actually
 planning the MOBI piece while it's on his mind.
@@ -41,75 +44,105 @@ round-trip write path right is its own project). Analysis-only means:
 open a MOBI file, report on what's inside it, change nothing, write
 nothing back.
 
-## What a MOBI file actually is (background, not yet verified against
-a real file)
+## What a MOBI file actually is (confirmed against a real sample)
 
-Worth writing down now so the next session doesn't have to
-re-research it from scratch, but everything below needs confirming
-against a real sample once one exists in `examples/`:
+Confirmed against `examples/MOBI-Example.mobi` -- "Law of the Mountain
+Man" by William W. Johnstone, a real Calibre-exported MOBI7 file, 132
+PalmDB records, 29 EXTH metadata tags:
 
 - A MOBI file is a PalmDB container (the old Palm OS document
   format), not a zip archive. Reading one means binary/struct parsing
-  of a header + record list, not `zipfile`.
+  of a header + record list, not `zipfile`. Confirmed -- header and
+  record-offset layout matched the documented spec exactly.
 - The actual content sits in one or more PalmDOC/MOBI-compressed
   records, plus an EXTH metadata block (title, author, and other
   fields, roughly analogous to what OPF `<metadata>` holds for EPUB)
-  embedded in the MOBI header.
+  immediately following the MOBI header inside record 0. Confirmed --
+  EXTH parsed cleanly into 29 real tags: title, author, publisher,
+  ISBN, ASIN, description (as HTML), nine separate `subject` (105)
+  tags, a cover-image reference, and several Kindle/Calibre-internal
+  numeric tags. Subject is genuinely multi-valued (repeats the tag
+  once per subject) rather than one comma-separated field.
+- The EXTH tag table in the general documentation the old
+  `mobi_analyzer.py` draft used had at least one real error: it
+  labeled tag 504 as "language," but the real sample's language tag
+  is 524, not 504. `mobi_header.py`'s `EXTH_TYPES` table uses 524 and
+  has been corrected accordingly.
+- The cover reference is two EXTH tags, not one: tag 201 gives an
+  offset that's added to the MOBI header's `first_image_record` field
+  to get the actual PalmDB record index, not an absolute record
+  number by itself. Confirmed by reading that record and finding a
+  real JPEG (`\xff\xd8\xff` magic bytes) at the resulting index.
+- PalmDOC compression (type 2, confirmed on this sample) doesn't mean
+  every byte is compressed -- LZ77-style compression has nothing to
+  back-reference yet at the very start of a record, so a compressed
+  record's opening bytes can still look like plain readable text (this
+  sample's first content record visibly starts `<html><head><guide>`
+  despite being marked PalmDOC-compressed). Worth remembering later,
+  during Phase 2 content-level work, so this doesn't get mistaken for
+  a sign the file is actually uncompressed.
 - Older MOBI7 content is HTML-like markup with proprietary extensions,
-  not real XHTML -- `lxml`'s XHTML-oriented parsing may not apply
-  directly.
-- Newer AZW3/KF8 files are often a hybrid: a MOBI7 part for backward
-  compatibility plus a separate KF8 part that's much closer to real
-  EPUB3/XHTML internally. A "MOBI" file handed to this tool could be
-  either generation, or both bundled together -- needs detecting,
-  not assumed.
-- None of this is confirmed by hands-on testing yet. First real step
-  of Phase 0 below is getting an actual sample file and checking every
-  claim above against it rather than trusting general knowledge alone.
+  not real XHTML -- confirmed by the visible `<html><head><guide>`
+  opening tag above being plain HTML, not XML-declared. `lxml`'s
+  XHTML-oriented parsing likely won't apply directly once Phase 2
+  gets to actual content, as suspected.
+- **Not yet confirmed:** newer AZW3/KF8 files are documented as often
+  being a hybrid -- a MOBI7 part for backward compatibility plus a
+  separate KF8 part closer to real EPUB3/XHTML internally, detectable
+  via EXTH tag 121 (a "KF8 boundary" record index) when present, or a
+  MOBI header `file_version` of 8+ with no such tag for a pure-KF8
+  file. `analyzer.py`'s `_detect_generation()` implements this and
+  labels its own output "unconfirmed" whenever it fires, since no real
+  AZW3 sample has been tested against it yet. Getting one into
+  `examples/` is the main remaining item here.
 
-## Tools & resources -- open question
+## Tools & resources -- decided
 
-This project deliberately has a minimal dependency list (`lxml`,
-`rich`, `tomllib` -- see the project's own conventions). Binary
-PalmDB/MOBI parsing is a different kind of problem than anything the
-existing dependencies solve. Open question for whenever this is
-picked up: hand-roll the binary parsing (more control, more work, zero
-new dependencies) versus taking on a MOBI-parsing library (faster to
-a working state, but breaks the project's current zero-extra-deps
-posture, and any such library would need vetting for whether it's
-still maintained). Not decided -- flagging it here so it doesn't get
-decided by default just because reaching for a library felt easier in
-the moment.
+Hand-rolled binary parsing, using Python's built-in `struct` module
+only. Zero new dependencies -- matches this project's existing
+posture (`lxml`, `rich`, `tomllib`, and nothing else). Confirmed
+workable: the PalmDB/MOBI/EXTH parsing in `ebook_fix/mobi/` is all
+`struct.unpack_from` calls against known byte offsets, same approach
+Jacob's own draft `mobi_analyzer.py` script already used.
 
 ## Rough phased sketch (very unscoped -- expect this to change once
 Phase 0 gets a real file to look at)
 
-- **Phase 0 -- Get a real sample and confirm the format basics.**
-  Add at least one real MOBI file (and ideally one AZW3/KF8 file
-  separately, since they may need different handling) to `examples/`.
-  Confirm the background section above against it: is it a pure
-  PalmDB container, what does the EXTH metadata block actually
-  contain for a real book, is the content MOBI7-only or a KF8 hybrid.
-  This phase is mostly research, same spirit as the XHTML Recoder's
-  own Phase 0, and should end with this doc's background section
-  either confirmed or corrected.
-- **Phase 1 -- Minimal container-level parsing.** Open the file,
-  identify which generation it is (MOBI7 / KF8 hybrid / pure KF8),
-  read the EXTH metadata block into something comparable to what
-  `[Book Metadata]` already shows for EPUB (title, author, language,
-  identifier, and so on).
-- **Phase 2 -- Content-level analysis.** Once the container is
-  readable, get at the actual chapter/text content and see how much
-  of the existing analysis logic (chapter detection, typography
-  counts, whitespace, etc.) can realistically apply to it as-is versus
-  needing its own format-specific version. Likely the point where this
-  phase list needs to be broken down further, once it's clear how
-  different MOBI's actual content shape turns out to be from XHTML.
-- **Phase 3 -- Wire into the CLI.** `analyze` command support for a
-  `.mobi`/`.azw3` input, producing the same kind of report EPUB
-  analysis already does, clearly labeled as MOBI-specific wherever the
-  two formats can't produce a directly comparable answer (e.g. no
-  meaningful "EPUB Version" line for a format that isn't EPUB at all).
+- **Phase 0 -- Get a real sample and confirm the format basics. DONE**
+  for MOBI7 (`examples/MOBI-Example.mobi`). Not done for AZW3/KF8 --
+  no sample exists yet; that generation's handling is still
+  unconfirmed (see background section above).
+- **Phase 1 -- Minimal container-level parsing. DONE.**
+  `ebook_fix/mobi/palmdb.py` reads the PalmDB container, `mobi_header.py`
+  reads the MOBI header, generation detection, and EXTH metadata into
+  a `MobiMetadata` object comparable to what `[Book Metadata]` already
+  shows for EPUB (title, author, language, publisher, date, ISBN,
+  ASIN, subjects, description). Cover-image detection (which PalmDB
+  record holds it, and its actual image format via magic bytes,
+  reusing `ebook_fix.cover.sniff_image_media_type`) came along with
+  this phase too, since the EXTH data needed to find it was already
+  being read.
+- **Phase 2 -- Content-level analysis. Not started.** Once the
+  container is readable, get at the actual chapter/text content and
+  see how much of the existing analysis logic (chapter detection,
+  typography counts, whitespace, etc.) can realistically apply to it
+  as-is versus needing its own format-specific version. This means
+  PalmDOC/LZ77 decompression of the text records first, which hasn't
+  been written yet -- Phase 1 confirmed the compression type but
+  didn't need to actually decompress anything to read EXTH metadata.
+  Likely the point where this phase list needs to be broken down
+  further, once it's clear how different MOBI's actual content shape
+  turns out to be from XHTML.
+- **Phase 3 -- Wire into the CLI. DONE**, done alongside Phase 1
+  rather than held back separately. `ebook-fix analyze` auto-detects
+  `.mobi`/`.azw`/`.azw3`/`.prc` by file extension and routes to
+  `ebook_fix.mobi.analyzer` instead of the EPUB `Engine` pipeline,
+  printing a `[File]` / `[Book Metadata]` / `[File Contents]`-style
+  report in the same plain-text format EPUB analysis uses. Deliberately bypasses
+  `Engine`/`Config` entirely for this path -- there's no repair
+  config to load for an analysis-only format, and MOBI's binary
+  layout has nothing in common with the EPUB-shaped pipeline it would
+  otherwise be flowing through.
 
 ## Non-goals, for now
 
@@ -117,19 +150,30 @@ Phase 0 gets a real file to look at)
   (MOBI-to-EPUB or the reverse) -- that's an entirely different, much
   larger feature that hasn't been discussed.
 - No AZW3/KF8-specific analysis beyond "detect that it's this
-  generation" until Phase 0/1 are actually done and it's clear how
-  much of Phase 2 applies to it directly versus needing its own path.
+  generation" (and even that detection is unconfirmed -- see
+  background section) until a real AZW3 sample exists and it's clear
+  how much of Phase 2 applies to it directly versus needing its own
+  path.
 
-## Open questions to resolve when this is picked up
-- Hand-rolled binary parsing versus a MOBI-parsing dependency (see
-  "Tools & resources" above).
-- Whether MOBI analysis becomes its own `ebook_fix.mobi` package
-  (mirroring the existing `ebook_fix/` module-per-concern layout) or
-  a separate top-level analysis path entirely, given how little of
-  the existing EPUB-shaped model (`Book`, `Chapter`, manifest/spine)
-  is likely to apply unchanged.
-- Whether `cli.py`'s `analyze` command auto-detects the format from
-  the file itself (magic bytes / extension) or needs an explicit flag.
+## Open questions -- resolved this session
+- Hand-rolled binary parsing versus a MOBI-parsing dependency: hand-rolled,
+  using only `struct` (see "Tools & resources" above).
+- Own package versus a separate top-level path: `ebook_fix.mobi`, a
+  new subpackage mirroring the existing `ebook_fix/` module-per-concern
+  layout (`palmdb.py`, `mobi_header.py`, `analyzer.py`).
+- Auto-detect versus explicit flag: auto-detect, by file extension
+  only (`.mobi`, `.azw`, `.azw3`, `.prc`) checked in `cli.py`. Not
+  magic-byte sniffing at the `cli.py` level -- `analyzer.py` itself
+  still validates the actual PalmDB signature internally and reports
+  a clear error if a `.mobi`-named file isn't really one.
+
+## Still open
+- No real AZW3/KF8 sample exists yet, so that generation's detection
+  and handling remain unconfirmed (see background section above).
+  Getting one into `examples/` is the main next step for this feature.
+- Phase 2 (actual PalmDOC/LZ77 decompression and content-level
+  analysis) hasn't been scoped in any detail yet -- the phased sketch
+  above is still a rough placeholder for it.
 
 ## Continuity note
 Same as the recoder plan: this file is the source of truth for where
