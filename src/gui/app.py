@@ -617,6 +617,19 @@ def apply_repair(session_id):
 
     selected = set(request.form.getlist("modules"))
     config = load_config(None)
+    # metadata_repair's config-file `enabled` value controls a second,
+    # unrelated thing besides whether MetadataSyncRepair runs against
+    # the EPUB this pass: it's also the gate _sync_metadata_opf() and
+    # _sync_metadata_db() check before pushing already-confirmed values
+    # out to Calibre (see engine.py). The checkbox below auto-unchecks
+    # itself whenever MetadataSyncRepair finds nothing to fix in the
+    # EPUB -- which happens whenever the EPUB and metadata.opf already
+    # agree -- and that says nothing about whether Calibre's own
+    # metadata.opf/metadata.db should still get synced. Without this,
+    # a book with clean metadata (the common case) would silently never
+    # sync to Calibre at all, reporting "metadata_repair is disabled in
+    # config" even with sync_calibre_opf/sync_calibre_db turned on.
+    metadata_sync_enabled = config.metadata_repair.enabled
     for attr, _label in _REPAIR_MODULES:
         getattr(config, attr).enabled = attr in selected
 
@@ -689,6 +702,14 @@ def apply_repair(session_id):
     # never happened from the GUI, for any book, until now. Only ever
     # called after the write above, same rule these two methods
     # already enforce themselves.
+    #
+    # Restore metadata_repair's real config-file `enabled` value first
+    # -- see the comment above where this was captured. The checkbox
+    # override above answers "did MetadataSyncRepair run against the
+    # EPUB this pass," which is a different question from "is Calibre
+    # syncing turned on," and these two sync calls only care about the
+    # latter.
+    config.metadata_repair.enabled = metadata_sync_enabled
     opf_sync_status = engine._sync_metadata_opf(analysis_report)
     db_sync_status = engine._sync_metadata_db(analysis_report)
 

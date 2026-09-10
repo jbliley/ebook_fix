@@ -1070,6 +1070,41 @@ runs, since before this fix there was no way to tell whether it was
 something not firing correctly. Next run's result banner should say
 definitively which.
 
+#### Bug fix -- Calibre sync silently gated by the Metadata Sync checkbox (2026-09-10)
+
+Found by Jacob during the first real-library `calibredb` test (see
+`docs/metadata_plan.md` Phase 3): `ebook_fix.toml` had
+`sync_calibre_opf`/`sync_calibre_db` both `true`, but the Repair tab's
+result banner still said "metadata_repair is disabled in config" for
+both.
+
+**Root cause:** `apply_repair()` forces `config.metadata_repair.enabled`
+to match whether the Metadata Sync checkbox was submitted with the
+form, so `run_selected_repairs()` only runs modules the person actually
+checked. But `_sync_metadata_opf()`/`_sync_metadata_db()` (engine.py)
+read that same `enabled` flag as their own separate gate for whether to
+push already-confirmed values out to Calibre. Jacob's test book's EPUB
+and `metadata.opf` already agreed on every field, so `MetadataSyncRepair`
+found nothing to fix, the checkbox auto-unchecked itself (existing,
+correct behavior -- see the Phase 6 follow-up note above), and that
+false-looking "unchecked" state fed straight into the Calibre-sync
+gate, which has nothing to do with whether this pass found an EPUB-side
+issue.
+
+**Fix:** `apply_repair()` now captures `config.metadata_repair.enabled`
+as read from `ebook_fix.toml` *before* the checkbox override runs, and
+restores it right before calling the two sync methods -- so "did this
+pass fix something in the EPUB" and "is Calibre syncing turned on" are
+answered independently again, same as they always have been for the
+CLI's own `repair()`/`auto_fix()` entry points, which never shared this
+bug (they don't have a per-run checkbox to conflict with in the first
+place).
+
+Verified with a standalone check confirming the captured value survives
+the checkbox loop and is back in place before the sync calls run.
+Couldn't verify end-to-end against a real Calibre-managed book here --
+that's what Jacob's live Phase 3 testing is already in the middle of.
+
 ## Open questions
 
 - Whether the Review tab's cover-mismatch item shows the two cover
