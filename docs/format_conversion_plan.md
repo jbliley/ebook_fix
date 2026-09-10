@@ -19,8 +19,8 @@ rather than building a direct converter for every input/output pair.
 
 Proposed lists, as given:
 
-**Input:** EPUB, KEPUB, AZW3, CBZ, CBR, MOBI, AZW, PRC, PDB, LIT,
-LRF, FB2, DOCX, RTF, TXT
+**Input:** EPUB, KEPUB, AZW3, CBZ, CBR, MOBI, AZW, PRC, FB2, DOCX,
+RTF, TXT
 **Output:** EPUB3 (default), AZW3, CBZ
 **Explicitly unsupported:** DJVU, PDF, images
 
@@ -121,59 +121,84 @@ before assuming this is like the others:**
   installed on the machine running this. That's a materially
   different risk than every dependency this project has taken on so
   far: not "pip install this," but "the person running this tool
-  needs a specific external program on their system already." Worth
-  Jacob's explicit sign-off before this gets scoped, given the
-  project's general minimal-dependency posture.
+  needs a specific external program on their system already."
 
-**Needs clarification before it can even be scoped:**
-- **PDB** -- as given, this is ambiguous rather than just hard. PDB
-  is the *generic* Palm OS database container -- MOBI, AZW, and PRC
-  above are already specific PDB-format files (see `palmdb.py`'s own
-  module docstring: "the PalmDB container that wraps every
-  MOBI/AZW/AZW3/PRC file"). A `.pdb` file on its own could be: plain
-  PalmDOC/AportisDoc text (an even simpler MOBI ancestor -- compressed
-  text, no EXTH metadata block at all), or an entirely different
-  format that happens to reuse the same outer container (eReader/Palm
-  Reader's own format, historically DRM-heavy, is a different real
-  possibility). Worth asking Jacob directly what he has in mind here
-  before this goes on any roadmap, since "support .pdb files" isn't
-  itself a determinate scope the way every other item on this list
-  is.
+  **"CBR is upgradeable to CBZ" is exactly the right way to think
+  about this, not a mistaken one.** CBR and CBZ hold identical
+  content (the same images, in the same order) -- the only
+  difference is which compression container they're wrapped in. RAR
+  is proprietary and needs that external tool; ZIP is what Python
+  already handles natively and what every reader supports. So a
+  CBR-to-CBZ "conversion" is really just decompress-and-rezip, not a
+  transformation that could lose or alter anything -- a genuine,
+  lossless upgrade to a more universally-supported container, not a
+  format change with trade-offs.
 
-**Recommend dropping from the realistic roadmap:**
-- **LIT** (Microsoft Reader) -- Microsoft discontinued Reader and
-  the .lit format outright in 2011, with no successor and no
-  ongoing use. Beyond just being obsolete: in practice, the large
-  majority of real-world `.lit` files still in existence are DRM-
-  protected commercial ebooks, not personal/DRM-free files -- the
-  handful of historical open-source tools for this format existed
-  specifically in the DRM-removal space. That's not a place I'm able
-  to help build tooling toward, regardless of any individual file's
-  actual protection status, so this isn't just a "low priority"
-  judgment call the way LRF below is -- recommend taking it off the
-  list entirely.
-- **LRF** (Sony BBeB) -- also long-obsolete; Sony's own e-readers
-  moved to standard EPUB around 2010. Not DRM-associated the way LIT
-  is, so no ethical concern here, but there's essentially no
-  remaining user population and no actively-maintained modern
-  tooling outside Calibre's own decades-old internal reader for it.
-  Recommend deprioritizing indefinitely rather than actively dropping
-  it -- revisit only if a real, current reason to support it ever
-  comes up.
+  **Effort estimate, since Jacob asked directly:** the actual code
+  here is small -- detect a RAR archive (magic bytes, not just the
+  `.cbr` extension, same principle already used for MOBI detection),
+  extract via `rarfile` or a subprocess call to whatever RAR-capable
+  tool is available, sort the resulting images into page order, and
+  write them into a normal zip as a `.cbz`. That part is closer to an
+  hour or two of real implementation than a multi-day project --
+  genuinely one of the smaller items on this whole list, code-wise.
+
+  The real uncertainty isn't the code, it's the external tool: this
+  needs *something* on Jacob's Windows machine that can actually
+  extract RAR archives. The standalone freeware `UnRAR.exe` (from
+  RARLab, separate from full WinRAR) or 7-Zip's command-line tool
+  (`7z.exe`, free and open-source, and a very commonly already-
+  installed Windows utility) both work -- either is a small, one-time
+  install if not already present, not an ongoing burden. Given Jacob
+  said he doesn't know how often he'd actually use this, a reasonable
+  approach: hold off building it until an actual `.cbr` file shows up
+  that needs converting, at which point it's a short, low-risk task
+  to pick up -- no real cost to waiting, and no wasted effort either
+  way, unlike something like AZW3 output where the underlying design
+  decision (hand-roll vs. Calibre) matters more the earlier it's made.
+
+**Dropped / deprioritized -- confirmed with Jacob:**
+- **LIT** (Microsoft Reader) -- dropped entirely, not just
+  deprioritized. Microsoft discontinued Reader and the .lit format
+  outright in 2011, with no successor and no ongoing use. Beyond just
+  being obsolete: in practice, the large majority of real-world
+  `.lit` files still in existence are DRM-protected commercial
+  ebooks, not personal/DRM-free files -- the handful of historical
+  open-source tools for this format existed specifically in the
+  DRM-removal space. That's not a place I'm able to help build
+  tooling toward, regardless of any individual file's actual
+  protection status.
+- **LRF** (Sony BBeB) -- deprioritized indefinitely, not dropped
+  outright, though nothing currently points to this changing. Also
+  long-obsolete; Sony's own e-readers moved to standard EPUB around
+  2010. Not DRM-associated the way LIT is, so no ethical concern
+  here, but there's essentially no remaining user population and no
+  actively-maintained modern tooling outside Calibre's own decades-
+  old internal reader for it. Revisit only if a real, current reason
+  to support it ever comes up.
+- **PDB** -- removed from the input list. Confirmed with Jacob this
+  was an accidental addition, not something he actually needs
+  supported -- MOBI, AZW, and PRC above are already specific PDB-
+  format files (see `palmdb.py`'s own module docstring: "the PalmDB
+  container that wraps every MOBI/AZW/AZW3/PRC file"), so nothing
+  real is lost by dropping the separate line item.
 
 ## Output formats
 
 - **EPUB3** -- already the default, already extensive. Nothing new
   needed here beyond whatever any given input format's reader work
   requires to produce a good `Book` in the first place.
-- **AZW3** -- this is a genuinely different kind of task from
-  everything MOBI-related done so far. All the `ebook_fix.mobi` work
-  to date is a *reader* (parse an existing file); this needs a
-  *writer* (construct a valid PalmDB + MOBI header + KF8 content
-  structure from scratch). That's a real, mostly-unstarted project on
-  its own, not a natural extension of the analysis code. Two
-  genuinely different paths worth deciding between before any of this
-  is scoped:
+- **AZW3** -- **no rush, per Jacob -- he reads EPUB himself, this is
+  purely for other users down the line.** Still worth writing down
+  now while the tradeoff is fresh, so it's not re-derived from
+  scratch whenever it does get picked up. This is a genuinely
+  different kind of task from everything MOBI-related done so far.
+  All the `ebook_fix.mobi` work to date is a *reader* (parse an
+  existing file); this needs a *writer* (construct a valid PalmDB +
+  MOBI header + KF8 content structure from scratch). That's a real,
+  mostly-unstarted project on its own, not a natural extension of the
+  analysis code. Two genuinely different paths worth deciding between
+  whenever this gets picked up:
   1. Hand-roll a writer, matching this project's existing zero-
      dependency, own-the-whole-format-from-spec approach.
   2. Shell out to Calibre's own `ebook-convert` command-line tool for
@@ -185,15 +210,12 @@ before assuming this is like the others:**
      a binary format writer from nothing. Worth a real decision here
      rather than defaulting to "hand-roll it" purely out of momentum
      from how the reader side was built.
-- **CBZ** -- worth confirming this means what it sounds like it
-  means: a sensible output for content that was already comic/image-
-  shaped (CBZ or CBR in, normalized CBZ out), not a claim that an
-  ordinary prose EPUB could reasonably become a CBZ. Turning real
-  reflowable text into page images would mean building an actual page
-  layout/rendering step, a fundamentally different and much bigger
-  problem nobody's discussed and nothing in this project does today.
-  Assuming the comic-shaped-in/comic-shaped-out reading is the
-  intended one unless told otherwise.
+- **CBZ** -- confirmed with Jacob: comic-shaped in, comic-shaped
+  out (CBR/CBZ normalized to CBZ), not a claim that an ordinary prose
+  EPUB could reasonably become a CBZ. Turning real reflowable text
+  into page images would mean building an actual page layout/
+  rendering step, a fundamentally different and much bigger problem
+  nobody's discussed and nothing in this project does today.
 
 ## Unsupported formats -- agreed
 
@@ -214,24 +236,30 @@ markup-based content as the target.
    AZW3, and PRC all at once, since they share the same reader.
    DOCX and RTF input, once the dependency questions below are
    settled.
-3. **Tier 3 -- needs an architecture decision first:** AZW3 output
-   (hand-roll vs. Calibre shell-out), CBR input (external `unrar`
-   dependency sign-off).
-4. **Deprioritized/dropped:** LIT (dropped), LRF (deprioritized
-   indefinitely), PDB (blocked on clarifying what it actually refers
-   to).
+3. **Pick up on demand, not tiered:** CBR input -- small, self-
+   contained (~an hour or two of real code) whenever an actual `.cbr`
+   file shows up that needs converting; no benefit to front-loading
+   it before then.
+4. **No rush -- Jacob reads EPUB himself, this is for other users
+   eventually:** AZW3 output. Worth deciding hand-roll vs. Calibre
+   shell-out whenever it does get picked up, but nothing time-
+   sensitive about when.
+5. **Dropped/deprioritized:** LIT (dropped), LRF (deprioritized
+   indefinitely). PDB removed from the input list entirely
+   (accidental addition, not a real need).
 
-## Open questions for Jacob
-- AZW3 output: hand-roll a writer, or shell out to Calibre's
-  `ebook-convert`?
-- PDB: plain PalmDOC/AportisDoc text, eReader/Palm Reader format, or
-  something else specifically in mind?
-- CBZ output: confirm this is meant for comic-shaped input only, not
-  a general prose-to-CBZ path.
-- CBR: sign-off on requiring an external `unrar`/`bsdtar` binary on
-  the machine, a first for this project.
-- LIT/LRF: confirm dropping LIT entirely and deprioritizing LRF
-  indefinitely, per the reasoning above.
+## Open questions for Jacob -- all resolved this session
+- ~~AZW3 output: hand-roll vs. Calibre shell-out?~~ Still an open
+  design choice whenever this gets picked up, but no longer time-
+  sensitive -- see "no rush" note above.
+- ~~PDB?~~ Accidental addition, removed from the list.
+- ~~CBZ output: comic-shaped only, not general prose-to-CBZ?~~
+  Confirmed.
+- ~~CBR: sign-off on an external `unrar`/`bsdtar`/7-Zip dependency?~~
+  Effort estimate given above; Jacob's holding off on a firm
+  commitment until an actual `.cbr` file needs converting, given low
+  certainty about how often that'll come up.
+- ~~LIT/LRF: confirm dropping/deprioritizing?~~ Confirmed.
 
 ## Continuity note
 This file is the source of truth for the format-conversion effort,
