@@ -279,7 +279,7 @@ class EPUBAnalyzer:
         r.css=analyze_book_css(book,r.chapter_reports)
         r.images=analyze_book_images(book)
         r.packaging=analyze_book_packaging(book)
-        r.paragraphs=analyze_book_paragraphs(book)
+        r.paragraphs=analyze_book_paragraphs(book,frontmatter_summary=r.frontmatter)
         r.whitespace=analyze_book_whitespace(book)
         r.ellipsis=analyze_book_ellipsis(book)
         r.scene_breaks=analyze_book_scene_breaks(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)

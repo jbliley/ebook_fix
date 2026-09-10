@@ -459,11 +459,25 @@ def build_issues(analysis_report) -> list[Section]:
 def build_manual_review(analysis_report) -> list[Section]:
     """Flagged, but deliberately never auto-repaired -- see
     ebook_fix.apostrophes' module docstring for why a bare "word s"
-    split needs a person's judgment call, not a repair module's."""
+    split needs a person's judgment call, not a repair module's, and
+    ebook_fix.paragraphs' "Dangling paragraph endings" section for
+    why a paragraph that trails off can only ever be a candidate for
+    a person to check, never an auto-repair."""
+    sections = []
+
     poss = analysis_report.possessives
-    if not poss.total_candidate_count:
-        return []
-    return [Section("Possessive Candidates", [
-        f"Possible missing apostrophe (possessive or plural, ambiguous): "
-        f"{poss.total_candidate_count} -- not auto-repaired, review and fix by hand",
-    ])]
+    if poss.total_candidate_count:
+        sections.append(Section("Possessive Candidates", [
+            f"Possible missing apostrophe (possessive or plural, ambiguous): "
+            f"{poss.total_candidate_count} -- not auto-repaired, review and fix by hand",
+        ]))
+
+    para = analysis_report.paragraphs
+    if para.dangling_ending_count:
+        sections.append(Section("Possible Truncation", [
+            f"Paragraph ends on a dangling word with no closing punctuation "
+            f"(possible missing content): {para.dangling_ending_count} -- "
+            f"not auto-repaired, verify against another copy if unsure",
+        ]))
+
+    return sections

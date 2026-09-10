@@ -94,6 +94,8 @@ this is a holding pen, not a commitment.
 ### Content quality
 - Duplicate/near-duplicate content -- repeated boilerplate pages or
   accidentally duplicated chapters.
+- **Silent mid-paragraph content loss (missing words/sentences with
+  no structural trace) -- done, flag-only, see below.**
 - Metadata completeness -- missing or malformed title, author,
   language code, identifier.
 - Accessibility gaps -- missing `alt` text, missing `lang`
@@ -1208,7 +1210,137 @@ Two independent, unscoped items, neither currently a priority:
   doesn't cleanly match anything (typo, extra entry, etc.).
 
 
-## Open questions
+## Done: dangling paragraph endings (possible silent content loss), flag-only (2026-09-09)
+
+Picked up after Jacob noticed random parts of a real book (a Western
+novel, "MM5") felt missing while reading it, and provided both the
+corrupted copy and a clean reference copy of the same book.
+
+**What the actual defect turned out to be:** not missing chapters or
+files -- both copies of MM5 have the same 28 chapters, nearly
+identical word counts per chapter. The real damage is scattered,
+silent mid-paragraph deletions: 12 spots across 5 of 28 chapters
+where a chunk of text (a few words to a full sentence) is simply
+gone, with the seams glued together into a paragraph that still
+parses as valid markup but no longer makes sense (e.g. "found his
+horse and rode back to the mansion, the lump on his head the size of
+a hen's egg" became "found noggin the size of a hen's egg"). Reads
+like some kind of faulty conversion or deduplication pass matched two
+similar-looking points in the text and deleted everything between
+them.
+
+**What's genuinely NOT detectable here:** reliably catching most of
+these 12 spots would mean judging whether a sentence still makes
+sense, a language-comprehension task, not a structural one. Two
+pattern-based ideas were tried against the real MM5 sample and
+rejected outright for being far too noisy:
+- Same significant word repeated within a short span (the actual
+  MM5 corruption often looks like this) -- 284 hits in the corrupted
+  copy vs. 283 in the clean copy. Ordinary prose, especially
+  dialogue-heavy genre fiction that repeats character names
+  constantly, gives no usable signal here.
+- A lowercase word immediately followed by a capitalized word with no
+  punctuation between them (a sign two paragraphs got silently glued
+  together) -- 1,930 hits vs. 1,938. Nearly every paragraph in
+  ordinary prose has a proper noun following a common word.
+
+**What IS detectable, narrowly:** a paragraph whose very last word is
+a conjunction, preposition, article, or similar function word
+(`DANGLING_END_WORDS` in `ebook_fix/paragraphs.py`), with no
+acceptable closing punctuation after it. A real, edited sentence
+essentially never trails off there on its own. Landed as a fourth
+check inside `ebook_fix/paragraphs.py` (alongside empty/junk/
+mid-sentence-split, which it shares its infrastructure with) rather
+than a new module, since it's the same "per-chapter paragraph-level
+conversion artifact" concern, just a fourth shape of it -- and
+because the exclusion logic below leans directly on `paragraphs.py`
+already knowing which paragraphs are ordinary mid-sentence splits and
+which chapters are confirmed front/back matter.
+
+**Flag-only, like the Possessive Candidates check
+(`docs/apostrophe_repair_plan.md`) -- never auto-repaired, and for
+the same underlying reason: there's no way to reconstruct words that
+are simply gone.** New `[Possible Truncation -- Manual Review]`
+section in `engine.py`'s CLI output and the GUI's manual-review
+bucket (`analysis_view.py`), matching the Possessive Candidates
+section right above it in both places.
+
+**Confirmed against MM5 directly: exactly 1 of the 12 known real
+spots gets caught** (the one that happens to land right at a
+paragraph's end rather than mid-paragraph) **, zero false positives
+on the clean copy.** Low recall by nature of the pattern -- this
+was never going to be a general solution, just a free, low-noise
+safety net -- but getting to zero false positives took several real
+rounds of testing against the full 12-book regression set, not just
+the two MM5 copies. Each round surfaced a genuinely different
+false-positive class, not a variation on the same bug:
+
+- Front-matter address/list formatting (a copyright page's
+  "PINNACLE BOOKS are published by" continuing on the next visual
+  line, or "...opportunity to:" introducing a bulleted list) --
+  fixed by scoping the check to chapters `frontmatter.py` confirms as
+  main-matter, and by treating a trailing colon/semicolon as
+  acceptable punctuation.
+- Ordinary, safely-mergeable mid-sentence paragraph splits being
+  double-counted as "missing" -- fixed by only flagging when the very
+  next paragraph does NOT continue in lowercase (that case is already
+  `looks_mid_sentence()`'s job, and nothing is actually lost there).
+- A chapter with pervasive pre-existing paragraph-splitting damage
+  (`BrokenSentences.epub`, a PDF-style conversion where every line
+  became its own `<p>`) makes "what word does this paragraph end on"
+  meaningless -- 3,001 false positives before a fix, since roughly
+  half of ALL its fragments coincidentally end on some common
+  function word. Fixed with a per-chapter gate: skip the check
+  entirely once more than 15% of a chapter's paragraphs are already
+  mid-sentence splits, since the paragraph structure itself is
+  untrustworthy at that point, not just noisy.
+- Trailing numbers/times being silently skipped by a naive "find the
+  last alphabetic word" approach -- "...begin at 8:00" was being
+  read as ending on "at" as if the "8:00" wasn't there at all. Fixed
+  by anchoring the word match to the true end of the string instead.
+- The ASCII "--" em-dash convention (common in Gutenberg-style plain-
+  text-to-HTML conversions, e.g. "not right now, but--") not being
+  recognized as an intentional trailing-off the same way a real em
+  dash character already was. Fixed by adding a bare hyphen to the
+  acceptable-ending set.
+- One real book using the opening-style curly quote (U+201C) as its
+  own closing quote by convention (a font/converter quirk) --
+  "she warned me about you.“" was flagged since only U+201D was
+  recognized as acceptable. Fixed by adding U+201C too.
+- Multi-paragraph dialogue with an unclosed quote -- normal English
+  convention leaves off the closing mark at the end of an
+  intermediate paragraph of a longer quotation, including when a new
+  quote opens mid-paragraph after a dialogue tag ("...Bo agreed.
+  'I'm glad you stepped in like that"). Fixed by checking the whole
+  paragraph for an open/close quote-count imbalance, not just
+  whether it opens with a quote at position 0.
+
+**Known remaining limitation, not fixed:** the unclosed-quote check
+above only looks at double quotes, not single -- a straight or curly
+single quote is also the ordinary apostrophe character used inside
+contractions, so counting single-quote opens/closes reliably would
+need real quote-pairing logic, not a simple count. `Watermarks-
+SmallChapterNumbers.epub` uses British-style single-quote dialogue
+(`'...'`) and still has one residual flag from exactly this gap.
+Judged an acceptable trade-off for now rather than worth the
+complexity, given how low-volume the whole feature already is.
+
+**Verified across the full regression set after all of the above:**
+zero hits on 7 of 12 sample books plus the clean MM5 copy; 1-4 hits
+each on the remaining 5 (`ChaptersMisaligned`, `ChaptersNotAligned-
+New`, `RunTogetherText`, `Sidewinders`, `Watermarks-
+SmallChapterNumbers`), all individually plausible candidates on
+manual inspection rather than an obvious remaining bug class, plus
+the confirmed real hit on `MM5_Incomplete`.
+
+**Not done:** `MM5_Complete.epub` and `MM5_Incomplete.epub` are on
+disk in `examples/` from this session's testing but not yet decided
+whether to keep as permanent regression fixtures -- worth asking
+Jacob, since unlike the Gutenberg/synthetic samples these are real
+commercial ebook files (though several already-kept samples,
+Sidewinders and MM21 among them, are too).
+
+
 - Whether NCX-label parsing lands as its own module or folds into
   `frontmatter.py` -- moot now; it landed in `parser.py` (population)
   + new `toc.py` (validation), with `frontmatter.py` untouched.

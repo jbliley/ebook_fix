@@ -13,6 +13,10 @@ Three things get flagged, per chapter:
 3. Mid-sentence splits -- a paragraph cut off before the end of a
    sentence, continued (lowercase) in a later paragraph.
 
+A fourth thing gets flagged too, but never repaired, only reported
+for a person to review -- see "Dangling paragraph endings" further
+down this file for why.
+
 Detection here mirrors ebook_fix.modules.paragraph on purpose, since
 the whole point is for that module to stop scanning itself and just
 read these results. Each finding carries a live reference to the
@@ -71,11 +75,19 @@ class MidSentenceSplit:
 
 
 @dataclass
+class DanglingEnding:
+    href: str = ""
+    preview: str = ""
+    element: object = None    # live <p> element; not saved to the JSON cache
+
+
+@dataclass
 class ChapterParagraphSummary:
     href: str = ""
     empty_paragraphs: list = field(default_factory=list)         # [EmptyParagraph]
     junk_elements: list = field(default_factory=list)            # [JunkElement]
     mid_sentence_splits: list = field(default_factory=list)      # [MidSentenceSplit]
+    dangling_endings: list = field(default_factory=list)         # [DanglingEnding]
     # Paragraphs that are neither empty nor junk, in document order --
     # this is what repair merges across. Not saved to the JSON cache
     # (see serialize.py), used within a single run only.
@@ -99,10 +111,14 @@ class BookParagraphSummary:
         return sum(len(c.mid_sentence_splits) for c in self.chapters)
 
     @property
+    def dangling_ending_count(self) -> int:
+        return sum(len(c.dangling_endings) for c in self.chapters)
+
+    @property
     def chapters_with_issues(self) -> list:
         out = []
         for c in self.chapters:
-            if c.empty_paragraphs or c.junk_elements or c.mid_sentence_splits:
+            if c.empty_paragraphs or c.junk_elements or c.mid_sentence_splits or c.dangling_endings:
                 out.append(c.href)
         return out
 
@@ -176,11 +192,173 @@ def looks_mid_sentence(first, second) -> bool:
     return second_text[0].islower()
 
 
+# ---------------------------------------------------------------------
+# Dangling paragraph endings (flag-only, NEVER auto-repaired)
+# ---------------------------------------------------------------------
+#
+# A different shape of missing content from the mid-sentence split
+# above. That case is a sentence cut in two by an unwanted paragraph
+# break, with the rest of it recoverable right there in the next
+# paragraph -- a real, safe merge. This case has nothing to merge:
+# a chunk of text (anywhere from a few words to a full sentence) has
+# been silently deleted -- found on a real book (Jacob's own copy of
+# a Western novel, "MM5") where some kind of faulty conversion or
+# deduplication pass had dropped text between two similar-looking
+# points, leaving the seams glued together into a paragraph that
+# still parses as a `<p>` but no longer makes sense.
+#
+# There's no way to repair this -- the words are just gone, and no
+# amount of pattern-matching can reconstruct what they were -- so
+# this only ever flags a candidate for a person to notice and, if
+# it's real, go find a clean copy of the source. Two other detection
+# ideas were tried against the real MM5 sample and rejected outright
+# for being far too noisy to use:
+#
+# - The same significant word appearing twice within a short span
+#   (the actual MM5 corruption does often look like this, e.g. "the
+#   noggin finally found noggin the size of") -- tested against the
+#   whole book: 284 hits in the corrupted copy vs. 283 in a clean
+#   reference copy of the same book. Ordinary prose -- especially
+#   dialogue-heavy, character-name-repeating prose like this genre --
+#   naturally repeats words constantly. No usable signal.
+# - A lowercase word immediately followed by a capitalized word with
+#   no punctuation between them (a sign two paragraphs got silently
+#   glued together) -- same test: 1,930 hits vs. 1,938. Nearly every
+#   paragraph in ordinary prose has a proper noun following a common
+#   word. No usable signal there either.
+#
+# What DOES separate the two copies cleanly: a paragraph whose very
+# last word is a conjunction, preposition, article, or similar
+# function word, with no sentence-ending punctuation (or em/en dash
+# or ellipsis, both legitimate ways for interrupted dialogue to end)
+# anywhere after it. A real, edited sentence essentially never trails
+# off there on its own. Tested against both the corrupted and the
+# clean copy of MM5, in full: zero false positives, but it also only
+# caught 1 of the 12 known real deletions in that book, since most of
+# them land in the middle of a paragraph rather than at the very end
+# of one, leaving the rest of the paragraph's own punctuation intact.
+# Worth having as a free, zero-noise safety net -- not a general
+# solution to this problem.
+DANGLING_END_WORDS = frozenset({
+    "a", "an", "the", "and", "but", "or", "so", "yet", "nor",
+    "of", "to", "in", "on", "at", "with", "as", "that", "which",
+    "who", "whom", "when", "if", "because", "than", "while",
+    "from", "by", "into", "onto", "upon", "over", "under",
+    "about", "between", "after", "before", "for",
+    "his", "her", "its", "their", "my", "your", "our",
+    "he", "she", "it", "they", "i", "we", "you",
+    "is", "was", "were", "are", "be", "been", "being",
+    "not", "no", "this", "these", "those",
+})
+
+# Em dash, en dash, horizontal ellipsis, colon, semicolon, and a
+# bare hyphen (covers the ASCII "--" convention plain-text-to-HTML
+# conversions often use in place of a real em dash, e.g. Project
+# Gutenberg texts) -- on top of the SENTENCE_ENDINGS this module
+# already checks for elsewhere -- all count as an acceptable way for
+# a paragraph to end here too. Em/en dash, ellipsis, and the ASCII
+# hyphen convention all cover interrupted dialogue trailing off
+# ("Wait--" / "I don't know..."), a normal, intentional prose device.
+# Colon and semicolon cover a paragraph that legitimately introduces
+# a list or clause and ends there because the list/clause itself is
+# markup (a following <ul>, table, or separate block) rather than
+# more of the same paragraph's text. U+201C (opening double curly
+# quote) is included too, alongside U+201D already in
+# SENTENCE_ENDINGS -- confirmed necessary against a real book that
+# uses the opening-style curly quote as its own closing mark (a
+# font/converter quirk, not this module's concern to flag).
+_DANGLING_EXEMPT_ENDINGS = SENTENCE_ENDINGS + ("\u2014", "\u2013", "\u2026", ":", ";", "-", "\u201c")
+
+# Matches DANGLING_END_WORDS only when one of them is truly the LAST
+# thing in the string -- allowing a run of trailing closing-quote/
+# paren characters after it, but nothing else. Anchored with `$`
+# rather than "find the last alphabetic run and ignore anything
+# after it" on purpose: the naive approach treated "...begin at
+# 8:00" the same as "...begin at", silently dropping the trailing
+# "8:00" and false-flagging a paragraph that actually ends on a
+# perfectly normal time/number, not a dangling word at all --
+# confirmed as a real false positive against ChaptersMisaligned.epub
+# and a Gutenberg license-boilerplate line ending in a version
+# number list.
+_DANGLING_WORD_PATTERN = re.compile(
+    r"\b(" + "|".join(sorted(DANGLING_END_WORDS, key=len, reverse=True)) + r")[\"'\u2019\u201d)\]]*$",
+    re.IGNORECASE,
+)
+
+def _has_unclosed_double_quote(text: str) -> bool:
+    """True if `text` has more opening than closing double quotes
+    (curly), or an odd count of straight double quotes -- meaning a
+    quotation somewhere in the paragraph, not necessarily right at
+    the start, was never closed before the paragraph ended. The
+    normal English convention for a quotation that continues, still
+    open, into the next paragraph (no closing mark at the end of an
+    intermediate paragraph of multi-paragraph dialogue), including
+    the case where narration between two speech tags opens a second
+    quote partway through ('...Bo agreed. "I'm glad you stepped in
+    like that' -- no closing mark, because the speech continues in
+    the next paragraph). Confirmed as a real false-positive source:
+    Sidewinders' dialogue-heavy chapters do exactly this, often
+    right on a word from DANGLING_END_WORDS.
+
+    Only double quotes are checked, never single quotes/apostrophes
+    -- a straight or curly single quote is also the ordinary
+    apostrophe character used inside contractions ("don't"/"name's"),
+    making an open/close count unreliable for that mark."""
+    if not text:
+        return False
+    if text.count("\u201c") > text.count("\u201d"):
+        return True
+    return text.count('"') % 2 == 1
+
+
+def looks_like_dangling_ending(text: str, next_text: str = "") -> bool:
+    """True if `text` (a full paragraph's flattened text) stops on a
+    word from DANGLING_END_WORDS with no acceptable closing
+    punctuation after it -- see the section comment above for what
+    this catches, what it doesn't, and why it's safe as a low-noise
+    flag despite low recall.
+
+    `next_text`, if given, is the very next meaningful paragraph's
+    flattened text. If it continues in lowercase, this is an ordinary
+    mid-sentence paragraph split -- looks_mid_sentence() above already
+    catches that case, and it's safely mergeable since nothing is
+    actually missing, just split across two <p> tags. Without this
+    check, a book that already has real paragraph-splitting damage
+    (see BrokenSentences.epub, where nearly every paragraph ends
+    mid-line by construction) floods this list with thousands of
+    ordinary split fragments instead of the rare genuine loss this is
+    meant to surface -- confirmed by testing against that book
+    directly: 3,001 raw hits before this check, 0 after (plus the
+    per-chapter corruption-ratio gate in analyze_book_paragraphs,
+    needed for the same book for the same underlying reason)."""
+    text = text.rstrip()
+    if not text or text.endswith(_DANGLING_EXEMPT_ENDINGS):
+        return False
+    if _has_unclosed_double_quote(text):
+        return False
+    if not _DANGLING_WORD_PATTERN.search(text):
+        return False
+    next_text = next_text.strip()
+    if next_text and next_text[0].islower():
+        return False
+    return True
+
+
 def _preview(text: str, limit: int = 60) -> str:
     text = text.strip()
     if len(text) <= limit:
         return text
     return text[:limit].rstrip() + "..."
+
+
+def _tail_preview(text: str, limit: int = 70) -> str:
+    """Same idea as _preview, but from the end -- the whole point of
+    a dangling-ending finding is what the paragraph stops on, so the
+    start of a long paragraph isn't the useful part to show."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return "..." + text[-limit:].lstrip()
 
 
 def _tag_name(element) -> str:
@@ -190,8 +368,35 @@ def _tag_name(element) -> str:
     return tag if isinstance(tag, str) else ""
 
 
-def analyze_book_paragraphs(book) -> BookParagraphSummary:
+def analyze_book_paragraphs(book, frontmatter_summary=None) -> BookParagraphSummary:
+    """`frontmatter_summary` should be the analysis the caller already
+    computed for this book (see engine.py's AnalysisReport), passed
+    in so this doesn't have to re-run it itself. Falls back to
+    computing it if not given.
+
+    Only used to scope the dangling-ending check (see "Dangling
+    paragraph endings" above) to confirmed main-matter chapters --
+    the other three checks (empty/junk/mid-sentence) run everywhere,
+    unchanged. Confirmed necessary by testing against a real book:
+    copyright/publisher-imprint pages routinely end a line on a bare
+    preposition or article on purpose (an address block: "PINNACLE
+    BOOKS are published by" continuing on the next visual line rather
+    than the same paragraph), which isn't missing content, just a
+    front-matter formatting convention ordinary chapter prose doesn't
+    use. Falls back to checking every chapter when frontmatter.py
+    couldn't confirm any zones at all (nothing reliable to exclude),
+    same fallback ebook_fix.scene_breaks uses for the same reason.
+    """
     summary = BookParagraphSummary()
+
+    if frontmatter_summary is None:
+        from ebook_fix.frontmatter import analyze_book_frontmatter
+        frontmatter_summary = analyze_book_frontmatter(book)
+
+    main_hrefs = None
+    if frontmatter_summary.boundaries_confirmed:
+        from ebook_fix.frontmatter import MAIN_ZONE
+        main_hrefs = {cm.href for cm in frontmatter_summary.chapters if cm.zone == MAIN_ZONE}
 
     for chapter in book.chapters:
         if chapter.document is None:
@@ -234,6 +439,39 @@ def analyze_book_paragraphs(book) -> BookParagraphSummary:
                         second=second,
                     )
                 )
+
+        # A chapter with heavy mid-sentence-split damage already
+        # (see BrokenSentences.epub, a PDF-style conversion where
+        # every line became its own <p>) makes "what word does this
+        # paragraph end on" meaningless -- roughly half of ALL its
+        # paragraph fragments will coincidentally end on some common
+        # function word purely by chance, since real paragraph
+        # boundaries don't exist in that file at all. Confirmed by
+        # testing: BrokenSentences' chapters run 46-55% mid-sentence
+        # splits and produced 362 dangling-ending false positives
+        # before this gate; ChaptersMisaligned (a genuinely different
+        # book, and genuinely also somewhat paragraph-split, just far
+        # less severely) stays under 10% per chapter throughout.
+        # 15% is a deliberately generous cutoff -- above it, the
+        # chapter's paragraph structure itself is untrustworthy for
+        # this specific check, not just noisy.
+        is_chapter_reliable = (
+            main_hrefs is None or chapter.href in main_hrefs
+        ) and (
+            not meaningful or len(chapter_summary.mid_sentence_splits) / len(meaningful) < 0.15
+        )
+
+        if is_chapter_reliable:
+            for i, p in enumerate(meaningful):
+                next_text = _text(meaningful[i + 1]) if i + 1 < len(meaningful) else ""
+                if looks_like_dangling_ending(_text(p), next_text):
+                    chapter_summary.dangling_endings.append(
+                        DanglingEnding(
+                            href=chapter.href,
+                            preview=_tail_preview(_text(p)),
+                            element=p,
+                        )
+                    )
 
         summary.chapters.append(chapter_summary)
 

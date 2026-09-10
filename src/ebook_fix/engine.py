@@ -946,6 +946,30 @@ class Engine:
                                 f"(possessive: {c.possessive_reading!r} / plural: {c.plural_reading!r})"
                             )
 
+            # Dangling Paragraph Endings -- FLAG ONLY, never auto-repaired.
+            # See ebook_fix.paragraphs' "Dangling paragraph endings"
+            # section for why: the words are just gone, so there's
+            # nothing a repair module could safely reconstruct. This
+            # exists purely so a person can notice and go find a clean
+            # copy of the source if it turns out to be real content
+            # loss -- no config option turns this into an auto-repair.
+            para = analysis_report.paragraphs
+            if para.dangling_ending_count:
+                self.log("\n[Possible Truncation -- Manual Review]")
+                self.log(
+                    f"  • Paragraph ends on a dangling word with no closing punctuation "
+                    f"(possible missing content): {para.dangling_ending_count} -- "
+                    f"not auto-repaired, verify against another copy if unsure"
+                )
+
+                if details:
+                    for chapter_summary in para.chapters:
+                        if not chapter_summary.dangling_endings:
+                            continue
+                        self.log(f"    {chapter_summary.href}:")
+                        for d in chapter_summary.dangling_endings:
+                            self.log(f"      - {d.preview!r}")
+
             # Module Diagnostics Execution
             self.log("\n[Module Checks]")
             if not self.modules:
