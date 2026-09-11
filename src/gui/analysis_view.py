@@ -462,7 +462,10 @@ def build_manual_review(analysis_report) -> list[Section]:
     split needs a person's judgment call, not a repair module's, and
     ebook_fix.paragraphs' "Dangling paragraph endings" section for
     why a paragraph that trails off can only ever be a candidate for
-    a person to check, never an auto-repair."""
+    a person to check, never an auto-repair, and ebook_fix.color's
+    module docstring for why color outside the confirmed body text
+    could just as easily be a deliberate design choice as leftover
+    conversion cruft."""
     sections = []
 
     poss = analysis_report.possessives
@@ -478,6 +481,14 @@ def build_manual_review(analysis_report) -> list[Section]:
             f"Paragraph ends on a dangling word with no closing punctuation "
             f"(possible missing content): {para.dangling_ending_count} -- "
             f"not auto-repaired, verify against another copy if unsure",
+        ]))
+
+    color = analysis_report.color
+    if color.review_count:
+        sections.append(Section("Possible Decorative Color", [
+            f"Hardcoded text color outside the confirmed body text "
+            f"(possibly intentional): {color.review_count} -- "
+            f"not auto-repaired, review and remove by hand if unwanted",
         ]))
 
     return sections

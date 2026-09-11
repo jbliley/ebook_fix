@@ -970,6 +970,28 @@ class Engine:
                         for d in chapter_summary.dangling_endings:
                             self.log(f"      - {d.preview!r}")
 
+            # Possible Decorative Color -- FLAG ONLY, never auto-repaired.
+            # See ebook_fix.color module docstring for why: a color on
+            # a narrowly-used class, a nested <em>/<span>, or a class
+            # without a confirmed body-text role could be a pull-quote
+            # or a deliberate "this character speaks in blue" choice,
+            # and only a person looking at the book can tell. Color
+            # Strip (see ebook_fix.modules.color_strip) only ever acts
+            # on the confident bucket -- this section exists purely so
+            # a person can review the rest and decide by hand.
+            color = analysis_report.color
+            if color.review_count:
+                self.log("\n[Possible Decorative Color -- Manual Review]")
+                self.log(
+                    f"  • Hardcoded text color outside the confirmed body text "
+                    f"(possibly intentional): {color.review_count} -- "
+                    f"not auto-repaired, review and remove by hand if unwanted"
+                )
+
+                if details:
+                    for finding in color.review:
+                        self.log(f"    {finding.href}: {finding.context!r} ({finding.reason})")
+
             # Module Diagnostics Execution
             self.log("\n[Module Checks]")
             if not self.modules:
@@ -1741,10 +1763,15 @@ class Engine:
         ClassMappingEntry objects instead of a TOML file -- nothing is
         written to disk, and nothing is left for a person to review,
         by design (see engine.auto_fix). "theme-neutral" entries are
-        deliberately left out here: ColorStripRepair already strips
-        hardcoded text color from every class (mapped or not), so
-        there's nothing left for a theme-neutral entry to do that
-        wouldn't just be redundant with it.
+        still deliberately left out here: that role clears the full
+        THEME_FIGHTING_PROPERTIES set (font-family, background, etc),
+        a broader and less reversible change than auto-fix's other
+        high-confidence-only guesses are meant to make unattended.
+        ColorStripRepair now only removes color from the body-text
+        class itself (see ebook_fix.color) rather than every class,
+        so a person going through the reviewed map-css path afterward
+        may still find real theme-neutral candidates worth applying
+        by hand -- that's expected, not a gap.
         """
         ordered = sorted(profiles.values(), key=lambda p: -p.usage_count)
         mappable = [
@@ -1771,10 +1798,15 @@ class Engine:
             reviewed `map-css --write-mapping` + `repair
             --class-mapping` path is still there for anyone who wants
             to see the guesses first.
-          - strips every hardcoded text color, book-wide, regardless
-            of class or confidence (see ebook_fix.modules.color_strip)
-            so the reader's own theme/night-mode controls text color
-            instead.
+          - strips hardcoded text color from the confirmed body-text
+            class, the <body> element itself, and inline color set
+            directly on a main-narrative paragraph (see
+            ebook_fix.color and ebook_fix.modules.color_strip), so the
+            reader's own theme/night-mode controls the book's actual
+            prose. Color that looks intentional (a pull-quote, a
+            character's dialogue color, anything outside the main
+            narrative) is left alone and flagged for manual review
+            instead -- see the "[Possible Decorative Color]" section.
 
         If the result isn't right for a given book, nothing here is
         exclusive -- the normal `repair` (optionally with a reviewed

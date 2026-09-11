@@ -1187,58 +1187,82 @@ XML throughout, and a second repair pass made zero further changes
 positives on any existing sample book and no other change to their
 output.
 
-## Next: hardcoded text-color detection (let the e-reader choose)
+## Done: hardcoded text-color detection (let the e-reader choose)
 
 Raised by Jacob (2026-09-10), prompted by a real book whose CSS forced
 body text to black. Goal stated plainly: the e-reader itself should
 decide text color, especially for body text -- not the book's own
-stylesheet. Explicitly not limited to black; any hardcoded color on
-text this project can confidently identify as "the reading system's
-job, not the book's" is in scope, per Jacob.
+stylesheet. Scoped and built the same day, replacing
+`ebook_fix.modules.color_strip`'s old blanket, unattended sweep (every
+hardcoded `color` declaration, book-wide, no exceptions) with an
+analysis-first split: `ebook_fix.color` now records every hardcoded
+`color` it finds and calls each one either `confident` (safe for Color
+Strip to remove outright) or `review` (flagged, never auto-touched).
 
-Why this matters beyond looking wrong in daylight mode: reading
-systems with a dark/night theme normally swap the background to a
-dark color and expect text color to follow along, either because the
-stylesheet left it unset (inherits/recalculates cleanly) or because
-the reading system's own dark-mode engine overrides it. A hardcoded
-text color defeats that override in less capable reading apps, which
-is the actual failure mode -- not (or not only) a cosmetic complaint.
+Where hardcoded color turned out to live, in practice: inline
+`style="color:..."`, a `color` rule in the book's own CSS on a class or
+element selector, and (rarer) a legacy `<font color="...">` tag. All
+three get the same underlying confident/review call.
 
-Unscoped so far -- real open questions before this can be built:
-- **Where "hardcoded color" actually lives.** Could be inline
-  `style="color: ..."` on individual elements, a `color` rule in the
-  book's own CSS on `body`/`p`/a class selector, or (less common but
-  real) a `<font color="...">` legacy tag. Each needs a different
-  detection approach; inline and `<font>` are probably safe to treat
-  the same way; a CSS rule needs to know whether it's targeting body
-  text broadly or something narrower.
-- **Body text vs. everything else.** Jacob's own framing already
-  draws this line -- body text should never fight the reading system.
-  Other uses of hardcoded color are much less clear-cut: a pull-quote,
-  a stylized chapter-heading initial, a "special" character's dialogue
-  color, a warning/note box -- these are often *intentional* author
-  design choices, and blindly stripping color from all of them risks
-  breaking real, deliberate formatting. Needs a real rule for what
-  counts as "body text" structurally (the main narrative flow) versus
-  everything else, not just "text color set anywhere in the book."
-- **What "fix" means once found.** Removing the `color` property
-  entirely (safest, lets inheritance/the reading system fully decide)
-  vs. rewriting it to something theme-aware isn't a real option in
-  EPUB CSS the way it might be on the web (no standard
-  `prefers-color-scheme`-equivalent reading systems reliably honor) --
-  so removal is likely the only real fix, not a rewrite.
-- **Confidence and false positives.** A book using off-black
-  (`#1a1a1a`) or off-white intentionally for a stylistic reason is a
-  real possibility, not just noise -- same "don't guess on genuinely
-  ambiguous cases" principle as everything else in this project.
-  Whatever the detection rule ends up being needs a real answer for
-  what's confident enough to flag (or fix) versus what needs a
-  person's own eyes first.
+**Confident** -- Color Strip removes these:
+- `color` on the class `ebook_fix.class_map` already identifies as the
+  book's `body-text` role, at medium or high confidence.
+- `color` on the `body` element selector itself -- the worst offender,
+  since it cascades to everything under it that doesn't override.
+- Inline `style="color:..."` (or a `<font color>`) sitting directly on
+  a `<p>` in a chapter `ebook_fix.frontmatter` classified as the book's
+  main narrative zone.
 
-No sample book currently in `examples/` exercises this (Jacob's
-German test book, which did, is being deleted) -- a real sample with a
-hardcoded-color stylesheet would help scope and verify this properly
-whenever it's picked up.
+**Review only** -- flagged in a new `[Possible Decorative Color --
+Manual Review]` section (CLI `analyze` and the GUI Analysis tab), same
+pattern as dangling paragraph endings and possessive candidates:
+- `color` on `<em>`/`<i>`/`<b>`/`<strong>`/`<span>`/etc, or on a
+  narrowly-used or unmapped class -- a pull-quote, a "this character
+  always speaks in blue" convention, a stylized initial.
+- `color` on a compound, descendant, id, or pseudo-class selector
+  (`a:link`, `a[href]`, `.foo .bar`) -- link color in particular showed
+  up constantly across the real sample suite and is deliberately left
+  alone, not assumed to be the same problem as body text fighting a
+  reading system's night mode.
+- A mixed CSS rule sharing a selector group with a non-body-text class
+  (e.g. `.calibre3, .pullquote { color: red; }`) -- stripping the rule
+  would also strip the ambiguous target.
+- Anything on a front- or back-matter page, even directly on a `<p>`.
+- A book-wide "wrapper" class/div that cascades color to the whole
+  document (e.g. a class Calibre puts on a div right under `<body>`).
+  Reliably recognizing "this wraps everything" is its own project, so
+  for now it's flagged like any other ambiguous case rather than
+  silently missed; `class_map`'s own `body-wrapper` role guess is
+  deliberately always "low" confidence and so never qualifies as
+  confident either, for the same reason.
+- Removal (not a theme-aware rewrite) is still the only real fix here,
+  same reasoning as originally planned: EPUB CSS has no standard
+  `prefers-color-scheme`-equivalent reading systems reliably honor.
+
+**Verified against the full sample suite:** no sample book's CSS is
+egregious enough to need this (most `examples/` books test other
+things), but real hits still turned up incidentally -- `WarPeace-
+GoodCopy.epub`'s `body { color: initial }` was correctly caught as
+confident and stripped, while its `a:link`/`a:visited`/`a:hover` link
+colors were correctly left alone; `Sidewinders`, `GutenbergText-
+ChapterSplit`, `ChaptersMisaligned`, and `RunTogetherText` all had
+Calibre-generated classes with color that aren't the book's confirmed
+body-text class, all correctly landed in `review`. A synthetic test
+(MM21 with inline `style=`, `<font color>`, nested-decorative, and
+front-matter cases injected) confirmed every branch of the confident/
+review split classifies as designed. `auto-fix` produced valid XML
+throughout, and a second pass made zero further changes (idempotent) --
+diffed at the extracted-content level, not raw zip bytes.
+
+Auto-fix's own high-confidence class-mapping step
+(`_build_auto_class_mapping` in `engine.py`) still deliberately leaves
+"theme-neutral" entries out, same as before -- that role clears the
+full `THEME_FIGHTING_PROPERTIES` set (font-family, background, etc), a
+broader and less reversible change than auto-fix's other guesses are
+meant to make unattended. Since Color Strip no longer covers every
+class the way it used to, a person going through the reviewed map-css
+path afterward may still find real theme-neutral candidates worth
+applying by hand -- that's expected now, not a gap.
 
 
 ## Next: Case 3 -- anthology/omnibus support, or in-body Contents-page linking

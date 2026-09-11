@@ -1,26 +1,41 @@
 """
 ebook_fix.modules.color_strip
 
-Strips every hardcoded text `color` declaration from a book -- external
-CSS files, embedded <style> blocks, and inline style="" attributes --
-regardless of which class (if any) carries it, and regardless of
-map-css's role/confidence guesses. Built for `ebook-fixer auto-fix`
-(see engine.py), which is meant to run unattended: unlike
-ClassStandardizeRepair's "theme-neutral" treatment, this isn't limited
-to classes a human (or the class-mapping confidence bar) has signed
-off on -- every hardcoded text color in the book is treated as
-something the reader's own color scheme/night-mode should control
-instead. No review gate, by design.
+Strips only the `confident` hardcoded text `color` declarations
+ebook_fix.color's analysis pass identified -- body-text-role classes,
+the `body` element selector itself, and inline color set directly on
+a main-narrative <p> (or a <font color> tag directly wrapping one).
+Built for `ebook-fixer auto-fix` (see engine.py), which is meant to
+run unattended, but color is no longer treated as unambiguous
+wherever it appears: a pull-quote, a "this character always talks in
+blue" convention, or a stylized initial are real, intentional choices
+this module now leaves alone. See ebook_fix.color's module docstring
+for the full confident/review split and the reasoning behind it.
+
+Everything ebook_fix.color put in its `review` bucket is reported,
+never touched here -- see engine.py's "[Possible Decorative Color --
+Manual Review]" section and gui/analysis_view.py's manual-review
+list, the same pattern already used for dangling paragraph endings
+and possessive candidates.
 
 Deliberately narrower than ebook_fix.css.THEME_FIGHTING_PROPERTIES:
 only the `color` property itself. `background`/`background-color`,
 `font-family`, and `font-size` are left alone here -- those are a
 different kind of decision (a background image, a deliberate serif
-choice) than a hardcoded text color actively fighting a reader's night
-mode, and this module is meant to do exactly the one thing it says on
-the tin. Any of those can still be cleaned up on a per-class basis
+choice) than a hardcoded text color actively fighting a reader's
+night mode. Any of those can still be cleaned up on a per-class basis
 through the normal reviewed class-mapping path (the "theme-neutral"
 role in ebook_fix.modules.class_standardize) if that's ever wanted.
+
+Re-scans the book's raw CSS/element text itself with ebook_fix.color's
+own classification helpers rather than trusting the live `element`
+references on analysis's `confident` findings to still be the right
+things to touch -- consistent with how ellipsis_repair.py and
+apostrophe_repair.py already recompute fresh against current state
+rather than trusting an analysis-time snapshot. In practice this also
+makes repair idempotent almost for free: a second pass finds nothing
+left to reclassify as confident, since the first pass already removed
+those declarations.
 """
 
 from __future__ import annotations
@@ -32,27 +47,37 @@ from lxml import etree
 
 from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE
 from ebook_fix.report import Report
-
-# Matches a `color: ...;` declaration but not `background-color`,
-# `border-color`, etc -- the negative lookbehind rejects any match
-# where "color" is preceded by a letter or hyphen, i.e. anything
-# that's actually a longer property name ending in "-color".
-COLOR_DECLARATION_RE = re.compile(r'(?<![a-zA-Z-])color\s*:\s*[^;]+;?', re.IGNORECASE)
+from ebook_fix.color import (
+    analyze_book_color,
+    is_confident_selector_group,
+    is_confident_paragraph_context,
+    COLOR_DECLARATION_RE,
+)
 
 
 class ColorStripRepair:
     name = "Color Strip"
 
     # -----------------------------------------------------
+    # Analysis
+    # -----------------------------------------------------
+
+    def analyze(self, book, analysis=None):
+        report = Report(self.name)
+        color = analysis.color if analysis is not None else analyze_book_color(book)
+        for finding in color.confident:
+            report.add(finding.href, "Hardcoded text color found", finding.context)
+        return report
+
+    # -----------------------------------------------------
     # Repair
     # -----------------------------------------------------
-    # No separate analyze() -- like ClassStandardizeRepair, this is a
-    # documented exception to the analyze-first/repair-reads-analysis
-    # split (see docs). It doesn't need a prior descriptive pass:
-    # "color: ..." is unambiguous wherever it appears, so there's
-    # nothing for a shared analysis step to usefully record first.
 
     def repair(self, book, analysis=None):
+        color = analysis.color if analysis is not None else analyze_book_color(book)
+        body_text_classes = color.body_text_classes
+        main_hrefs = color.main_hrefs
+
         report = Report(self.name)
         changed_anything = False
         base = PurePosixPath(getattr(book, "package_path", "") or "").parent
@@ -75,7 +100,7 @@ class ColorStripRepair:
                 text = contents.get(res.href)
             if not text:
                 continue
-            new_text, count = self._strip_css_text(text)
+            new_text, count = self._strip_css_text(text, body_text_classes)
             if count:
                 book.new_files[zpath] = new_text.encode("utf-8")
                 changed_anything = True
@@ -85,38 +110,46 @@ class ColorStripRepair:
                     f"{count} declaration(s) removed from {res.href}.",
                 )
 
-        # 2. Embedded <style> blocks and inline style="" attributes,
-        #    per chapter.
+        # 2. Embedded <style> blocks, inline style="" attributes, and
+        #    legacy <font color> tags, per chapter.
         for chapter in book.chapters:
             root = self._root(chapter.document)
             if root is None:
                 continue
+            href = getattr(chapter, "href", "")
+            in_main_zone = main_hrefs is None or href in main_hrefs
             changed = False
             chapter_count = 0
 
             for el in root.iter():
                 if not isinstance(el.tag, str):
                     continue
+                local = etree.QName(el).localname.lower()
 
-                if etree.QName(el).localname.lower() == "style":
-                    new_text, count = self._strip_css_text(el.text or "")
+                if local == "style":
+                    new_text, count = self._strip_css_text(el.text or "", body_text_classes)
                     if count:
                         el.text = new_text
                         changed = True
                         chapter_count += count
                     continue
 
-                style_val = el.get("style")
-                if not style_val:
-                    continue
-                stripped, count = self._strip_inline_style(style_val)
-                if count:
-                    if stripped:
-                        el.set("style", stripped)
-                    else:
-                        del el.attrib["style"]
-                    changed = True
-                    chapter_count += count
+                if in_main_zone and is_confident_paragraph_context(el):
+                    style_val = el.get("style")
+                    if style_val:
+                        stripped, count = self._strip_inline_style(style_val)
+                        if count:
+                            if stripped:
+                                el.set("style", stripped)
+                            else:
+                                del el.attrib["style"]
+                            changed = True
+                            chapter_count += count
+
+                    if local == "font" and el.get("color"):
+                        del el.attrib["color"]
+                        changed = True
+                        chapter_count += 1
 
             if changed:
                 chapter.modified = True
@@ -141,13 +174,14 @@ class ColorStripRepair:
             return None
         return tree if hasattr(tree, "iter") else tree.getroot()
 
-    def _strip_css_text(self, text: str):
-        """Remove any `color: ...;` declaration from a CSS blob (an
-        external stylesheet or an embedded <style> block's contents),
-        leaving every other declaration and the rule structure
-        untouched. Comments are stripped in the process, same as
-        css.py's own scan does -- a side effect on any block this
-        actually changes. Returns (new_text, count_removed)."""
+    def _strip_css_text(self, text: str, body_text_classes: frozenset):
+        """Remove any `color: ...;` declaration, but only from a rule
+        whose selector group ebook_fix.color considers confident (see
+        is_confident_selector_group) -- leaving every other rule, and
+        every other declaration within a stripped rule, untouched.
+        Comments are stripped in the process, same as css.py's own
+        scan does -- a side effect on any block this actually changes.
+        Returns (new_text, count_removed)."""
         if not text:
             return text, 0
         cleaned = COMMENT_RE.sub("", text)
@@ -157,6 +191,8 @@ class ColorStripRepair:
             nonlocal count
             selector = m.group(1)
             body = m.group(2)
+            if not is_confident_selector_group(selector.strip(), body_text_classes):
+                return m.group(0)
             new_body, n = COLOR_DECLARATION_RE.subn("", body)
             if not n:
                 return m.group(0)

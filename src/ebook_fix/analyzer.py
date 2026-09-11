@@ -14,6 +14,7 @@ from lxml import etree
 
 from ebook_fix.typography import TypographyReport, BookTypographySummary, analyze_text, summarize_book
 from ebook_fix.css import BookCSSSummary, analyze_book_css
+from ebook_fix.color import BookColorSummary, analyze_book_color
 from ebook_fix.chapters import BookChapterSummary, analyze_book_chapters
 from ebook_fix.images import BookImageSummary, analyze_book_images
 from ebook_fix.packaging import BookPackagingSummary, analyze_book_packaging
@@ -115,6 +116,10 @@ class AnalysisReport:
     summary:BookSummary=field(default_factory=BookSummary)
     typography:BookTypographySummary=field(default_factory=BookTypographySummary)
     css:BookCSSSummary=field(default_factory=BookCSSSummary)
+    # Hardcoded-color findings, split into confident (safe for
+    # ebook_fix.modules.color_strip to remove) and review (flag-only,
+    # never auto-repaired) -- see ebook_fix.color module docstring.
+    color:BookColorSummary=field(default_factory=BookColorSummary)
     chapters:BookChapterSummary=field(default_factory=BookChapterSummary)
     images:BookImageSummary=field(default_factory=BookImageSummary)
     packaging:BookPackagingSummary=field(default_factory=BookPackagingSummary)
@@ -277,6 +282,7 @@ class EPUBAnalyzer:
 
         r.typography=summarize_book([(c.href,c.typography) for c in r.chapter_reports])
         r.css=analyze_book_css(book,r.chapter_reports)
+        r.color=analyze_book_color(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
         r.images=analyze_book_images(book)
         r.packaging=analyze_book_packaging(book)
         r.paragraphs=analyze_book_paragraphs(book,frontmatter_summary=r.frontmatter)
