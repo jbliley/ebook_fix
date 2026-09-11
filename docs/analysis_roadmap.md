@@ -1187,6 +1187,60 @@ XML throughout, and a second repair pass made zero further changes
 positives on any existing sample book and no other change to their
 output.
 
+## Next: hardcoded text-color detection (let the e-reader choose)
+
+Raised by Jacob (2026-09-10), prompted by a real book whose CSS forced
+body text to black. Goal stated plainly: the e-reader itself should
+decide text color, especially for body text -- not the book's own
+stylesheet. Explicitly not limited to black; any hardcoded color on
+text this project can confidently identify as "the reading system's
+job, not the book's" is in scope, per Jacob.
+
+Why this matters beyond looking wrong in daylight mode: reading
+systems with a dark/night theme normally swap the background to a
+dark color and expect text color to follow along, either because the
+stylesheet left it unset (inherits/recalculates cleanly) or because
+the reading system's own dark-mode engine overrides it. A hardcoded
+text color defeats that override in less capable reading apps, which
+is the actual failure mode -- not (or not only) a cosmetic complaint.
+
+Unscoped so far -- real open questions before this can be built:
+- **Where "hardcoded color" actually lives.** Could be inline
+  `style="color: ..."` on individual elements, a `color` rule in the
+  book's own CSS on `body`/`p`/a class selector, or (less common but
+  real) a `<font color="...">` legacy tag. Each needs a different
+  detection approach; inline and `<font>` are probably safe to treat
+  the same way; a CSS rule needs to know whether it's targeting body
+  text broadly or something narrower.
+- **Body text vs. everything else.** Jacob's own framing already
+  draws this line -- body text should never fight the reading system.
+  Other uses of hardcoded color are much less clear-cut: a pull-quote,
+  a stylized chapter-heading initial, a "special" character's dialogue
+  color, a warning/note box -- these are often *intentional* author
+  design choices, and blindly stripping color from all of them risks
+  breaking real, deliberate formatting. Needs a real rule for what
+  counts as "body text" structurally (the main narrative flow) versus
+  everything else, not just "text color set anywhere in the book."
+- **What "fix" means once found.** Removing the `color` property
+  entirely (safest, lets inheritance/the reading system fully decide)
+  vs. rewriting it to something theme-aware isn't a real option in
+  EPUB CSS the way it might be on the web (no standard
+  `prefers-color-scheme`-equivalent reading systems reliably honor) --
+  so removal is likely the only real fix, not a rewrite.
+- **Confidence and false positives.** A book using off-black
+  (`#1a1a1a`) or off-white intentionally for a stylistic reason is a
+  real possibility, not just noise -- same "don't guess on genuinely
+  ambiguous cases" principle as everything else in this project.
+  Whatever the detection rule ends up being needs a real answer for
+  what's confident enough to flag (or fix) versus what needs a
+  person's own eyes first.
+
+No sample book currently in `examples/` exercises this (Jacob's
+German test book, which did, is being deleted) -- a real sample with a
+hardcoded-color stylesheet would help scope and verify this properly
+whenever it's picked up.
+
+
 ## Next: Case 3 -- anthology/omnibus support, or in-body Contents-page linking
 
 Two independent, unscoped items, neither currently a priority:
@@ -1324,6 +1378,22 @@ SmallChapterNumbers.epub` uses British-style single-quote dialogue
 (`'...'`) and still has one residual flag from exactly this gap.
 Judged an acceptable trade-off for now rather than worth the
 complexity, given how low-volume the whole feature already is.
+
+**Known scope decision: English-only, deliberately (2026-09-10).**
+Came up when a German-language book (since deleted) tripped the
+black-text question below and Jacob noticed it was in German at all.
+This check and the apostrophe/possessive-candidate check both assume
+English quoting conventions (`"..."` pairs, `'s`/`n't`-style
+contractions); German alone uses entirely different marks
+(`„like this"` or `»like this«`), so either check could misfire on
+non-English text -- miss real issues, flag false ones, or both.
+Jacob's own library is English-only and he doesn't need this fixed for
+himself, but flagged it as something other people using this project
+later might care about. Left as a known, deprioritized gap rather than
+scoped -- worth a real look (per-language quote-pairing rules, or
+detecting `dc:language` and skipping these two checks on anything not
+English) if non-English books become a real use case, for Jacob or
+anyone else.
 
 **Verified across the full regression set after all of the above:**
 zero hits on 7 of 12 sample books plus the clean MM5 copy; 1-4 hits
