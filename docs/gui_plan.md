@@ -1132,3 +1132,32 @@ This file is the source of truth for the GUI's scope and phase order,
 more reliable than relying on conversation memory across sessions.
 Update it as phases get picked up, scoped further, finished, or
 changed.
+
+#### Bug fix -- replace-original crashed instead of erroring cleanly on a locked file (2026-09-10)
+
+Found in the same session as the fix above, on Jacob's first real
+"Replace original file" attempt: Windows refused the rename with
+`PermissionError: [WinError 5] Access is denied` (something else --
+Calibre's viewer, another reader, an antivirus scan, an Explorer
+preview pane -- had the book file open), and that propagated straight
+up to a raw 500 page instead of the same kind of clear message
+`calibredb_write.py` already gives for a locked Calibre library.
+
+**Fix:** both renames in `replace_original()` are now wrapped in
+`try`/`except OSError`, each returning the normal `repair.html` page
+with a specific `replace_error` message instead of crashing. If the
+first rename (original -> `_original.epub` backup) fails, nothing has
+changed yet, so the message says so plainly. If the second rename
+(`_fixed.epub` -> original name) fails *after* the first succeeded,
+the backup is renamed straight back to the original name before
+returning, so a lock that appears mid-operation never leaves the book
+missing from its own filename with a stray backup sitting next to it.
+
+Verified with two standalone tests (a fake locked-file rename via
+Flask's test client, not a real Windows lock): first-rename failure
+leaves both files exactly as they were, no backup created; second-
+rename failure restores the original's content and name and leaves no
+stray backup, with the `_fixed.epub` still sitting separately.
+Real-world confirmation (an actual Windows lock, not a simulated one)
+still needs a person hitting it live -- Jacob's original report is
+what's actually driving this fix.

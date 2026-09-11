@@ -787,9 +787,7 @@ def replace_original(session_id):
     if not fixed_path.exists():
         abort(404)
 
-    source_path = _source_path(session_dir)
-    backup_path = _original_backup_path(session_dir)
-    if backup_path.exists():
+    def _replace_error(message: str):
         return render_template(
             "repair.html",
             active_tab="repair",
@@ -805,14 +803,56 @@ def replace_original(session_id):
             staged_boundary_count=0,
             result=None,
             has_fixed=True,
-            replace_error=(
-                f"A backup already exists at {backup_path} -- not overwriting it. "
-                "Move or delete that file first if you're sure you want to replace again."
-            ),
+            replace_error=message,
         )
 
-    source_path.rename(backup_path)
-    fixed_path.rename(source_path)
+    source_path = _source_path(session_dir)
+    backup_path = _original_backup_path(session_dir)
+    if backup_path.exists():
+        return _replace_error(
+            f"A backup already exists at {backup_path} -- not overwriting it. "
+            "Move or delete that file first if you're sure you want to replace again."
+        )
+
+    # Both renames are same-filesystem moves and should be near-instant,
+    # but a book file can still be locked by something else on Windows
+    # (Calibre's own viewer, another reader, an antivirus scan, even an
+    # Explorer preview pane) -- os.rename surfaces that as a bare
+    # PermissionError/OSError with no context. Caught here so a lock
+    # shows up as a clear, actionable message instead of a 500 page,
+    # the same posture calibredb_write.py already takes toward a
+    # locked Calibre library.
+    try:
+        source_path.rename(backup_path)
+    except OSError as exc:
+        return _replace_error(
+            f"Couldn't rename the original file to make a backup: {exc}. "
+            "This usually means something else has the book open -- Calibre's "
+            "own viewer, another reader, or an antivirus scan -- close it and "
+            "try again. Nothing was changed."
+        )
+
+    try:
+        fixed_path.rename(source_path)
+    except OSError as exc:
+        # The backup rename above already succeeded, so roll it back
+        # rather than leaving the book missing under its original name
+        # with a stray "_original.epub" sitting next to it.
+        try:
+            backup_path.rename(source_path)
+            rollback_note = ""
+        except OSError as rollback_exc:
+            rollback_note = (
+                f" Additionally, restoring the original from {backup_path} also "
+                f"failed ({rollback_exc}) -- the original is safe at that path, "
+                "but needs to be renamed back by hand."
+            )
+        return _replace_error(
+            f"Couldn't move the repaired file into place: {exc}.{rollback_note} "
+            "This usually means something else has the book open -- close it and "
+            "try again."
+        )
+
     _replaced_flag_path(session_dir).write_text(str(backup_path), encoding="utf-8")
 
     return render_template(

@@ -990,3 +990,52 @@ All three of the open questions below are now decided, per Jacob:
 ## Open questions / not yet decided
 
 None currently open.
+
+## Session: first real-library confirmation + calibredb error cleanup (2026-09-10)
+
+Jacob's first real end-to-end test against his actual Calibre library
+(after the two GUI fixes logged in `docs/gui_plan.md` the same day):
+`metadata.opf` sync worked cleanly on a real book -- "Synced 2
+field(s): publisher, description. Cleaned up 1 identifier(s)." --
+first real confirmation Phase 1/2 work correctly against live data,
+not just the sample-EPUB regression suite.
+
+`metadata.db` sync failed, but not for a reason this project's code
+was wrong about. Real-world `calibredb` stderr on Jacob's machine
+turned out to be much noisier than anticipated: a corrupted
+third-party plugin config (`ISFDB3.json`, unrelated to this project
+entirely) throws a full traceback on every `calibredb` invocation
+before the actual command even runs, and the genuine failure --
+Calibre's own Windows check that a file/folder isn't in use by
+another process -- was buried at the very end of several screens of
+that unrelated noise. Jacob confirmed Calibre's window wasn't open,
+which is a real, known gap in `calibredb`'s own generic "close
+Calibre" hint: many installs minimize to the system tray on close
+rather than fully quitting, so "closed the window" and "no Calibre
+process running" aren't the same thing.
+
+**Fixed, both in `calibredb_write.py`:**
+- `_summarize_calibredb_failure()` -- keeps only the last non-empty
+  line of `calibredb`'s stderr, since a Python traceback always ends
+  with the line that actually explains the failure, regardless of how
+  much unrelated noise came before it. Deliberate trade-off: a future
+  failure this doesn't anticipate could in principle need more than
+  its last line to diagnose, but running `calibredb` by hand is
+  always available for that, and it's a clear improvement over
+  drowning the one real case seen so far.
+- `_calibre_process_running()` -- an actual check (`tasklist` on
+  Windows, `ps -A` elsewhere) for whether any Calibre-related process
+  is running, rather than assuming a closed window means Calibre
+  fully quit. When the lock-style failure above fires, the resulting
+  message now says one of two genuinely different things depending on
+  what this check finds: a running process (tray-minimized, most
+  likely) prompts a specific "quit via tray icon or Task Manager"
+  hint; no running process found points instead at antivirus, cloud
+  sync, Windows Search indexing, or an Explorer preview pane as more
+  likely culprits. Returns `None` (falls back to `calibredb`'s own
+  wording untouched) if the process list itself can't be checked.
+
+Verified against a reconstruction of Jacob's real stderr blob, both
+detection branches. Not yet re-verified against a live Calibre
+process on Jacob's actual machine -- next test should confirm whether
+it actually was tray-minimized Calibre, or one of the other causes.

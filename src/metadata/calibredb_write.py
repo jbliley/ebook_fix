@@ -24,6 +24,7 @@ verification happens.
 """
 from __future__ import annotations
 
+import platform
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -82,6 +83,62 @@ def find_calibredb() -> str | None:
         if Path(candidate).exists():
             return candidate
     return None
+
+
+def _calibre_process_running() -> bool | None:
+    """Best-effort check for whether some part of Calibre (the main
+    GUI, or a helper process like calibre-server/ebook-viewer that
+    can also hold a library lock) is currently running -- even if a
+    person is sure they closed its window, since many Calibre installs
+    default to minimizing to the system tray on close rather than
+    fully quitting. Answers "is there a Calibre process to go close"
+    more directly than a generic "close Calibre and try again" hint
+    can, in the not-uncommon case where a person has genuinely already
+    closed the window they can see.
+
+    Returns True/False when a process list could actually be checked,
+    or None when it couldn't (tasklist/ps missing, a sandboxed
+    environment, a timeout) -- callers should fall back to a fully
+    generic hint in that case rather than asserting either way."""
+    try:
+        if platform.system() == "Windows":
+            result = subprocess.run(
+                ["tasklist"], capture_output=True, text=True, timeout=5,
+            )
+        else:
+            result = subprocess.run(
+                ["ps", "-A"], capture_output=True, text=True, timeout=5,
+            )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.lower().splitlines():
+        # "calibredb" itself will be in this list too, since it's the
+        # very process running this check -- excluded so it never
+        # counts as "Calibre is running" on its own.
+        if "calibre" in line and "calibredb" not in line:
+            return True
+    return False
+
+
+def _summarize_calibredb_failure(stderr: str) -> str:
+    """calibredb's own stderr on a real machine can run for pages
+    before it ever gets to the actual failure -- in one real case, a
+    corrupted plugin config file (a third-party ISFDB3 install)
+    threw a full traceback during plugin start-up, well before the
+    requested set_metadata command even ran, and had nothing to do
+    with why that command failed. A Python traceback always ends
+    with the line that actually explains what stopped it though, so
+    that's what's kept -- the full raw output no longer gets
+    surfaced to a person at all now, only this last line, so a real
+    novel failure this doesn't anticipate could in principle be
+    harder to diagnose than before. Trade-off made deliberately: the
+    one real case seen so far was almost entirely unrelated noise,
+    and calibredb can always be run by hand for full output if a
+    future failure ever needs more than its last line to explain."""
+    lines = [line.strip() for line in stderr.strip().splitlines() if line.strip()]
+    return lines[-1] if lines else "(no output)"
 
 
 def _quote_value(name: str, value: str) -> str:
@@ -186,16 +243,36 @@ def sync_metadata_db(
 
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
-        # calibredb's own message when the library's locked (another
-        # process, usually the Calibre GUI itself, holds it) mentions
-        # a lock file by name -- surfaced as-is rather than
-        # re-worded, since calibredb's own wording is normally
-        # specific enough to act on directly.
-        hint = " Close Calibre and try again if it's currently open." if "lock" in stderr.lower() else ""
+        summary = _summarize_calibredb_failure(stderr) if stderr else "(no output)"
+        # calibredb's own message for a locked library mentions the
+        # file/library being in use directly -- checked on the
+        # trimmed summary line rather than the full stderr, since
+        # that's what the hint below is actually reacting to.
+        hint = ""
+        if "another process" in summary.lower() or "lock" in summary.lower():
+            running = _calibre_process_running()
+            if running is True:
+                hint = (
+                    " A Calibre process still appears to be running, even "
+                    "if its window is closed -- Calibre often minimizes to "
+                    "the system tray instead of fully quitting. Right-click "
+                    "its tray icon and choose Quit (or end calibre.exe via "
+                    "Task Manager), then try again."
+                )
+            elif running is False:
+                hint = (
+                    " No running Calibre process was found, so this is "
+                    "likely something else with a file open in that book's "
+                    "folder -- antivirus scanning, cloud backup/sync, "
+                    "Windows Search indexing, and an Explorer preview pane "
+                    "are common causes. Try again in a moment."
+                )
+            # running is None: couldn't check either way -- summary's own
+            # wording (calibredb's, not this project's) already covers it.
         return CalibreDbWriteResult(
             attempted=True,
             succeeded=False,
-            error=f"calibredb exited with an error (code {result.returncode}): {stderr or '(no output)'}.{hint}",
+            error=f"calibredb exited with an error (code {result.returncode}): {summary}{hint}",
         )
 
     return CalibreDbWriteResult(
