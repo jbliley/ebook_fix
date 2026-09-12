@@ -22,7 +22,8 @@ Proposed lists, as given:
 **Input:** EPUB, KEPUB, AZW3, CBZ, CBR, MOBI, AZW, PRC, FB2, DOCX,
 RTF, TXT
 **Output:** EPUB3 (default), AZW3, CBZ
-**Explicitly unsupported:** DJVU, PDF, images
+**Explicitly unsupported:** DJVU, raw images
+**Narrow exception:** PDF -> CBZ (image-only, no OCR/reflow -- see below)
 
 ## The core architecture call: convert-to-EPUB-first -- agreed, this is right
 
@@ -219,12 +220,75 @@ before assuming this is like the others:**
 
 ## Unsupported formats -- agreed
 
-DJVU, PDF, and raw images are all fundamentally page-image/fixed-
-layout problems (or, for PDF, a layout-based format this project's
-own `mobi_analyzer.py` script already only did basic structural
-sniffing on, never real conversion). Keeping these out of scope
-entirely is consistent with everything else here treating reflowable,
-markup-based content as the target.
+DJVU and raw images are fundamentally page-image/fixed-layout
+problems. Keeping these out of scope entirely is consistent with
+everything else here treating reflowable, markup-based content as the
+target. PDF gets a narrow, image-only exception -- see below.
+
+## PDF -> CBZ, image-only, no OCR (2026-09-11)
+
+Raised by Jacob as a much smaller ask than full PDF support: skip
+reflowable conversion entirely (the actual reason PDF was excluded
+above -- OCR and page-layout reconstruction is a fundamentally
+different, much bigger problem) and instead treat a PDF exactly like
+the CBZ output case already agreed above -- page-images-in,
+page-images-out, just packaged as a CBZ archive instead of read back
+into an EPUB `Book`. This sidesteps the original objection rather than
+arguing around it: nothing here tries to make PDF content reflow.
+
+Confirmed working already: Jacob supplied a working script
+(`pdf_cbz.py`) using PyMuPDF (`fitz`) -- renders every page to a JPEG
+via `page.get_pixmap()` at a 2x render matrix (roughly 150-200 DPI
+equivalent), writes each as `page_NNNN.jpg` into a zip, renames to
+`.cbz`. This approach works uniformly whether the PDF is a scanned
+image stack or a vector/text-based document, since it rasterizes the
+rendered page rather than trying to extract or distinguish embedded
+images -- confirmed with Jacob rather than restricting to
+already-image-based PDFs only.
+
+**New dependency: PyMuPDF (`fitz`).** A real departure from this
+project's hand-roll-where-feasible philosophy, called out plainly
+rather than glossed over -- but justified here, unlike everywhere else
+that philosophy applies: rendering arbitrary PDF pages to images isn't
+a hand-rollable problem the way binary parsing elsewhere in this
+project is (see `palmdb.py`, `mobi_analyzer.py`, etc.), and Jacob has
+already used this specific library successfully for this specific
+task, unlike the still-open, unconfirmed `unrar`/`bsdtar` question for
+CBR below.
+
+Ebook-fix's own `ebook_fix.mobi_analyzer`-adjacent reader work still
+doesn't touch PDF content at all -- there's no PDF `Book` reader
+planned or needed here, since the point is explicitly to avoid
+building one. This is a standalone converter (PDF file in, CBZ file
+out), not a new input format for the analysis/repair pipeline the way
+MOBI/FB2/etc. are.
+
+**DJVU: dropped**, not deprioritized. Jacob raised it only as an
+afterthought alongside the already-working PDF script, and confirmed
+it's not worth the real complexity it'd add -- there's no lightweight
+way to hand-roll a DJVU decoder (its own compression and IW44 image
+encoding), so supporting it would mean a second new dependency (an
+external `djvulibre` binary or Python bindings around it) for a format
+Jacob doesn't actually have files for. Revisit only if a real DJVU
+file shows up needing conversion, same posture as CBR below.
+
+Not yet scoped, worth deciding before this gets built:
+- Where the actual conversion code lives -- a new top-level module
+  (e.g. `ebook_fix/pdf_cbz.py`) rather than anywhere in the `Book`
+  reader/writer/repair pipeline, since this never touches a `Book`
+  object at all.
+- CLI shape: a new subcommand (`ebook-fix pdf-to-cbz input.pdf
+  -o output.cbz`)? Doesn't fit `repair`/`auto-fix`/`analyze`'s
+  existing shape (open-a-book-then-fix-it), since there's no `Book`
+  to analyze.
+- Render setting (the 2x matrix / JPEG quality 85 in Jacob's script)
+  as a fixed default vs. a config option -- likely fine as a fixed
+  default matching what Jacob already confirmed looks right, unless a
+  real case for tuning it per-book comes up.
+- requirements.txt: PyMuPDF's own license (AGPL, with a commercial
+  option) is worth a conscious note in the repo somewhere once this
+  actually gets added, given how different that is from lxml/rich/
+  ebooklib/Flask's licensing.
 
 ## Suggested phasing (not decided, just a starting point)
 
@@ -239,7 +303,9 @@ markup-based content as the target.
 3. **Pick up on demand, not tiered:** CBR input -- small, self-
    contained (~an hour or two of real code) whenever an actual `.cbr`
    file shows up that needs converting; no benefit to front-loading
-   it before then.
+   it before then. PDF -> CBZ (see above) fits the same "pick up on
+   demand" posture -- small, self-contained, and already has a
+   confirmed working approach, just needs wiring into a real command.
 4. **No rush -- Jacob reads EPUB himself, this is for other users
    eventually:** AZW3 output. Worth deciding hand-roll vs. Calibre
    shell-out whenever it does get picked up, but nothing time-

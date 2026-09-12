@@ -1298,7 +1298,7 @@ crashes and valid XML throughout.
 
 ## Next: Case 3 -- anthology/omnibus support, or in-body Contents-page linking
 
-Two independent, unscoped items, neither currently a priority:
+Three independent, unscoped items, neither currently a priority:
 - Anthology/omnibus EPUBs bundling multiple separate works into one
   file, each restarting its own numbering -- Case 3 has no label word
   to anchor a restart on the way the normal pipeline's Part-sequence
@@ -1317,6 +1317,29 @@ Two independent, unscoped items, neither currently a priority:
   chapter (in order) and wrapping it in a link to that chapter's file
   -- unscoped so far, including what to do about a listed name that
   doesn't cleanly match anything (typo, extra entry, etc.).
+- **False-positive chapter-split candidates on an in-body Contents
+  page itself (raised by Jacob, 2026-09-11).** Confirmed happening
+  more than once, via the GUI Review tab: a plain-text Contents page
+  like the MM21 case just above -- a list of chapter titles/numbers
+  with no links -- gets read by the Case 3 candidate detector as a
+  sequence of real chapter headers, and it proposes splitting that one
+  Contents page into several separate files, one per listed title.
+  The underlying recognition problem is the same one the item above
+  needs anyway ("is this whole page an in-body Contents/TOC listing,
+  not narrative content") -- worth solving once and using in both
+  places rather than twice. Once a page is recognized as a Contents
+  listing, Case 3's own candidate detector should skip it entirely
+  rather than proposing splits inside it, the same way it already
+  needs to skip real front/back matter. Not yet scoped: what
+  "recognized as a Contents page" should actually key off -- Jacob
+  mentioned a page at a path like `xhtml/contents.html` as one signal
+  (filename/href), but that alone isn't reliable (plenty of real
+  chapter files could sit under a similarly-named folder, and a
+  Contents page won't always be named that predictably) -- likely
+  needs to combine filename/id hints with the same "short repeated
+  plain-text lines, no links, matches chapter-name-like patterns in
+  sequence" shape the linking item above would also need to detect a
+  Contents page in the first place.
 
 
 ## Done: dangling paragraph endings (possible silent content loss), flag-only (2026-09-09)

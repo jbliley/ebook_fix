@@ -1105,6 +1105,158 @@ the checkbox loop and is back in place before the sync calls run.
 Couldn't verify end-to-end against a real Calibre-managed book here --
 that's what Jacob's live Phase 3 testing is already in the middle of.
 
+## Planned -- Jacob's next batch (2026-09-11)
+
+Written up per Jacob's request, scoped through a round of clarifying
+questions before anything gets built -- nothing in this section is
+started yet. Each item below is its own independent phase; order
+isn't decided.
+
+### Cover replace (upload, or reuse the Calibre folder's own cover)
+
+Two related but separate actions, both landing through the existing
+`CoverRepair` pipeline (declaration/manifest handling stays automatic,
+same as it already is for every other cover fix) rather than a new
+one-off writer:
+- **Upload a replacement image** from the Metadata (or a new Cover)
+  tab -- a person picks a file, it becomes the book's cover image.
+- **Reuse the Calibre folder's own cover**, when the book is
+  Calibre-managed -- Calibre libraries keep a `cover.jpg` sitting
+  right next to `metadata.opf` in the book's own folder; offer to pull
+  that image into the EPUB directly, no upload needed. **One-directional
+  only, folder -> EPUB, confirmed with Jacob** -- this does not push a
+  newly-uploaded cover back out to the Calibre folder or `metadata.db`
+  the way the existing metadata write-back sync does for text fields;
+  that direction isn't being built here.
+
+Not yet scoped:
+- Whether "reuse the Calibre folder's cover" is offered automatically
+  whenever a mismatch is detected (the existing cover-mismatch
+  NEEDS_REVIEW finding calibre_detect.py's analysis already surfaces),
+  or needs an explicit action a person takes -- likely ties into the
+  existing "Open questions" note below about where cover-mismatch
+  comparison lives (this tab vs. Before/After).
+- Image validation before it's accepted (right dimensions/aspect
+  ratio, actually a valid image file, not something already handled
+  elsewhere) -- `CoverRepair`'s existing checks are about the
+  *declaration*, not the pixel content, so this may need its own
+  light validation pass.
+
+### Review tab: pick the correct option for any unresolved finding
+
+Confirmed with Jacob this is a real gap, not intentional scope --
+the original v1 plan (see "The three tabs" above) explicitly said the
+Review tab covers "case 3 chapter-split candidates... cover
+mismatches, and any other NEEDS_REVIEW-class finding," but only
+chapter-split candidates actually got built in Phase 3. Jacob's ask
+generalizes this further than just "list them somewhere": **be able to
+see and pick the correct option from the Review tab for an unresolved
+conflict of any kind**, not just view it as a flag.
+
+That's a real design gap worth being upfront about before scoping
+further: chapter-split candidates already have an obvious pickable
+action (accept a boundary -> the split happens there). Some of the
+current Analyze-tab manual-review findings do too, once actually built
+out:
+- **Possessive candidates** (ambiguous missing-apostrophe/plural
+  calls) -- a real two-way choice per instance ("add apostrophe" vs.
+  "leave as plural"), applying an actual text edit either way. No
+  repair path currently exists for either choice; both would need to
+  be built.
+- **Possible Decorative Color** -- also a real choice per finding
+  ("strip this color" vs. "leave it") -- but today `ebook_fix.color`'s
+  review bucket is never touched by anything, by design (see its
+  module docstring); accepting one from the Review tab means adding a
+  way to target and remove one specific finding's declaration, similar
+  in spirit to how `Engine.split_marked()` applies only the
+  person-approved subset of Case 3 boundaries rather than everything
+  eligible.
+- **Dangling paragraph endings** are a different shape of problem,
+  worth flagging now rather than assuming they fit the same pattern:
+  there's no text to fill in automatically no matter which "option" a
+  person picks, since the whole point of the flag is that content may
+  be missing. Not yet decided what a Review-tab entry for this would
+  even offer -- likely just an acknowledge/dismiss action (so it stops
+  showing up on repeat visits once it's been checked against another
+  copy) rather than a real fix, unlike the two above.
+
+Also confirmed: a **select-all convenience** on the Review tab, same
+idea as the Repair tab's existing Select All/Unselect All (see the
+2026-09-06 addition above) -- Jacob's real workflow is often "every
+proposed chapter split here is correct," and currently means checking
+every box by hand one at a time.
+
+Not yet scoped: exact UI for a per-finding-type "pick the correct
+option" control (a two-button choice per row, like the Metadata tab's
+EPUB-value/Calibre-value picker?), and whether accepted possessive/
+color choices apply immediately or stage like Metadata/Review do today
+(see the "one correctness gap" note in Phase 3 above about Metadata's
+Save and Review's Split Selected not currently combining into one
+output file -- worth resolving as part of this, not separately, since
+adding two more kinds of accept action to this tab makes that gap more
+likely to actually bite).
+
+### Bug fix (planned) -- GUI errors if the original file is removed mid-session
+
+No design question here, just a real bug: every tab's route eventually
+calls `_source_path()`, which reads the path recorded in
+`real_path.txt` and assumes the file is still there. If the person
+deletes, moves, or renames the file on disk while its GUI session is
+still open (e.g. after using "Replace original file"'s own backup/
+rename dance, or just cleaning up downloads), the next tab load hits a
+raw, unhandled error instead of a real page. Planned fix: catch the
+missing-file case wherever `_source_path()`/`_load_analysis()` get
+called for a tab route, and reset that session back to a clean
+"upload a book" state with a plain message, rather than a 500 page --
+same posture as the existing locked-file handling in "Replace original
+file" (2026-09-10 bug fix above), just for "gone" instead of "locked."
+
+### Metadata tab: warn before leaving with unsaved changes
+
+A `beforeunload`-style browser guard on the Metadata form specifically,
+tracking whether any field has changed since the page loaded (or since
+the last successful Save). Confirmed with Jacob this should fire for
+**all** ways of leaving the page with unsaved changes -- browser tab
+close, window close, and navigating to another tab inside the app --
+which conveniently is exactly what a single `beforeunload` listener
+already covers uniformly, so this shouldn't need separate handling per
+trigger.
+
+### Auto-rename on save, from a filename pattern (GUI only, opt-in)
+
+A config-backed pattern (e.g. `%author% - %title% (%year%)`) applied
+to the saved filename. Confirmed scope, narrower than the original
+ask:
+- **GUI only** -- CLI `-o`/`--output` stays exactly as typed, no
+  pattern applied there.
+- **Off by default**, opt-in per Jacob -- a config default plus a GUI
+  checkbox/control at save time, rather than something that silently
+  changes a filename a person didn't ask to have renamed.
+- **Never applied to a Calibre-managed book**, full stop, not a
+  toggle -- Calibre already owns that book's folder/file naming
+  convention, and Jacob does not want this anywhere near that.
+- Token set: `%author%`, `%title%`, `%year%`, plus `%series%` and
+  `%series_index%` since series support already exists
+  (`ebook_fix.series`) -- "just so they're in there" per Jacob, not
+  necessarily needed on day one.
+
+Not yet scoped: exact pattern syntax/parsing (a small hand-rolled
+`%token%` substitution is plenty, no need for a templating dependency),
+what happens when a token's underlying field is empty (e.g. no known
+year), and filesystem-illegal-character handling in a resolved
+author/title value.
+
+### Sticky top bar across every tab
+
+Layout-only, no open design question: the top bar (tab navigation, plus
+the "Analyze Another Book" action, which moves up into this bar) stays
+pinned to the top of the viewport while the page scrolls, on every tab
+(Analyze/Metadata/Review/Repair/Before-After) -- one shared change in
+`templates/base.html`, not per-tab. The current filename display in
+that bar also shrinks (smaller type), since it'll now be sharing
+permanent, always-visible space with the tab navigation and the
+button.
+
 ## Open questions
 
 - Whether the Review tab's cover-mismatch item shows the two cover
