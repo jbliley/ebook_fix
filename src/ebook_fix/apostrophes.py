@@ -324,9 +324,12 @@ def _snippet(text: str, start: int, end: int) -> str:
 
 @dataclass
 class PossessiveCandidate:
+    id: str = ""               # stable within one analysis pass -- see analyze_book_possessives
     href: str = ""
     element: object = None    # live host element; not saved to the JSON cache
     attr: str = ""             # "text" or "tail"
+    match_start: int = 0        # span of "word s" within element's .text/.tail -- see apply_possessive_resolutions
+    match_end: int = 0
     word: str = ""             # the word immediately before the bare "s", original casing
     context: str = ""          # short surrounding snippet, for a person to read and judge
     possessive_reading: str = ""  # e.g. "dog's" -- if this is a possessive
@@ -371,7 +374,9 @@ def analyze_chapter_possessives(href: str, tree) -> ChapterPossessiveSummary:
 
             summary.candidates.append(
                 PossessiveCandidate(
+                    id=f"{href}::{len(summary.candidates)}",
                     href=href, element=host, attr=attr,
+                    match_start=m.start(), match_end=m.end(),
                     word=word,
                     context=_snippet(text, m.start(), m.end()),
                     possessive_reading=f"{word}'s",
@@ -389,3 +394,65 @@ def analyze_book_possessives(book) -> BookPossessiveSummary:
             analyze_chapter_possessives(getattr(chapter, "href", ""), getattr(chapter, "document", None))
         )
     return summary
+
+
+def apply_possessive_resolutions(book, resolutions: dict) -> int:
+    """Applies a person's chosen reading for specific possessive
+    candidates from the GUI Review tab (docs/gui_plan.md, 2026-09-11
+    planned batch) -- `resolutions` maps a candidate `id` to either
+    "possessive" (-> "dog's") or "plural" (-> "dogs"); any candidate
+    id not present is left exactly as-is, same as today's default
+    behavior of never touching these automatically. Re-walks the book
+    fresh rather than trusting any earlier analysis's live `element`
+    references, same "recompute, don't trust a snapshot" approach
+    ebook_fix.modules.color_strip and ellipsis_repair.py already use
+    -- `resolutions`'s ids are expected to have come from an
+    analyze_book_possessives() call against this same, unchanged book.
+
+    Returns the number of candidates actually resolved. Edits happen
+    right-to-left within each text/tail slot they share, so an earlier
+    edit's changed length never shifts a later match's own
+    match_start/match_end out from under it."""
+    if not resolutions:
+        return 0
+
+    # Group by (element, attr) so multiple resolved candidates sharing
+    # one text/tail slot apply in one pass, right-to-left -- editing
+    # left-to-right would shift every match_start/match_end after the
+    # first edit whenever the replacement isn't the same length as the
+    # original "word s".
+    by_slot: dict = {}
+    touched_chapters = []
+    for chapter in book.chapters:
+        summary = analyze_chapter_possessives(getattr(chapter, "href", ""), getattr(chapter, "document", None))
+        chapter_has_resolution = False
+        for candidate in summary.candidates:
+            resolution = resolutions.get(candidate.id)
+            if resolution not in ("possessive", "plural"):
+                continue
+            key = (id(candidate.element), candidate.attr)
+            by_slot.setdefault(key, []).append((candidate, resolution))
+            chapter_has_resolution = True
+        if chapter_has_resolution:
+            touched_chapters.append(chapter)
+
+    resolved_count = 0
+    for candidates in by_slot.values():
+        candidates.sort(key=lambda pair: pair[0].match_start, reverse=True)
+        for candidate, resolution in candidates:
+            replacement = candidate.possessive_reading if resolution == "possessive" else candidate.plural_reading
+            current = getattr(candidate.element, candidate.attr) or ""
+            new_text = current[:candidate.match_start] + replacement + current[candidate.match_end:]
+            setattr(candidate.element, candidate.attr, new_text)
+            resolved_count += 1
+
+    if resolved_count:
+        # EPUBWriter only re-serializes a chapter from its live tree
+        # when chapter.modified is set (see writer.py) -- book-level
+        # mark_modified() alone isn't enough, same rule every other
+        # text-editing module (ellipsis_repair.py, whitespace.py)
+        # already follows.
+        for chapter in touched_chapters:
+            chapter.modified = True
+        book.mark_modified()
+    return resolved_count

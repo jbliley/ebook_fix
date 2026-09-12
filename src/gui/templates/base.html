@@ -4,9 +4,12 @@
   <meta charset="utf-8">
   <title>ebook_fix &mdash; {{ filename }}</title>
   <style>
-    body { font-family: system-ui, -apple-system, sans-serif; max-width: 900px; margin: 2rem auto; color: #222; padding: 0 1rem; }
-    h1 { font-size: 1.3rem; word-break: break-word; margin-bottom: 0.25rem; }
-    .tabs { display: flex; gap: 0.25rem; border-bottom: 2px solid #ddd; margin: 1rem 0 1.5rem; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 900px; margin: 0 auto; color: #222; padding: 0 1rem; }
+    .top-bar { position: sticky; top: 0; z-index: 10; background: #fff; padding-top: 1rem; margin: 0 -1rem; padding-left: 1rem; padding-right: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+    .top-bar-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+    h1 { font-size: 0.95rem; font-weight: 600; color: #555; word-break: break-word; margin: 0; flex: 1; min-width: 0; }
+    .content { margin-top: 1.5rem; padding-bottom: 2rem; }
+    .tabs { display: flex; gap: 0.25rem; border-bottom: 2px solid #ddd; margin: 0.6rem 0 0; }
     .tabs a { padding: 0.6rem 1rem; text-decoration: none; color: #555; border-bottom: 2px solid transparent; margin-bottom: -2px; }
     .tabs a.active { color: #2b6cb0; border-bottom-color: #2b6cb0; font-weight: 600; }
     .tabs a.disabled { color: #bbb; cursor: default; pointer-events: none; }
@@ -15,6 +18,7 @@
     a.button:hover, button.button:hover { background: #2c5282; }
     a.button.secondary, button.button.secondary { background: #edf2f7; color: #2d3748; }
     a.button.secondary:hover, button.button.secondary:hover { background: #e2e8f0; }
+    a.button.top-bar-action { margin-top: 0; padding: 0.4rem 0.8rem; font-size: 0.85rem; white-space: nowrap; flex-shrink: 0; }
     label { display: block; font-weight: 600; margin: 1.1rem 0 0.25rem; }
     input[type=text], textarea, select { width: 100%; box-sizing: border-box; padding: 0.5rem; border: 1px solid #ccc; border-radius: 6px; font-size: 0.95rem; font-family: inherit; }
     textarea { min-height: 6rem; resize: vertical; }
@@ -61,14 +65,21 @@
   </style>
 </head>
 <body>
-  <h1>{{ filename }}</h1>
-  <div class="tabs">
-    <a href="{{ url_for('book_analysis', session_id=session_id) }}" class="{{ 'active' if active_tab == 'analysis' else '' }}">Analysis</a>
-    <a href="{{ url_for('book_metadata', session_id=session_id) }}" class="{{ 'active' if active_tab == 'metadata' else '' }}">Metadata</a>
-    <a href="{{ url_for('book_review', session_id=session_id) }}" class="{{ 'active' if active_tab == 'review' else '' }}">Review</a>
-    <a href="{{ url_for('book_repair', session_id=session_id) }}" class="{{ 'active' if active_tab == 'repair' else '' }}">Repair</a>
-    <a href="{{ url_for('book_before_after', session_id=session_id) }}" class="{{ 'active' if active_tab == 'before_after' else '' }}">Before / After</a>
+  <div class="top-bar">
+    <div class="top-bar-row">
+      <h1>{{ filename }}</h1>
+      <a class="button secondary top-bar-action" href="/">Analyze another book</a>
+    </div>
+    <div class="tabs">
+      <a href="{{ url_for('book_analysis', session_id=session_id) }}" class="{{ 'active' if active_tab == 'analysis' else '' }}">Analysis</a>
+      <a href="{{ url_for('book_metadata', session_id=session_id) }}" class="{{ 'active' if active_tab == 'metadata' else '' }}">Metadata</a>
+      <a href="{{ url_for('book_review', session_id=session_id) }}" class="{{ 'active' if active_tab == 'review' else '' }}">Review</a>
+      <a href="{{ url_for('book_repair', session_id=session_id) }}" class="{{ 'active' if active_tab == 'repair' else '' }}">Repair</a>
+      <a href="{{ url_for('book_before_after', session_id=session_id) }}" class="{{ 'active' if active_tab == 'before_after' else '' }}">Before / After</a>
+    </div>
   </div>
-  {% block content %}{% endblock %}
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
 </body>
 </html>

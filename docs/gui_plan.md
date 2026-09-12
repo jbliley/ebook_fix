@@ -1105,6 +1105,92 @@ the checkbox loop and is back in place before the sync calls run.
 Couldn't verify end-to-end against a real Calibre-managed book here --
 that's what Jacob's live Phase 3 testing is already in the middle of.
 
+## Done -- Review tab overhaul, and a sticky top bar (2026-09-12)
+
+Two items picked up from the 2026-09-11 planned batch above.
+
+**Review tab now covers three kinds of finding, not just chapter
+splits.** The original v1 plan (see "The three tabs" above) always
+said the Review tab should cover "case 3 chapter-split
+candidates... cover mismatches, and any other NEEDS_REVIEW-class
+finding," but only chapter-split candidates ever got built. Jacob's
+ask went further than just listing the others: **be able to see and
+pick the correct option from the Review tab for an unresolved conflict
+of any kind.** Built exactly that for the two finding types that
+actually have a pickable action:
+
+- **Possessive candidates** -- `ebook_fix.apostrophes.PossessiveCandidate`
+  now carries a stable `id` and the exact `match_start`/`match_end`
+  span of the ambiguous "word s" within its live element's text/tail.
+  New `apply_possessive_resolutions(book, resolutions)` applies a
+  person's per-candidate choice ("possessive" -> "dog's", "plural" ->
+  "dogs"); anything left unpicked stays exactly as it is today, same
+  as before this existed. Multiple resolved candidates sharing one
+  text/tail slot apply right-to-left, so an earlier edit's changed
+  length never shifts a later match's own recorded span out from under
+  it.
+- **Possible Decorative Color** -- `ebook_fix.color.ColorFinding` now
+  carries a stable `id` too (a plain enumeration index per (href,
+  location_kind), the same simplicity precedent chapter-split
+  candidate ids already used). New `ColorStripRepair.
+  apply_review_removals(book, accepted_ids)` removes exactly the
+  review-bucket findings a person picked, by id, without touching
+  anything else that happens to share the same class or file --
+  verified directly against the real book that started this whole
+  feature (2026-09-11's Dutch novel): removing just `.wp-kop`'s color
+  left `.wp-deel` right next to it, and everything else, untouched.
+  Both `repair()` and `apply_review_removals()` now share one
+  `_remove_matching()` walk internally so their ids always land on the
+  same declarations analysis found.
+- **Dangling paragraph endings were deliberately left out of this
+  pass** -- flagged in the planning writeup as a different shape of
+  problem (no text to fill in automatically no matter what a person
+  picks), and that held up under actual building: still Analyze-tab
+  only for now, nothing changed here.
+- **Select All / Unselect All** added to both the chapter-split and
+  decorative-color sections (checkbox-based, so a blanket toggle makes
+  sense); not added to possessive candidates, which stayed individual
+  -- there's no sensible universal default to mass-apply to a genuine
+  per-word judgment call the way "every proposed split here is
+  correct" or "strip all of these" can be.
+
+Real bug caught during this build, not by inspection: the first
+version of `apply_possessive_resolutions` mutated the live element's
+text correctly in memory but never set that chapter's own `.modified`
+flag, which `EPUBWriter` actually checks before re-serializing a
+chapter from its live tree (see writer.py) -- `book.mark_modified()`
+alone isn't enough, the same rule ellipsis_repair.py and whitespace.py
+already have to follow. Caught by actually saving and re-reading the
+output file rather than trusting the in-memory state looked right;
+fixed and re-verified against a real saved file.
+
+Staging and apply flow now covers all three Review sections together:
+`save_review()` writes possessive resolutions and accepted color ids
+into the same `staged_review.json` alongside chapter-split
+`accepted_ids`; `apply_repair()` applies all three before the standard
+module pass runs (splits, then possessive resolutions, then color
+removals, then a fresh analysis for the modules themselves), and the
+Repair tab's staged-item banner and result summary both report all
+three counts.
+
+**Sticky top bar**, applied to every tab via one shared change in
+`templates/base.html` (`position: sticky`) -- no per-tab special
+casing needed. The "Analyze another book" button moved up into that
+bar too; it used to live only at the bottom of the Analysis tab (the
+only tab that had it at all), so this is also the first time every tab
+has had a way back to the upload screen without going via Analysis
+first. The filename display shrank to make room for it.
+
+Verified: full sample-suite regression (`analyze`/`repair`/`auto-fix`
+across all 13 books) with no crashes and valid XML throughout; a
+Flask-test-client run through the actual GUI routes end to end (stage
+a possessive resolution and a color removal on the Review tab, apply
+everything including the standard module set on the Repair tab, check
+the saved output file directly) rather than just checking the pages
+render; idempotency of both new repair functions confirmed by diffing
+extracted zip contents between two passes, not raw bytes, same
+standard as everything else in this project.
+
 ## Planned -- Jacob's next batch (2026-09-11)
 
 Written up per Jacob's request, scoped through a round of clarifying
@@ -1141,60 +1227,6 @@ Not yet scoped:
   elsewhere) -- `CoverRepair`'s existing checks are about the
   *declaration*, not the pixel content, so this may need its own
   light validation pass.
-
-### Review tab: pick the correct option for any unresolved finding
-
-Confirmed with Jacob this is a real gap, not intentional scope --
-the original v1 plan (see "The three tabs" above) explicitly said the
-Review tab covers "case 3 chapter-split candidates... cover
-mismatches, and any other NEEDS_REVIEW-class finding," but only
-chapter-split candidates actually got built in Phase 3. Jacob's ask
-generalizes this further than just "list them somewhere": **be able to
-see and pick the correct option from the Review tab for an unresolved
-conflict of any kind**, not just view it as a flag.
-
-That's a real design gap worth being upfront about before scoping
-further: chapter-split candidates already have an obvious pickable
-action (accept a boundary -> the split happens there). Some of the
-current Analyze-tab manual-review findings do too, once actually built
-out:
-- **Possessive candidates** (ambiguous missing-apostrophe/plural
-  calls) -- a real two-way choice per instance ("add apostrophe" vs.
-  "leave as plural"), applying an actual text edit either way. No
-  repair path currently exists for either choice; both would need to
-  be built.
-- **Possible Decorative Color** -- also a real choice per finding
-  ("strip this color" vs. "leave it") -- but today `ebook_fix.color`'s
-  review bucket is never touched by anything, by design (see its
-  module docstring); accepting one from the Review tab means adding a
-  way to target and remove one specific finding's declaration, similar
-  in spirit to how `Engine.split_marked()` applies only the
-  person-approved subset of Case 3 boundaries rather than everything
-  eligible.
-- **Dangling paragraph endings** are a different shape of problem,
-  worth flagging now rather than assuming they fit the same pattern:
-  there's no text to fill in automatically no matter which "option" a
-  person picks, since the whole point of the flag is that content may
-  be missing. Not yet decided what a Review-tab entry for this would
-  even offer -- likely just an acknowledge/dismiss action (so it stops
-  showing up on repeat visits once it's been checked against another
-  copy) rather than a real fix, unlike the two above.
-
-Also confirmed: a **select-all convenience** on the Review tab, same
-idea as the Repair tab's existing Select All/Unselect All (see the
-2026-09-06 addition above) -- Jacob's real workflow is often "every
-proposed chapter split here is correct," and currently means checking
-every box by hand one at a time.
-
-Not yet scoped: exact UI for a per-finding-type "pick the correct
-option" control (a two-button choice per row, like the Metadata tab's
-EPUB-value/Calibre-value picker?), and whether accepted possessive/
-color choices apply immediately or stage like Metadata/Review do today
-(see the "one correctness gap" note in Phase 3 above about Metadata's
-Save and Review's Split Selected not currently combining into one
-output file -- worth resolving as part of this, not separately, since
-adding two more kinds of accept action to this tab makes that gap more
-likely to actually bite).
 
 ### Bug fix (planned) -- GUI errors if the original file is removed mid-session
 
@@ -1245,17 +1277,6 @@ Not yet scoped: exact pattern syntax/parsing (a small hand-rolled
 what happens when a token's underlying field is empty (e.g. no known
 year), and filesystem-illegal-character handling in a resolved
 author/title value.
-
-### Sticky top bar across every tab
-
-Layout-only, no open design question: the top bar (tab navigation, plus
-the "Analyze Another Book" action, which moves up into this bar) stays
-pinned to the top of the viewport while the page scrolls, on every tab
-(Analyze/Metadata/Review/Repair/Before-After) -- one shared change in
-`templates/base.html`, not per-tab. The current filename display in
-that bar also shrinks (smaller type), since it'll now be sharing
-permanent, always-visible space with the tab navigation and the
-button.
 
 ## Open questions
 

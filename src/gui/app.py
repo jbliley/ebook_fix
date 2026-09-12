@@ -61,6 +61,8 @@ from ebook_fix.parser import EPUBParser
 from ebook_fix.splitter import SplitMarker
 from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, iter_chapter_nodes
 from ebook_fix.writer import EPUBWriter
+from ebook_fix.apostrophes import analyze_book_possessives, apply_possessive_resolutions
+from ebook_fix.color import analyze_book_color
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -291,6 +293,66 @@ def _split_candidate_groups(book):
     return groups
 
 
+def _possessive_groups(book):
+    """Every possessive candidate worth showing a person, grouped by
+    chapter -- same shape as _split_candidate_groups above, and for
+    the same reason: ebook_fix.apostrophes.apply_possessive_resolutions
+    re-derives these fresh from a live book rather than trusting
+    anything that crossed the browser, so this only ever needs to
+    produce ids that match what a fresh analyze_book_possessives()
+    call against the same book content would produce."""
+    summary = analyze_book_possessives(book)
+    groups = []
+    for chapter_summary in summary.chapters:
+        if not chapter_summary.candidates:
+            continue
+        groups.append({
+            "href": chapter_summary.href,
+            "candidates": [
+                {
+                    "id": c.id,
+                    "word": c.word,
+                    "context": c.context,
+                    "possessive_reading": c.possessive_reading,
+                    "plural_reading": c.plural_reading,
+                }
+                for c in chapter_summary.candidates
+            ],
+        })
+    return groups
+
+
+def _color_review_groups(book, analysis_report=None):
+    """Every review-bucket (not confident) color finding worth showing
+    a person, grouped by href -- same shape as the two group builders
+    above. Confident findings aren't included here at all: those are
+    already handled unattended by ColorStripRepair, nothing to review.
+    See ebook_fix.color's module docstring for the confident/review
+    split and ColorStripRepair.apply_review_removals() for how an
+    accepted id here actually gets removed later."""
+    color = analysis_report.color if analysis_report is not None else analyze_book_color(book)
+    by_href: dict = {}
+    for finding in color.review:
+        by_href.setdefault(finding.href, []).append(finding)
+
+    groups = []
+    for href, findings in by_href.items():
+        groups.append({
+            "href": href,
+            "findings": [
+                {
+                    "id": f.id,
+                    "location_kind": f.location_kind,
+                    "context": f.context,
+                    "value": f.value,
+                    "reason": f.reason,
+                }
+                for f in findings
+            ],
+        })
+    return groups
+
+
 @contextmanager
 def _captured_output():
     """Engine.analyze() and the modules it calls into
@@ -492,13 +554,26 @@ def book_review(session_id):
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
     book = EPUBParser().load(_source_path(session_dir))
     groups = _split_candidate_groups(book)
+    possessive_groups = _possessive_groups(book)
+    color_groups = _color_review_groups(book)
 
     staged = _read_staged(_staged_review_path(session_dir))
+    staged_possessive_resolutions = {}
+    staged_color_ids = set()
     if staged is not None:
-        staged_ids = set(staged["accepted_ids"])
+        staged_ids = set(staged.get("accepted_ids", []))
         for group in groups:
             for item in group["candidates"]:
                 item["auto_checked"] = item["id"] in staged_ids
+        staged_possessive_resolutions = staged.get("possessive_resolutions", {})
+        staged_color_ids = set(staged.get("accepted_color_ids", []))
+
+    for group in possessive_groups:
+        for item in group["candidates"]:
+            item["resolution"] = staged_possessive_resolutions.get(item["id"], "")
+    for group in color_groups:
+        for item in group["findings"]:
+            item["accepted"] = item["id"] in staged_color_ids
 
     return render_template(
         "review.html",
@@ -507,6 +582,10 @@ def book_review(session_id):
         filename=filename,
         groups=groups,
         has_candidates=bool(groups),
+        possessive_groups=possessive_groups,
+        has_possessive_candidates=bool(possessive_groups),
+        color_groups=color_groups,
+        has_color_findings=bool(color_groups),
         is_staged=staged is not None,
         split_result=None,
     )
@@ -518,8 +597,17 @@ def save_review(session_id):
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
     book = EPUBParser().load(_source_path(session_dir))
     groups = _split_candidate_groups(book)
+    possessive_groups = _possessive_groups(book)
+    color_groups = _color_review_groups(book)
 
     accepted_ids = set(request.form.getlist("accept"))
+    accepted_color_ids = set(request.form.getlist("color_accept"))
+    possessive_resolutions = {}
+    for group in possessive_groups:
+        for item in group["candidates"]:
+            resolution = request.form.get(f"poss_{item['id']}", "")
+            if resolution in ("possessive", "plural"):
+                possessive_resolutions[item["id"]] = resolution
 
     # Just a preview of what would happen -- the actual split only
     # happens when the Repair tab applies everything. A file needs 2+
@@ -537,12 +625,22 @@ def save_review(session_id):
         else:
             would_split += 1
 
-    staged = {"accepted_ids": sorted(accepted_ids)}
+    staged = {
+        "accepted_ids": sorted(accepted_ids),
+        "possessive_resolutions": possessive_resolutions,
+        "accepted_color_ids": sorted(accepted_color_ids),
+    }
     _staged_review_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
 
     for group in groups:
         for item in group["candidates"]:
             item["auto_checked"] = item["id"] in accepted_ids
+    for group in possessive_groups:
+        for item in group["candidates"]:
+            item["resolution"] = possessive_resolutions.get(item["id"], "")
+    for group in color_groups:
+        for item in group["findings"]:
+            item["accepted"] = item["id"] in accepted_color_ids
 
     return render_template(
         "review.html",
@@ -551,6 +649,10 @@ def save_review(session_id):
         filename=filename,
         groups=groups,
         has_candidates=bool(groups),
+        possessive_groups=possessive_groups,
+        has_possessive_candidates=bool(possessive_groups),
+        color_groups=color_groups,
+        has_color_findings=bool(color_groups),
         is_staged=True,
         split_result={
             "would_split": would_split,
@@ -596,6 +698,8 @@ def book_repair(session_id):
     staged_review = _read_staged(_staged_review_path(session_dir))
     staged_field_count = len(staged_metadata["fields"]) if staged_metadata else 0
     staged_boundary_count = len(staged_review["accepted_ids"]) if staged_review else 0
+    staged_possessive_count = len(staged_review.get("possessive_resolutions", {})) if staged_review else 0
+    staged_color_count = len(staged_review.get("accepted_color_ids", [])) if staged_review else 0
 
     replaced_flag = _replaced_flag_path(session_dir)
     already_replaced = replaced_flag.exists()
@@ -610,6 +714,8 @@ def book_repair(session_id):
         has_staged_review=staged_review is not None,
         staged_field_count=staged_field_count,
         staged_boundary_count=staged_boundary_count,
+        staged_possessive_count=staged_possessive_count,
+        staged_color_count=staged_color_count,
         result=None,
         has_fixed=_fixed_output_path(session_dir).exists(),
         already_replaced=already_replaced,
@@ -686,6 +792,29 @@ def apply_repair(session_id):
                 engine_for_split = Engine(config=config)
                 split_count, _reports, new_hrefs_by_origin = engine_for_split._split_and_rewire(book, markers_by_href, details=False)
 
+        # Staged possessive resolutions and decorative-color removals,
+        # if any -- both re-derive fresh against the book as it exists
+        # right now (post-split, since a split moves elements between
+        # files but never changes their own text/attributes, so
+        # candidate ids computed against the pre-split book still
+        # resolve to the same live elements either way). See
+        # ebook_fix.apostrophes.apply_possessive_resolutions and
+        # ebook_fix.modules.color_strip.ColorStripRepair.
+        # apply_review_removals for why re-deriving fresh (rather than
+        # trusting anything computed back when the Review tab first
+        # loaded) is safe and necessary here.
+        possessive_resolved_count = 0
+        color_review_count = 0
+        if staged_review is not None:
+            possessive_resolutions = staged_review.get("possessive_resolutions", {})
+            if possessive_resolutions:
+                possessive_resolved_count = apply_possessive_resolutions(book, possessive_resolutions)
+
+            accepted_color_ids = staged_review.get("accepted_color_ids", [])
+            if accepted_color_ids:
+                color_review_report = ColorStripRepair(config.color_repair).apply_review_removals(book, accepted_color_ids)
+                color_review_count = color_review_report.count
+
         # Fresh analysis, reflecting any staged metadata/split changes
         # applied above -- the repair modules below need to see the
         # book as it actually is right now, not as it was when the
@@ -754,9 +883,13 @@ def apply_repair(session_id):
         has_staged_review=False,
         staged_field_count=0,
         staged_boundary_count=0,
+        staged_possessive_count=0,
+        staged_color_count=0,
         result={
             "output_path": str(output_path),
             "split_count": split_count,
+            "possessive_resolved_count": possessive_resolved_count,
+            "color_review_count": color_review_count,
             "module_summaries": module_summaries,
             "pass_count": pass_num,
             "engine_output": engine_output,

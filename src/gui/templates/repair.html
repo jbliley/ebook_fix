@@ -9,7 +9,7 @@
 {% if has_staged_metadata or has_staged_review %}
 <div class="staged-banner">
   {% if has_staged_metadata %}Metadata: {{ staged_field_count }} field(s) staged.{% endif %}
-  {% if has_staged_review %}{{ ' ' if has_staged_metadata }}Review: {{ staged_boundary_count }} boundary/boundaries staged.{% endif %}
+  {% if has_staged_review %}{{ ' ' if has_staged_metadata }}Review: {{ staged_boundary_count }} boundary/boundaries, {{ staged_possessive_count }} possessive resolution(s), {{ staged_color_count }} color removal(s) staged.{% endif %}
 </div>
 {% else %}
 <div class="staged-banner" style="background:#f7fafc;border-color:#e2e8f0;color:#555;">
@@ -23,6 +23,8 @@
   Saved to <code>{{ result.output_path }}</code>
   {% if result.pass_count > 1 %}(completed in {{ result.pass_count }} passes){% endif %}.
   {% if result.split_count %}Split {{ result.split_count }} file{{ 's' if result.split_count != 1 else '' }} from the Review tab's staged boundaries.{% endif %}
+  {% if result.possessive_resolved_count %}Resolved {{ result.possessive_resolved_count }} possessive candidate(s) from the Review tab.{% endif %}
+  {% if result.color_review_count %}Removed {{ result.color_review_count }} decorative color declaration(s) accepted on the Review tab.{% endif %}
   {% if result.module_summaries %}
   <div class="result-summary">
     Changes made:

@@ -61,6 +61,17 @@ raw text itself using the same classification helpers this module
 uses, rather than trying to match text back to a stale finding object
 -- the same "recompute fresh, don't trust an analysis-time snapshot"
 approach ellipsis_repair.py and apostrophe_repair.py already use.
+
+Each finding also gets a stable `id` (e.g. "external_css:OEBPS/
+style.css:2"), a plain enumeration index within its (href,
+location_kind) pair -- same simplicity precedent the GUI's own
+chapter-split candidate ids already use (see gui/app.py's
+_split_candidate_groups). This is what lets a person pick a specific
+`review` finding to remove anyway from the GUI Review tab (see
+ColorStripRepair.apply_review_removals) without upgrading it to
+`confident` for every book -- the id is only meant to stay stable
+across two calls to this function against the same, unchanged book
+content, the same assumption chapter-split ids already rely on.
 """
 
 from __future__ import annotations
@@ -94,6 +105,7 @@ DECORATIVE_TAGS = frozenset({
 
 @dataclass
 class ColorFinding:
+    id: str = ""              # stable within one analysis pass -- see analyze_book_color
     href: str = ""            # CSS file href, or chapter href for embedded/inline/font findings
     location_kind: str = ""   # "external_css" / "embedded_style" / "inline_style" / "font_tag"
     context: str = ""         # selector text, or a short description of the element involved
@@ -158,7 +170,7 @@ def is_confident_paragraph_context(element) -> bool:
     return False
 
 
-def _scan_css_text(text: str, href: str, location_kind: str, body_text_classes: frozenset, summary: BookColorSummary) -> None:
+def _scan_css_text(text: str, href: str, location_kind: str, body_text_classes: frozenset, summary: BookColorSummary, counters: dict) -> None:
     if not text:
         return
     cleaned = COMMENT_RE.sub("", text)
@@ -170,7 +182,11 @@ def _scan_css_text(text: str, href: str, location_kind: str, body_text_classes: 
         cm = COLOR_VALUE_RE.search(body)
         if not cm:
             continue
+        key = (href, location_kind)
+        i = counters.get(key, 0)
+        counters[key] = i + 1
         finding = ColorFinding(
+            id=f"{location_kind}:{href}:{i}",
             href=href, location_kind=location_kind,
             context=selector_group, value=cm.group(1).strip(),
         )
@@ -199,13 +215,19 @@ def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, cla
         main_hrefs = {cm.href for cm in frontmatter_summary.chapters if cm.zone == MAIN_ZONE}
 
     summary = BookColorSummary(body_text_classes=body_text_classes, main_hrefs=main_hrefs)
+    # id counters, keyed by (href, location_kind) -- see ColorFinding.id.
+    # Recomputed fresh every call, same "pure enumeration order, not a
+    # persisted key" precedent the GUI's own chapter-split candidate
+    # ids (f"{href}::{i}") already rely on -- stable across calls as
+    # long as the underlying book content between them hasn't changed.
+    counters: dict = {}
 
     # 1. External CSS files
     contents = read_book_css(book)
     for res in getattr(book, "css", []) or []:
         _scan_css_text(
             contents.get(res.href), href=res.href, location_kind="external_css",
-            body_text_classes=body_text_classes, summary=summary,
+            body_text_classes=body_text_classes, summary=summary, counters=counters,
         )
 
     # 2. Embedded <style> blocks, inline style="" attributes, and
@@ -226,7 +248,7 @@ def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, cla
             if local == "style":
                 _scan_css_text(
                     el.text, href=href, location_kind="embedded_style",
-                    body_text_classes=body_text_classes, summary=summary,
+                    body_text_classes=body_text_classes, summary=summary, counters=counters,
                 )
                 continue
 
@@ -234,7 +256,11 @@ def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, cla
             if style_val:
                 cm = COLOR_VALUE_RE.search(style_val)
                 if cm:
+                    key = (href, "inline_style")
+                    i = counters.get(key, 0)
+                    counters[key] = i + 1
                     finding = ColorFinding(
+                        id=f"inline_style:{href}:{i}",
                         href=href, location_kind="inline_style",
                         context=f'<{local} style="{style_val}">',
                         value=cm.group(1).strip(), element=el,
@@ -252,7 +278,11 @@ def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, cla
 
             if local == "font" and el.get("color"):
                 value = el.get("color")
+                key = (href, "font_tag")
+                i = counters.get(key, 0)
+                counters[key] = i + 1
                 finding = ColorFinding(
+                    id=f"font_tag:{href}:{i}",
                     href=href, location_kind="font_tag",
                     context=f'<font color="{value}">',
                     value=value, element=el,

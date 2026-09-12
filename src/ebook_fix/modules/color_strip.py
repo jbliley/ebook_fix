@@ -13,10 +13,15 @@ this module now leaves alone. See ebook_fix.color's module docstring
 for the full confident/review split and the reasoning behind it.
 
 Everything ebook_fix.color put in its `review` bucket is reported,
-never touched here -- see engine.py's "[Possible Decorative Color --
-Manual Review]" section and gui/analysis_view.py's manual-review
-list, the same pattern already used for dangling paragraph endings
-and possessive candidates.
+never touched by the normal repair() below -- see engine.py's
+"[Possible Decorative Color -- Manual Review]" section and
+gui/analysis_view.py's manual-review list, the same pattern already
+used for dangling paragraph endings and possessive candidates.
+apply_review_removals() (below) is the one exception: it's how the
+GUI Review tab (docs/gui_plan.md, 2026-09-11 planned batch) lets a
+person selectively remove one specific review-bucket finding anyway,
+by id, without upgrading that class/selector to `confident` for every
+book that happens to share it.
 
 Deliberately narrower than ebook_fix.css.THEME_FIGHTING_PROPERTIES:
 only the `color` property itself. `background`/`background-color`,
@@ -35,7 +40,10 @@ apostrophe_repair.py already recompute fresh against current state
 rather than trusting an analysis-time snapshot. In practice this also
 makes repair idempotent almost for free: a second pass finds nothing
 left to reclassify as confident, since the first pass already removed
-those declarations.
+those declarations. The same re-scan, walking in the same order,
+recomputes the same `id`s ebook_fix.color's analysis assigned, which
+is what apply_review_removals() below needs to match a person's
+accepted ids back to the right declaration.
 """
 
 from __future__ import annotations
@@ -80,11 +88,47 @@ class ColorStripRepair:
     def repair(self, book, analysis=None):
         color = analysis.color if analysis is not None else analyze_book_color(book)
         body_text_classes = color.body_text_classes
-        main_hrefs = color.main_hrefs
+        return self._remove_matching(
+            book,
+            main_hrefs=color.main_hrefs,
+            css_predicate=lambda selector, finding_id: is_confident_selector_group(selector, body_text_classes),
+            element_predicate=lambda el, finding_id, href: is_confident_paragraph_context(el),
+        )
 
+    def apply_review_removals(self, book, accepted_ids):
+        """Removes exactly the review-bucket findings named in
+        `accepted_ids` (a person's choices from the GUI Review tab),
+        leaving every other review-bucket finding untouched -- unlike
+        repair() above, this ignores confidence entirely and goes by
+        id alone. `accepted_ids` is expected to have come from an
+        analyze_book_color() call against this same, unchanged book
+        (see ebook_fix.color's module docstring on id stability)."""
+        accepted_ids = set(accepted_ids)
+        if not accepted_ids:
+            return Report(self.name)
+        return self._remove_matching(
+            book,
+            main_hrefs=None,  # id membership alone decides -- zone doesn't matter here
+            css_predicate=lambda selector, finding_id: finding_id in accepted_ids,
+            element_predicate=lambda el, finding_id, href: finding_id in accepted_ids,
+        )
+
+    # -----------------------------------------------------
+    # Shared removal walk
+    # -----------------------------------------------------
+
+    def _remove_matching(self, book, main_hrefs, css_predicate, element_predicate):
+        """Walks every CSS file, embedded <style> block, inline
+        style="", and <font color> tag exactly once, in the same order
+        ebook_fix.analyze_book_color does, removing a `color`
+        declaration wherever css_predicate(selector, id) or
+        element_predicate(element, id, href) says to. Both repair()
+        and apply_review_removals() share this single walk so their
+        ids always line up with analysis's -- see module docstring."""
         report = Report(self.name)
         changed_anything = False
         base = PurePosixPath(getattr(book, "package_path", "") or "").parent
+        counters: dict = {}
 
         # 1. External CSS files
         contents = read_book_css(book)
@@ -104,7 +148,7 @@ class ColorStripRepair:
                 text = contents.get(res.href)
             if not text:
                 continue
-            new_text, count = self._strip_css_text(text, body_text_classes)
+            new_text, count = self._strip_css_text(text, res.href, "external_css", css_predicate, counters)
             if count:
                 book.new_files[zpath] = new_text.encode("utf-8")
                 changed_anything = True
@@ -131,16 +175,20 @@ class ColorStripRepair:
                 local = etree.QName(el).localname.lower()
 
                 if local == "style":
-                    new_text, count = self._strip_css_text(el.text or "", body_text_classes)
+                    new_text, count = self._strip_css_text(el.text or "", href, "embedded_style", css_predicate, counters)
                     if count:
                         el.text = new_text
                         changed = True
                         chapter_count += count
                     continue
 
-                if in_main_zone and is_confident_paragraph_context(el):
-                    style_val = el.get("style")
-                    if style_val:
+                style_val = el.get("style")
+                if style_val and COLOR_DECLARATION_RE.search(style_val):
+                    key = (href, "inline_style")
+                    i = counters.get(key, 0)
+                    counters[key] = i + 1
+                    finding_id = f"inline_style:{href}:{i}"
+                    if in_main_zone and element_predicate(el, finding_id, href):
                         stripped, count = self._strip_inline_style(style_val)
                         if count:
                             if stripped:
@@ -150,7 +198,12 @@ class ColorStripRepair:
                             changed = True
                             chapter_count += count
 
-                    if local == "font" and el.get("color"):
+                if local == "font" and el.get("color"):
+                    key = (href, "font_tag")
+                    i = counters.get(key, 0)
+                    counters[key] = i + 1
+                    finding_id = f"font_tag:{href}:{i}"
+                    if in_main_zone and element_predicate(el, finding_id, href):
                         del el.attrib["color"]
                         changed = True
                         chapter_count += 1
@@ -178,14 +231,14 @@ class ColorStripRepair:
             return None
         return tree if hasattr(tree, "iter") else tree.getroot()
 
-    def _strip_css_text(self, text: str, body_text_classes: frozenset):
+    def _strip_css_text(self, text: str, href: str, location_kind: str, predicate, counters: dict):
         """Remove any `color: ...;` declaration, but only from a rule
-        whose selector group ebook_fix.color considers confident (see
-        is_confident_selector_group) -- leaving every other rule, and
-        every other declaration within a stripped rule, untouched.
-        Comments are stripped in the process, same as css.py's own
-        scan does -- a side effect on any block this actually changes.
-        Returns (new_text, count_removed)."""
+        `predicate(selector_group, finding_id)` says yes to -- leaving
+        every other rule, and every other declaration within a
+        stripped rule, untouched. Comments are stripped in the
+        process, same as css.py's own scan does -- a side effect on
+        any block this actually changes. Returns (new_text,
+        count_removed)."""
         if not text:
             return text, 0
         cleaned = COMMENT_RE.sub("", text)
@@ -193,15 +246,24 @@ class ColorStripRepair:
 
         def strip_rule(m):
             nonlocal count
-            selector = m.group(1)
+            selector = m.group(1).strip()
             body = m.group(2)
-            if not is_confident_selector_group(selector.strip(), body_text_classes):
+            if not selector or selector.startswith("@"):
+                return m.group(0)
+            cm = COLOR_DECLARATION_RE.search(body)
+            if not cm:
+                return m.group(0)
+            key = (href, location_kind)
+            i = counters.get(key, 0)
+            counters[key] = i + 1
+            finding_id = f"{location_kind}:{href}:{i}"
+            if not predicate(selector, finding_id):
                 return m.group(0)
             new_body, n = COLOR_DECLARATION_RE.subn("", body)
             if not n:
                 return m.group(0)
             count += n
-            return f"{selector}{{{new_body}}}"
+            return f"{m.group(1)}{{{new_body}}}"
 
         new_text = RULE_RE.sub(strip_rule, cleaned)
         return new_text, count

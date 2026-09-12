@@ -1,15 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
 <p class="details-toggle">
-  Detected chapter-start boundaries, grouped by the file each one is in. A file needs at least
-  two accepted boundaries to actually split it &mdash; one alone has nothing to cut against.
-  Corroborated boundaries are pre-checked since the project's own safety bar already treats those
-  as safe; anything weaker needs your own look first.
+  Anything flagged ambiguous enough to need a person's own judgment shows up here, grouped by
+  kind below &mdash; not just chapter splits.
 </p>
 
 {% if is_staged %}
 <div class="staged-banner">
-  Selections staged. Go to the <a href="{{ url_for('book_repair', session_id=session_id) }}">Repair tab</a> to actually split anything.
+  Selections staged. Go to the <a href="{{ url_for('book_repair', session_id=session_id) }}">Repair tab</a> to actually apply anything.
 </div>
 {% endif %}
 
@@ -32,10 +30,25 @@
   {% endif %}
 {% endif %}
 
-{% if not has_candidates %}
-<p class="empty-state">No chapter-start boundaries were detected in this book, or every file already has a TOC and chapter markers that line up &mdash; nothing here needs review.</p>
+{% if not has_candidates and not has_possessive_candidates and not has_color_findings %}
+<p class="empty-state">Nothing here needs review right now.</p>
 {% else %}
 <form method="post" action="{{ url_for('save_review', session_id=session_id) }}">
+
+  <h2>Chapter-Start Boundaries</h2>
+  {% if not has_candidates %}
+  <p class="empty-state">No chapter-start boundaries were detected in this book, or every file already has a TOC and chapter markers that line up &mdash; nothing here needs review.</p>
+  {% else %}
+  <p class="details-toggle">
+    Grouped by the file each one is in. A file needs at least two accepted boundaries to
+    actually split it &mdash; one alone has nothing to cut against. Corroborated boundaries are
+    pre-checked since the project's own safety bar already treats those as safe; anything
+    weaker needs your own look first.
+  </p>
+  <div style="margin-bottom:0.5rem;">
+    <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllChecked('accept', true)">Select All</button>
+    <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllChecked('accept', false)">Unselect All</button>
+  </div>
   {% for group in groups %}
   <div class="review-group">
     <h3>{{ group.href }}</h3>
@@ -56,7 +69,84 @@
     {% endfor %}
   </div>
   {% endfor %}
+  {% endif %}
+
+  <h2>Possessive Candidates</h2>
+  {% if not has_possessive_candidates %}
+  <p class="empty-state">No ambiguous "word s" candidates found &mdash; nothing here needs review.</p>
+  {% else %}
+  <p class="details-toggle">
+    A bare "word s" (a dropped apostrophe glyph, left as a plain space) could mean a possessive
+    (&ldquo;dog's&rdquo;) or a plural that lost its space (&ldquo;dogs&rdquo;) &mdash; only a
+    person reading the sentence can tell, so nothing here is ever guessed automatically. Leave a
+    row unpicked to leave that spot exactly as it is today.
+  </p>
+  {% for group in possessive_groups %}
+  <div class="review-group">
+    <h3>{{ group.href }}</h3>
+    {% for item in group.candidates %}
+    <div class="review-item" style="align-items:center;">
+      <div style="flex:1;">
+        <span class="item-title">&ldquo;{{ item.context }}&rdquo;</span>
+        <div class="review-notes">
+          <label style="display:inline; font-weight:normal; margin-right:1rem;">
+            <input type="radio" name="poss_{{ item.id }}" value="" {% if not item.resolution %}checked{% endif %}> Leave as-is
+          </label>
+          <label style="display:inline; font-weight:normal; margin-right:1rem;">
+            <input type="radio" name="poss_{{ item.id }}" value="possessive" {% if item.resolution == 'possessive' %}checked{% endif %}> Possessive &mdash; &ldquo;{{ item.possessive_reading }}&rdquo;
+          </label>
+          <label style="display:inline; font-weight:normal;">
+            <input type="radio" name="poss_{{ item.id }}" value="plural" {% if item.resolution == 'plural' %}checked{% endif %}> Plural &mdash; &ldquo;{{ item.plural_reading }}&rdquo;
+          </label>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <h2>Possible Decorative Color</h2>
+  {% if not has_color_findings %}
+  <p class="empty-state">No hardcoded color outside the confirmed body text &mdash; nothing here needs review.</p>
+  {% else %}
+  <p class="details-toggle">
+    Hardcoded text color the standard Color Strip repair leaves alone because it doesn't look
+    like body text &mdash; a pull-quote, a character's dialogue color, a heading. Check a row to
+    remove that one anyway; leave it unchecked to keep it exactly as the book has it.
+  </p>
+  <div style="margin-bottom:0.5rem;">
+    <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllChecked('color_accept', true)">Select All</button>
+    <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllChecked('color_accept', false)">Unselect All</button>
+  </div>
+  {% for group in color_groups %}
+  <div class="review-group">
+    <h3>{{ group.href }}</h3>
+    {% for item in group.findings %}
+    <div class="review-item">
+      <input type="checkbox" name="color_accept" value="{{ item.id }}" id="color-{{ loop.index0 }}-{{ group.href }}" {% if item.accepted %}checked{% endif %}>
+      <div>
+        <label for="color-{{ loop.index0 }}-{{ group.href }}" style="display:inline; font-weight:normal; margin:0;">
+          <span class="item-title">{{ item.context }}</span>
+          <span class="confidence-tag confidence-needs-review">{{ item.value }}</span>
+        </label>
+        <div class="review-notes">{{ item.reason }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
   <button type="submit" class="button">Stage Selected</button>
 </form>
 {% endif %}
+
+<script>
+  function setAllChecked(name, checked) {
+    document.querySelectorAll('input[name="' + name + '"]').forEach(function (box) {
+      box.checked = checked;
+    });
+  }
+</script>
 {% endblock %}
