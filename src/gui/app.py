@@ -49,6 +49,7 @@ import uuid
 import webbrowser
 import zipfile
 from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path, PurePosixPath
 
 from flask import Flask, Response, abort, redirect, render_template, request, url_for
@@ -191,6 +192,39 @@ def _load_analysis(session_dir: Path):
     book = EPUBParser().load(_source_path(session_dir))
     analysis_report = EPUBAnalyzer().analyze(book)
     return book, analysis_report
+
+
+def _handle_missing_source(view_func):
+    """Decorator for any /book/<session_id>/... route that reads the
+    book off disk via _source_path()/_load_analysis(). Both of those
+    trust real_path.txt without checking the file's still there -- if
+    it's been deleted, moved, or renamed while this session's tabs
+    were still open (cleaning up downloads, "Replace original file"'s
+    own backup/rename dance, or anything else touching the file
+    outside this program), that surfaces as a bare FileNotFoundError
+    deep inside zipfile.ZipFile(), i.e. a raw 500 page instead of a
+    real one. Caught here and turned into the same clean "upload a
+    book" page a person would see at / , with a plain message, rather
+    than fixing this up separately in every route that loads a book --
+    same posture as the locked-file handling in replace_original()
+    below, just for "gone" instead of "locked." See docs/gui_plan.md,
+    "Bug fix -- GUI errors if the original file is removed mid-
+    session."""
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        try:
+            return view_func(*args, **kwargs)
+        except FileNotFoundError as exc:
+            missing = exc.filename or "This session's book file"
+            return render_template(
+                "index.html",
+                error=(
+                    f"Can't find {missing} -- it may have been moved, renamed, "
+                    "or deleted since this tab was opened. Choose the file "
+                    "again to continue."
+                ),
+            )
+    return wrapped
 
 
 def _fixed_output_path(session_dir: Path) -> Path:
@@ -452,6 +486,7 @@ def upload():
 
 
 @app.route("/book/<session_id>")
+@_handle_missing_source
 def book_analysis(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
@@ -475,6 +510,7 @@ def book_analysis(session_id):
 
 
 @app.route("/book/<session_id>/metadata")
+@_handle_missing_source
 def book_metadata(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
@@ -549,6 +585,7 @@ def save_metadata(session_id):
 
 
 @app.route("/book/<session_id>/review")
+@_handle_missing_source
 def book_review(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
@@ -592,6 +629,7 @@ def book_review(session_id):
 
 
 @app.route("/book/<session_id>/review", methods=["POST"])
+@_handle_missing_source
 def save_review(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
@@ -662,6 +700,7 @@ def save_review(session_id):
 
 
 @app.route("/book/<session_id>/repair")
+@_handle_missing_source
 def book_repair(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
@@ -724,6 +763,7 @@ def book_repair(session_id):
 
 
 @app.route("/book/<session_id>/repair", methods=["POST"])
+@_handle_missing_source
 def apply_repair(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
@@ -1017,6 +1057,7 @@ def replace_original(session_id):
 
 
 @app.route("/book/<session_id>/before-after")
+@_handle_missing_source
 def book_before_after(session_id):
     """Compares the original book against the most recent
     "<n>_fixed.epub", chapter by chapter -- see docs/gui_plan.md,

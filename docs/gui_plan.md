@@ -1228,20 +1228,44 @@ Not yet scoped:
   *declaration*, not the pixel content, so this may need its own
   light validation pass.
 
-### Bug fix (planned) -- GUI errors if the original file is removed mid-session
+### Bug fix (done, 2026-09-12) -- GUI errors if the original file is removed mid-session
 
-No design question here, just a real bug: every tab's route eventually
-calls `_source_path()`, which reads the path recorded in
-`real_path.txt` and assumes the file is still there. If the person
-deletes, moves, or renames the file on disk while its GUI session is
-still open (e.g. after using "Replace original file"'s own backup/
-rename dance, or just cleaning up downloads), the next tab load hits a
-raw, unhandled error instead of a real page. Planned fix: catch the
-missing-file case wherever `_source_path()`/`_load_analysis()` get
-called for a tab route, and reset that session back to a clean
-"upload a book" state with a plain message, rather than a 500 page --
-same posture as the existing locked-file handling in "Replace original
-file" (2026-09-10 bug fix above), just for "gone" instead of "locked."
+Every tab's route eventually called `_source_path()`, which reads the
+path recorded in `real_path.txt` and assumed the file was still there.
+If the person deleted, moved, or renamed the file on disk while its
+GUI session was still open (e.g. after using "Replace original file"'s
+own backup/rename dance, or just cleaning up downloads), the next tab
+load hit a raw, unhandled `FileNotFoundError` from deep inside
+`zipfile.ZipFile()` instead of a real page.
+
+Fixed with a single `_handle_missing_source` decorator in `gui/app.py`
+rather than a separate try/except in every route -- it wraps a view
+function, catches `FileNotFoundError`, and re-renders `index.html`
+(the same "upload a book" page a person sees at `/`) with a plain
+message naming the missing file, instead of a 500. Applied to every
+`/book/<session_id>/...` route that loads a book off disk: Analysis,
+Metadata, Review (both GET and the save-review POST), Repair (both GET
+and apply-repair POST), and Before/After. Same posture as the existing
+locked-file handling in "Replace original file" (2026-09-10 bug fix
+above), just for "gone" instead of "locked."
+
+The Before/After tab needed no separate check beyond the decorator --
+it already short-circuits before ever loading the original book
+whenever no `_fixed.epub` exists yet, so the missing-file path there
+only triggers once a fix has actually been applied and the *original*
+is later removed; verified both cases directly. The asset route
+(`/book/<session_id>/asset/<side>/<href>`) already checked
+`.exists()` and returned a plain 404 before this fix, which is the
+right behavior for an `<img>`/`<iframe>` sub-resource rather than a
+full tab page, so it was left as-is.
+
+Verified via `app.test_client()`: opened a session against a real
+file, confirmed every tab (including Before/After with a `_fixed.epub`
+already in place) loads normally, deleted the file out from under the
+open session, then confirmed every tab -- GET and POST alike -- now
+shows the plain missing-file message instead of a 500. Full CLI
+`analyze` regression across all sample books afterward confirmed
+nothing else was disturbed.
 
 ### Metadata tab: warn before leaving with unsaved changes
 
