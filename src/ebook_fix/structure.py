@@ -173,6 +173,20 @@ class BoundaryEvidence:
         if self.sequence_margin is not None and self.sequence_margin < MIN_SEQUENCE_MARGIN:
             return SplitConfidence.NEEDS_REVIEW
         if not self.has_corroboration:
+            # Requirement 4 still applies here even with nothing else
+            # to corroborate against -- a boundary that's part of the
+            # winning sequence but produces a too-short slice reads as
+            # a stray heading or scene-divider, not a real chapter
+            # (see apply_content_length_check below). Routed to
+            # NEEDS_REVIEW rather than trusted for an automatic split,
+            # same treatment a corroborated-but-short boundary already
+            # gets a few lines down -- a person should confirm either
+            # way, not just the corroborated case. content_length_ok
+            # being None (not yet checked) leaves this at SEQUENCE_ONLY
+            # unchanged, same as before 0g's checks exist to run at
+            # all.
+            if self.content_length_ok is False:
+                return SplitConfidence.NEEDS_REVIEW
             return SplitConfidence.SEQUENCE_ONLY
         if self.content_length_ok is False or self.structurally_clean is False:
             return SplitConfidence.NEEDS_REVIEW
@@ -736,10 +750,15 @@ def apply_content_length_check(book: Any, tree: BookStructure,
     """Fills in BoundaryEvidence.content_length_ok for every confirmed
     chapter (split_safety_bar.md requirement 4): a boundary whose
     resulting slice comes in under `min_words` reads as a stray
-    heading or scene-divider rather than a chapter's worth of content,
-    and shouldn't be split-eligible on its own -- it should fold into
-    the section it sits within instead. Mutates the tree's nodes in
-    place and also returns it, for chaining.
+    heading or scene-divider rather than a chapter's worth of content.
+    Mutates the tree's nodes in place and also returns it, for
+    chaining.
+
+    This alone doesn't decide a boundary's confidence -- that's
+    `BoundaryEvidence.confidence` above, which routes a failing
+    boundary to NEEDS_REVIEW regardless of whether it's otherwise
+    corroborated or "sequence only," rather than either silently
+    dropping it or letting it through as split-eligible on its own.
 
     Scoping note for the very last confirmed chapter in the book
     (nothing after it to bound the slice against): this only counts to

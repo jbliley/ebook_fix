@@ -1432,9 +1432,17 @@ class Engine:
         NOT gated by the full split-safety-bar corroboration
         requirement yet (see docs/split_safety_bar.md) -- proper
         gating is Phase 5's job. This only requires a boundary to be
-        at least SEQUENCE_ONLY confidence, so it can actually be tried
-        against today's sample library even though none of them
-        currently have a CORROBORATED boundary (see Phase 0e/0f).
+        at least SEQUENCE_ONLY confidence (SEQUENCE_ONLY or
+        CORROBORATED, explicitly excluding NEEDS_REVIEW), so it can
+        actually be tried against today's sample library even though
+        none of them currently have a CORROBORATED boundary (see
+        Phase 0e/0f). Fixed 2026-09-12: the eligibility filter used to
+        check `confidence != NONE`, which let NEEDS_REVIEW through too
+        (that's a superset of "not NONE," not "at least SEQUENCE_ONLY"
+        as this docstring already claimed) -- confirmed against
+        `CrossReferences-Synthetic.epub`, which was splitting on a
+        chapter flagged "needs review" in its own map-structure
+        output.
 
         Treat any output from this command as a mechanics test, not a
         finished conversion -- an EPUB3 nav document's TOC/landmarks
@@ -1477,7 +1485,9 @@ class Engine:
             eligible = [
                 node
                 for node in iter_chapter_nodes(tree)
-                if node.evidence is not None and node.evidence.confidence != SplitConfidence.NONE
+                if node.evidence is not None and node.evidence.confidence in (
+                    SplitConfidence.SEQUENCE_ONLY, SplitConfidence.CORROBORATED,
+                )
             ]
             by_href = {}
             for node in eligible:

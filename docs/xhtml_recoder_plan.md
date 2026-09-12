@@ -877,7 +877,52 @@ anchor a new entry against). One piece of that gap is now closed:
   kind of "what's already fine, what needs work" judgment this bullet
   describes.
 - Minimum-content gate so a stray short "boundary" (e.g. a
-  misidentified scene divider) doesn't trigger a split.
+  misidentified scene divider) doesn't trigger a split. [x] Done,
+  2026-09-12.
+
+  Turned out the gate mostly already existed -- `apply_content_length_
+  check` (0g) was already flagging a too-short boundary with a note --
+  but `BoundaryEvidence.confidence` only ever consulted that flag on
+  the corroborated path. A boundary with no TOC/anchor backing at all
+  (the common case) fell straight through to SEQUENCE_ONLY regardless
+  of `content_length_ok`, so the note printed in `map-structure` but
+  never actually blocked anything. Confirmed on a real sample:
+  `Watermarks-SmallChapterNumbers.epub`'s 24 "chapters" are running
+  page-number watermarks with nothing between them, correctly flagged
+  as too-short in the notes, and `split-structure` was splitting all
+  24 of them into their own files anyway.
+
+  Fixed in `BoundaryEvidence.confidence` (structure.py): a boundary
+  with no corroboration now also drops to NEEDS_REVIEW (not NONE) when
+  `content_length_ok` is False, rather than skipping the check
+  entirely -- same treatment a corroborated-but-short boundary already
+  got, on the theory that a person should confirm either way rather
+  than the tool silently deciding a detected boundary isn't real.
+  `content_length_ok is None` (checks haven't run yet) is left at
+  SEQUENCE_ONLY unchanged, same as before 0g exists.
+
+  This alone didn't fix the Watermarks book, though, and digging into
+  why turned up a second, independent bug: `split_chapters()`'s
+  eligibility filter checked `confidence != NONE`, which is a
+  superset of "at least SEQUENCE_ONLY" -- it let NEEDS_REVIEW through
+  too, contradicting the docstring's own stated intent right above it.
+  Confirmed this was already live on `CrossReferences-Synthetic.epub`,
+  which was splitting on a chapter its own `map-structure` output
+  flagged "needs review." Fixed alongside the gate itself, since the
+  gate accomplishes nothing without it: the filter now explicitly
+  checks for `SEQUENCE_ONLY` or `CORROBORATED` only.
+
+  Verified against all ten sample books via `split-structure`:
+  `Watermarks-SmallChapterNumbers.epub` and
+  `CrossReferences-Synthetic.epub` now correctly split nothing, every
+  other multi-chapter book splits the identical chapter counts as
+  before this change (BrokenSentences, ChaptersMisaligned,
+  ChaptersNotAligned-New, GutenbergText-ChapterSplit, RunTogetherText,
+  Sidewinders). `The Call of Cthulhu`'s "no split" result is unrelated
+  to this fix -- that's Case 3 (no label word, no TOC), which was
+  already never wired into `split_chapters()` at all. Full CLI
+  `analyze`/`repair`/`auto-fix` regression across all sample books
+  afterward, nothing else disturbed.
 
 ### Phase 5 -- Wire into repair pipeline / CLI
 - Same manual-review posture as class_standardize: a dry-run/review
