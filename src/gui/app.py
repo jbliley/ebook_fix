@@ -76,6 +76,7 @@ from ebook_fix.modules.gutenberg_repair import GutenbergRepair
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair
+from ebook_fix.modules.color_strip import ColorStripRepair
 from gui import analysis_view
 from metadata.core_fields import write_core_field
 from metadata.language_codes import language_options
@@ -97,10 +98,14 @@ _EDITABLE_FIELDS = ("title", "author", "publisher", "date", "rights", "descripti
 # ebook_fix.toml -- i.e. everything Engine._build_modules() checks an
 # `enabled` flag for. Order matches _build_modules()'s own pipeline
 # order, so the Repair tab's checkbox list reads the same way the CLI
-# already applies them. Deliberately excludes Class Standardize and
-# Color Strip, which aren't part of this config-gated pipeline at all
-# (Class Standardize needs an explicit --class-mapping file; see
-# analysis_roadmap.md for why those stay separate CLI subcommands).
+# already applies them. Deliberately excludes Class Standardize, which
+# still needs an explicit --class-mapping file (see analysis_roadmap.md
+# for why that stays a separate CLI subcommand). Color Strip used to
+# be excluded here too -- it was auto-fix-only, unconditional, and
+# didn't fit this config-gated checklist. Now that it's confidence-
+# gated and lives in Engine._build_modules() like everything else here
+# (see analysis_roadmap.md's 2026-09-11 follow-up), it belongs in this
+# list the same as any other module.
 _REPAIR_MODULES = [
     ("gutenberg_repair", "Gutenberg Boilerplate Removal"),
     ("running_title_repair", "Running Title Removal"),
@@ -111,6 +116,7 @@ _REPAIR_MODULES = [
     ("scene_break_repair", "Scene Break Normalizer"),
     ("image_repair", "Image Repair"),
     ("cover_repair", "Cover Repair"),
+    ("color_repair", "Color Strip"),
     ("ellipsis_repair", "Ellipsis Normalizer"),
     ("apostrophe_repair", "Apostrophe Repair"),
     ("whitespace_repair", "Whitespace Normalizer"),
@@ -137,6 +143,7 @@ _REPAIR_MODULE_CLASSES = {
     "scene_break_repair": SceneBreakRepair,
     "image_repair": ImageRepair,
     "cover_repair": CoverRepair,
+    "color_repair": ColorStripRepair,
     "ellipsis_repair": EllipsisRepair,
     "apostrophe_repair": ApostropheRepair,
     "whitespace_repair": WhitespaceRepair,

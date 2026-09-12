@@ -148,6 +148,23 @@ class AuthorInitialsConfig:
 
 
 @dataclass(slots=True)
+class ColorRepairConfig:
+    # Removes a hardcoded text `color` only where ebook_fix.color's
+    # analysis is confident it's safe to: the confirmed body-text
+    # class, the <body> element itself, or inline color set directly
+    # on a main-narrative paragraph. Everything else (a pull-quote, a
+    # character's dialogue color, anything outside the main narrative)
+    # is left alone and reported instead -- see the "[Possible
+    # Decorative Color]" section in the analyze output, and
+    # ebook_fix.color's module docstring for the full reasoning. On by
+    # default: forcing body text to a fixed color is a very common
+    # conversion-tool artifact that actively fights a reading system's
+    # own theme/night-mode, and the confident/review split already
+    # keeps this from touching anything genuinely ambiguous.
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class MetadataRepairConfig:
     enabled: bool = True
     # Also write the same confidently-resolved values back into the
@@ -184,6 +201,7 @@ class Config:
     metadata_repair: MetadataRepairConfig = field(default_factory=MetadataRepairConfig)
     identifier_repair: IdentifierRepairConfig = field(default_factory=IdentifierRepairConfig)
     author_initials: AuthorInitialsConfig = field(default_factory=AuthorInitialsConfig)
+    color_repair: ColorRepairConfig = field(default_factory=ColorRepairConfig)
 
 
 # ---------------------------------------------------------------------
@@ -233,6 +251,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.running_title_repair, modules, "running_title_repair")
     _apply_module_toggle(config.metadata_repair, modules, "metadata_repair")
     _apply_module_toggle(config.identifier_repair, modules, "identifier_repair")
+    _apply_module_toggle(config.color_repair, modules, "color_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
@@ -248,6 +267,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.running_title_repair, "running_title_repair", data.get("running_title_repair", {}))
     _apply_section(config.metadata_repair, "metadata_repair", data.get("metadata_repair", {}))
     _apply_section(config.identifier_repair, "identifier_repair", data.get("identifier_repair", {}))
+    _apply_section(config.color_repair, "color_repair", data.get("color_repair", {}))
     if config.ellipsis_repair.target_style not in ("unicode", "ascii"):
         raise ValueError(
             f"Invalid ellipsis_repair.target_style: {config.ellipsis_repair.target_style!r} "
@@ -316,6 +336,7 @@ cover_repair = true
 running_title_repair = true
 metadata_repair = true
 identifier_repair = true
+color_repair = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -597,6 +618,20 @@ sync_calibre_db = false
 # confident, just the scheme's own regex. An identifier that doesn't
 # match any known scheme is left as an honest, unscoped bare-DC entry,
 # same as before -- never guessed at.
+enabled = true
+
+# ---------------------------------------------------------------------
+# Color Strip
+# ---------------------------------------------------------------------
+[color_repair]
+
+# Removes a hardcoded text `color` only where analysis is confident
+# it's safe to: the confirmed body-text class, the <body> element
+# itself, or inline color set directly on a main-narrative paragraph.
+# Everything else -- a pull-quote, a character's dialogue color, a
+# narrowly-used or unmapped class, anything outside the main
+# narrative -- is left alone and reported instead under "[Possible
+# Decorative Color]" in the analyze output, never auto-repaired.
 enabled = true
 """
 

@@ -1264,6 +1264,37 @@ class the way it used to, a person going through the reviewed map-css
 path afterward may still find real theme-neutral candidates worth
 applying by hand -- that's expected now, not a gap.
 
+**Follow-up (2026-09-11):** Jacob found the actual gap the same day,
+testing against a real book: `color_repair` was still auto-fix-only,
+carried over from the old blanket-strip design where that restriction
+made sense (too broad to run unattended in the normal repair path).
+Now that Color Strip is confidence-gated like every other module, that
+restriction no longer served a purpose -- running plain `repair` (no
+`--class-mapping`) left every hardcoded color untouched, which is what
+Jacob hit. Moved into the standard module list in `_build_modules()`
+(engine.py), gated by a new `color_repair.enabled` config option,
+**true by default** per Jacob -- forcing body text to a fixed color is
+common enough, and the confident/review split conservative enough,
+that there's no real case for leaving it off by default. `auto_fix()`
+no longer special-cases it at all; it just runs as part of the normal
+list, same as Ellipsis or Whitespace. Confidence can still be refined
+later if the review bucket turns out too aggressive or too lax in
+practice -- the config toggle and the review-flagging mechanism are
+both already in place either way.
+
+Verified against the real book that surfaced this (a Dutch novel,
+`wp-`-prefixed classes, not the earlier German one Jacob had removed
+from `examples/`): plain `repair` now correctly strips 5 `color`
+declarations from its stylesheet (all 5 classes `class_map` identifies
+as body-text role at medium/high confidence), `auto-fix` on the same
+book strips the same 5 without double-counting now that Color Strip
+isn't separately hardcoded into that command anymore, the
+`color_repair.enabled = false` config option correctly disables it,
+and a second `repair` pass on the already-repaired output makes zero
+further changes (idempotent, diffed at the extracted-content level).
+Full sample suite re-run through both `repair` and `auto-fix` with no
+crashes and valid XML throughout.
+
 
 ## Next: Case 3 -- anthology/omnibus support, or in-body Contents-page linking
 

@@ -47,6 +47,7 @@ from lxml import etree
 
 from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE
 from ebook_fix.report import Report
+from ebook_fix.config import ColorRepairConfig
 from ebook_fix.color import (
     analyze_book_color,
     is_confident_selector_group,
@@ -57,6 +58,9 @@ from ebook_fix.color import (
 
 class ColorStripRepair:
     name = "Color Strip"
+
+    def __init__(self, config: ColorRepairConfig | None = None):
+        self.config = config or ColorRepairConfig()
 
     # -----------------------------------------------------
     # Analysis

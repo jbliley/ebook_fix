@@ -118,6 +118,19 @@ class Engine:
         # filename, never general chapter text.
         if getattr(self.config, "cover_repair", None) and getattr(self.config.cover_repair, "enabled", True):
             modules.append(CoverRepair(self.config.cover_repair))
+        # Runs alongside Cover Repair in this "independent of ordering"
+        # cluster -- only ever touches a `color` declaration/attribute,
+        # never general chapter text, and only the confident bucket
+        # ebook_fix.color's analysis identifies (confirmed body-text
+        # class, <body> itself, or inline color directly on a
+        # main-narrative paragraph); everything else is reported, not
+        # touched -- see ebook_fix.color's module docstring. Used to be
+        # auto-fix-only, back when it stripped color unconditionally
+        # and was too broad to run unattended in the regular repair
+        # path; now that it's confidence-gated the same way every
+        # other module here is, it belongs in the normal pipeline too.
+        if getattr(self.config, "color_repair", None) and getattr(self.config.color_repair, "enabled", True):
+            modules.append(ColorStripRepair(self.config.color_repair))
         # Runs before Whitespace Normalizer: both modules can end up
         # wanting to touch the very same text/tail node (an ellipsis
         # sitting in a paragraph that also has, say, doubled internal
@@ -1789,24 +1802,16 @@ class Engine:
 
     def auto_fix(self, epub, output, overwrite=False, details=False, max_passes=5):
         """One-command, hands-off mode: runs the normal repair module
-        list, then on top of it --
-          - standardizes chapter-heading/body-text classes using only
-            "high" confidence guesses (see _build_auto_class_mapping),
-            applied immediately with no mapping file written to disk
-            and no review step -- the deliberately-less-safe trade
-            this mode makes in exchange for being one command; the
-            reviewed `map-css --write-mapping` + `repair
-            --class-mapping` path is still there for anyone who wants
-            to see the guesses first.
-          - strips hardcoded text color from the confirmed body-text
-            class, the <body> element itself, and inline color set
-            directly on a main-narrative paragraph (see
-            ebook_fix.color and ebook_fix.modules.color_strip), so the
-            reader's own theme/night-mode controls the book's actual
-            prose. Color that looks intentional (a pull-quote, a
-            character's dialogue color, anything outside the main
-            narrative) is left alone and flagged for manual review
-            instead -- see the "[Possible Decorative Color]" section.
+        list (including Color Strip -- see ebook_fix.modules.
+        color_strip and its config.color_repair toggle, same as every
+        other module here), then on top of it standardizes chapter-
+        heading/body-text classes using only "high" confidence guesses
+        (see _build_auto_class_mapping), applied immediately with no
+        mapping file written to disk and no review step -- the
+        deliberately-less-safe trade this mode makes in exchange for
+        being one command; the reviewed `map-css --write-mapping` +
+        `repair --class-mapping` path is still there for anyone who
+        wants to see the guesses first.
 
         If the result isn't right for a given book, nothing here is
         exclusive -- the normal `repair` (optionally with a reviewed
@@ -1845,7 +1850,6 @@ class Engine:
             else:
                 self.log("Auto class mapping: no high-confidence chapter-heading/body-text classes found -- skipped.")
 
-            modules.append(ColorStripRepair())
             self.log("")
 
             if not self._check_output_path(output, overwrite):
