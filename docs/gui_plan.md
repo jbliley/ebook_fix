@@ -1267,16 +1267,40 @@ shows the plain missing-file message instead of a 500. Full CLI
 `analyze` regression across all sample books afterward confirmed
 nothing else was disturbed.
 
-### Metadata tab: warn before leaving with unsaved changes
+### Metadata tab: warn before leaving with unsaved changes (done, 2026-09-12)
 
-A `beforeunload`-style browser guard on the Metadata form specifically,
-tracking whether any field has changed since the page loaded (or since
-the last successful Save). Confirmed with Jacob this should fire for
-**all** ways of leaving the page with unsaved changes -- browser tab
-close, window close, and navigating to another tab inside the app --
-which conveniently is exactly what a single `beforeunload` listener
-already covers uniformly, so this shouldn't need separate handling per
-trigger.
+A plain inline `<script>` block at the bottom of `metadata.html`, no
+new dependency. A `dirty` flag flips true on any `input`/`change`
+event bubbling up from the form (every text field, the description
+textarea, the language dropdown, series name/position all covered by
+one pair of listeners on the form itself, not one per field), and a
+`beforeunload` listener blocks the unload whenever that flag is set.
+Confirmed with Jacob this should fire for **all** ways of leaving the
+page with unsaved changes -- browser tab close, window close, and
+navigating to another tab inside the app -- which needed no special
+handling per trigger, since this is a plain server-rendered app where
+each of those is a genuine page unload and one `beforeunload` listener
+already covers all three uniformly.
+
+Two details worth noting from the build:
+- The EPUB/Calibre mismatch-resolution buttons set a field's value
+  directly via JS rather than through typing, which doesn't fire a
+  plain `input` event on its own -- those buttons got their own
+  explicit `dirty = true` on click, so picking one of them doesn't
+  slip past the guard.
+- "Since page load" already covers "since the last successful Save"
+  with no extra bookkeeping needed, because Stage Changes is a real
+  form POST that redirects back to a fresh GET of the same page --
+  every completed save already starts the listener over from a clean
+  slate on its own, no separate "last saved" timestamp required. A
+  `submitting` flag set on the form's own `submit` event keeps that
+  legitimate POST from triggering the same warning on its way out.
+
+Verified via `app.test_client()`: staging a field edit end-to-end
+still redirects and shows the staged banner exactly as before, and the
+rendered page carries both the `beforeunload` listener and the
+mismatch-button hook. Full CLI `analyze` regression across all sample
+books afterward confirmed nothing else was disturbed.
 
 ### Auto-rename on save, from a filename pattern (GUI only, opt-in)
 

@@ -60,4 +60,45 @@
 
   <button type="submit" class="button">Stage Changes</button>
 </form>
+
+<script>
+(function() {
+  // Warns before leaving this page with unsaved changes -- browser tab
+  // close, window close, or clicking any of the tab links/top-bar
+  // "Analyze another book" link above, since this is a plain
+  // server-rendered app where every one of those is a real page
+  // unload, not a client-side route change. A single beforeunload
+  // listener covers all three uniformly, so there's no separate
+  // per-trigger handling needed. See docs/gui_plan.md, "Metadata tab:
+  // warn before leaving with unsaved changes."
+  //
+  // "Unsaved changes" here means "since this page loaded" -- which
+  // already covers "since the last successful Save" for free, because
+  // Stage Changes is a real form POST that redirects back to a fresh
+  // GET of this same page (staged values and all), so a completed save
+  // always starts this listener over from a clean slate.
+  var form = document.querySelector("form");
+  var dirty = false;
+  var submitting = false;
+
+  form.addEventListener("input", function() { dirty = true; });
+  form.addEventListener("change", function() { dirty = true; });
+  form.addEventListener("submit", function() { submitting = true; });
+
+  // The EPUB/Calibre mismatch buttons set a field's value directly via
+  // JS rather than through typing, which doesn't fire a plain "input"
+  // event on its own -- marked dirty explicitly here too, so picking
+  // one of those doesn't slip past the guard below.
+  document.querySelectorAll(".mismatch-choices button").forEach(function(btn) {
+    btn.addEventListener("click", function() { dirty = true; });
+  });
+
+  window.addEventListener("beforeunload", function(e) {
+    if (dirty && !submitting) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  });
+})();
+</script>
 {% endblock %}
