@@ -875,7 +875,59 @@ anchor a new entry against). One piece of that gap is now closed:
   note above: case 3 of Jacob's framework (no detected markers at all)
   likely lives here too, since best-effort splitting needs the same
   kind of "what's already fine, what needs work" judgment this bullet
-  describes.
+  describes. [x] Verified done, 2026-09-12 -- no code change needed
+  for the actual target case; see below.
+
+  Jacob's framing for this item: page breaks within one file mostly
+  render fine on an e-reader, but a real chapter boundary on its own
+  XHTML page is the foolproof version -- so "mixed state" here means
+  some chapters already correctly split into their own files, with
+  the rest still bundled in one file, and the goal is exactly what
+  Phase 1-3 already built toward: get every chapter onto its own page,
+  regardless of which ones already got there by some other means.
+
+  Built a synthetic test book to check this directly rather than
+  guess: Chapter One and Chapter Two each already live in their own
+  file with a normal heading, Chapters Three through Five are still
+  bundled together in one file. Ran it through both `map-structure`
+  and `split-structure` -- this already works correctly today, no
+  fix needed. Detection finds the full 1-5 sequence across all three
+  files regardless of which file each chapter lives in (chapters.py's
+  whole-book candidate search was never file-scoped to begin with).
+  `split_chapters`'s existing `if len(nodes) < 2: continue` per-href
+  skip already means an already-split, single-chapter file is
+  correctly left alone -- there's nothing to split there, so it's
+  already "fine" by construction, not something that needed new
+  handling. Only the three-chapter bundle actually gets split, NCX
+  entries for the newly-split files come out correctly ordered and
+  labeled, and running `split-structure` a second time on the result
+  reports nothing left to split -- confirmed idempotent.
+
+  Added `examples/PartiallySplit-Synthetic.epub` as a permanent
+  regression fixture for exactly this shape (2 standalone chapter
+  files + 1 three-chapter bundle, TOC covering the first 3 of 5
+  chapters), same synthetic-fixture idiom as `CrossReferences-
+  Synthetic.epub`, since nothing in the existing sample library
+  exercised this specific mix before. Verified via `split-structure`
+  (splits only the bundle, leaves the two standalone files untouched,
+  generates correct NCX entries for chapters 4 and 5) and a second
+  `repair` pass diffed byte-for-byte against the first (idempotent, no
+  changes). Full `analyze`/`repair`/`auto-fix` regression across the
+  whole sample library (now 14 EPUBs) afterward, nothing else
+  disturbed.
+
+  A related but distinct gap surfaced while building the test case,
+  deliberately not fixed here since Jacob confirmed this bullet was
+  about the case above, not this one: an already-split chapter file
+  with *no* heading/marker text at all (just body content, no
+  "Chapter N" label) gets silently absorbed into "front matter" in the
+  structure tree rather than recognized as a chapter or flagged for
+  review, since chapters.py has nothing to detect there and Case 3's
+  fallback only ever triggers when the *entire* book's normal
+  detection comes back empty, not for just the unlabeled leftover
+  portion of an otherwise well-detected book. Worth a bullet of its
+  own if a real book ever turns up with this shape -- none of the
+  current samples do.
 - Minimum-content gate so a stray short "boundary" (e.g. a
   misidentified scene divider) doesn't trigger a split. [x] Done,
   2026-09-12.
