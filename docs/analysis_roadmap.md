@@ -613,6 +613,114 @@ against without adding raw-bytes NCX parsing/editing support, which
 is bigger than this module's job. Worth its own follow-up if legacy
 NCX books turn out to matter for the collection this gets run against.
 
+## Done: Project Gutenberg boilerplate -- pre-1997 "Small Print" era (2026-09-13)
+
+Raised by Jacob against a new sample he uploaded,
+`GutenbergText-HRule.epub`: the existing detector correctly found
+nothing wrong with it, but the boilerplate was still there. This
+book's conversion era predates the "*** START/END OF ... PROJECT
+GUTENBERG EBOOK ***" marker line entirely -- exactly the gap the
+original detection docstring already flagged as future work ("the
+very old (pre-1997) '*END*THE SMALL PRINT!' style header some early
+texts use is NOT covered here"). Jacob's own instinct going in --
+keyword scanning near the beginning and end of the book -- turned out
+to be exactly right, and is what every piece of this build leans on.
+
+**The shape of the problem, once dug into:** three files. The first
+two are ENTIRELY boilerplate front matter with no real content at all
+(a disclaimer page, then a donation appeal) -- but each has its own
+heading (`calibre_pb_0`, `calibre_pb_1`), because this particular
+conversion stamps a heading at every physical page-break, not just at
+a real title/chapter start, so the existing single-file heading guard
+(designed around one specific observed case -- a real calibre-
+injected book title -- see the removal section above) isn't enough on
+its own to tell a real title apart from a boilerplate section heading
+here. The third file holds the full "Legal Small Print" license text,
+immediately followed by the real title and the actual story, ending
+with a plain-prose "End of this Project Gutenberg Etext of ..." line
+instead of an asterisked one.
+
+**New detection (`ebook_fix/gutenberg.py`):**
+- Two new regexes, tried last, only if the modern tag/text tiers found
+  nothing: `_SMALL_PRINT_END_RE` (front side -- the small-print
+  block's own end, tolerant of the asterisk-placement inconsistency
+  PG's own texts don't agree on) and `_OLD_ETEXT_END_RE` (back side --
+  "End of [this/the] Project Gutenberg['s] Etext/EBook").
+- `leading_front_matter_hrefs` (new field, mirrors the existing
+  `trailing_back_matter_hrefs` on the back side): whole spine files
+  strictly before the front marker's own file. A file only qualifies
+  if it clears two bars, not one -- no heading AND mentions Project
+  Gutenberg by name, or its only heading is ITSELF boilerplate-labeled
+  ("Information about Project Gutenberg" -- new `_BOILERPLATE_HEADING_RE`,
+  matches "project gutenberg"/"small print" in a heading's own text).
+  A real-looking title heading ("Goldsmiths Friend Abroad Again")
+  fails both, correctly keeping that file out of a blind whole-file
+  drop.
+- `leading_front_matter_partial` (new field): the case a whole-file
+  drop can't handle on its own -- a leading file that HAS a real-
+  looking title heading, immediately followed by more boilerplate in
+  the same file, with no marker of its own. Only added if the text
+  after that heading itself still mentions Project Gutenberg, same
+  "confirm before trimming" restraint as everywhere else here rather
+  than assuming so just because the file precedes the marker's own.
+
+**New repair (`ebook_fix/modules/gutenberg_repair.py`):**
+- `leading_front_matter_hrefs` drops reuse the existing whole-file
+  removal mechanism unchanged.
+- `leading_front_matter_partial` gets a new forward sweep,
+  `_remove_after_heading` -- same mechanics as the back-matter forward
+  sweep, just keeping the anchor (the title heading) instead of
+  removing it too.
+- The single-file heading guard (front-matter backward sweep) got the
+  same real-title-vs-boilerplate-heading refinement as the new
+  whole-file check above: a heading whose own text matches
+  `_BOILERPLATE_HEADING_RE` ("The Legal Small Print") no longer stops
+  the sweep, since it isn't a real title the way the guard was
+  designed to protect -- confirmed the Tom Sawyer example's real title
+  still survives untouched, since "Adventures of Tom Sawyer, By Twain,
+  Complete" doesn't match either keyword.
+
+**A real, separate bug this surfaced along the way:** the "End of this
+Project Gutenberg Etext..." line, and a good deal of this book's other
+boilerplate, turned out to be bare text sitting directly under
+`<body>` with no wrapping tag at all -- an `<hr/>`'s tail, in lxml's
+text model, not part of any element's own subtree. `_find_marker_element`
+only ever searched elements' own `itertext()`, so the best it could do
+was match on `<body>` itself, which is useless as a removal anchor
+(nothing to walk up further from). Fixed by also checking each
+element's own `.tail` and returning the owning element directly when
+that's where the match lives.
+
+Finding the right anchor wasn't the whole fix, though: the existing
+`_remove_keep_tail` helper's whole job is preserving an removed
+element's tail text elsewhere rather than losing it -- exactly wrong
+once a sweep has already established everything in that direction is
+confirmed boilerplate (both the back-matter forward sweep and the new
+leading-partial one already work under that assumption), since it was
+actively *rescuing* boilerplate tail text ("Title: Goldsmiths Friend
+Abroad Again", hanging off an `<hr/>`) into the surviving document
+instead of discarding it. Added `_remove_discard_tail` for exactly
+those two sweeps (and the refined single-file heading-guard sweep,
+once it started being able to remove a heading too) -- `_remove_keep_tail`
+stays as-is for the one case it was always right for (the modern
+tag-format wrapper removal, and nav-link cleanup), where the removed
+node truly is just a wrapper and its tail is real adjacent content.
+
+**Verified:** `GutenbergText-HRule.epub` end to end -- the disclaimer
+file and donation-appeal file both gone entirely, the title-bearing
+leading file keeps its title and nothing else, the small-print block
+and its own boilerplate-labeled heading are gone from the third file,
+the real story is untouched start to finish, and the plain-prose
+"End of this Project Gutenberg Etext..." line and everything after it
+(a repeated title, a converter credit, a manybooks.net link) are gone
+too. Valid XML throughout. Idempotent -- a second `repair` pass makes
+zero further changes, byte-identical at the extracted-content level.
+Confirmed both existing Gutenberg books (`GutenbergText-ChapterSplit.epub`,
+`The Call of Cthulhu`) are completely unaffected -- their real titles
+still survive the refined heading guard, their existing removals are
+untouched. Full `analyze`/`repair`/`auto-fix` regression across all 14
+sample books afterward, no crashes, no regressions.
+
 ## Done: split-title TOC entries merged during parsing
 
 Found from a real bug report (Jacob's own book, `Strike Force 11` by

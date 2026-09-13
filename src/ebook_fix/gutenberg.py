@@ -46,13 +46,14 @@ line.
 Scope / limitations
 --------------------
 Pattern-based, not exhaustive, same spirit as frontmatter.py's own
-docstring on that. This covers the "*** START OF [THIS|THE] PROJECT
+docstring on that. Covers both the "*** START OF [THIS|THE] PROJECT
 GUTENBERG EBOOK ... ***" / "*** END OF ..." marker format used from
-the late 1990s onward, which is the overwhelming majority of the PG
-catalog. The very old (pre-1997) "*END*THE SMALL PRINT!" style header
-some early texts use is NOT covered here -- if that becomes worth
-handling, it belongs in its own follow-up rather than folded into
-these regexes.
+the late 1990s onward (the overwhelming majority of the PG catalog)
+and the older pre-1997 "Small Print" style some early texts use, which
+has no start/end marker LINE at all -- see _SMALL_PRINT_END_RE/
+_OLD_ETEXT_END_RE and the leading-front-matter sweep below (2026-09-13,
+raised by Jacob against GutenbergText-HRule.epub; see
+docs/analysis_roadmap.md for the full writeup).
 """
 
 from __future__ import annotations
@@ -70,6 +71,46 @@ _END_MARKER_RE = re.compile(
     r"\*{2,}\s*END OF (?:THIS|THE) PROJECT GUTENBERG EBOOK\b[^*]*\*{2,}",
     re.IGNORECASE,
 )
+
+# Older, pre-1997 conversions (GutenbergText-HRule.epub) don't use the
+# "*** START/END OF ... EBOOK ***" marker line at all -- the front
+# matter runs straight from a plain "The Project Gutenberg Etext of
+# ..." paragraph through a donation appeal through the full "Legal
+# Small Print" license text, with nothing marking its *start* any
+# differently from an ordinary paragraph. What IS distinctive and
+# stable across that era is how the Small Print block -- always the
+# last thing before the real story -- ends, and how the book's own
+# end is announced in plain prose rather than asterisked shouting.
+# Tolerant of the exact asterisk placement/spacing PG's own texts
+# don't agree on ("*END*THE SMALL PRINT!" vs "*END THE SMALL
+# PRINT!"), same reasoning as the modern markers' own tolerance above.
+_SMALL_PRINT_END_RE = re.compile(
+    r"\*+\s*END\b[^*]{0,40}SMALL PRINT",
+    re.IGNORECASE,
+)
+_OLD_ETEXT_END_RE = re.compile(
+    r"\bEnd of (?:(?:this|the)\s+)?Project Gutenberg('?s)?\s+(?:E-?text|EBook)\b",
+    re.IGNORECASE,
+)
+
+# Used only to vet a WHOLE spine file for the leading-front-matter
+# sweep below -- much lower bar than the marker regexes above (this
+# alone would false-positive constantly used against an arbitrary
+# paragraph), safe here only because it's paired with the heading
+# check: a file with no heading at all AND text that mentions Project
+# Gutenberg by name is never going to be a real title page or story
+# content by coincidence.
+_MENTIONS_GUTENBERG_RE = re.compile(r"Project Gutenberg", re.IGNORECASE)
+
+# Classifies a HEADING's own text (not a whole file's) as boilerplate
+# rather than a real title -- "Information about Project Gutenberg"
+# and "The Legal Small Print" both match, "Goldsmiths Friend Abroad
+# Again" and "Adventures of Tom Sawyer, By Twain, Complete" (the
+# calibre-injected real titles in the two example books) don't. Used
+# by the leading-front-matter sweep to tell "a whole file whose only
+# heading is itself a boilerplate section title" apart from "a whole
+# file that happens to have a real title ahead of more boilerplate."
+_BOILERPLATE_HEADING_RE = re.compile(r"project gutenberg|small print", re.IGNORECASE)
 
 # Semantic markup the modern "Ebookmaker" conversion pipeline uses --
 # a fast path / confidence boost, never the only signal on its own
@@ -96,6 +137,18 @@ class BookGutenbergSummary:
     detected: bool = False
     front: GutenbergMarker | None = None
     back: GutenbergMarker | None = None
+    # Whole spine files strictly before the file the front marker
+    # lands in, still safe to treat as more front matter even though
+    # they carry no marker of their own -- see the leading-front-matter
+    # sweep in analyze_book_gutenberg. Always in spine order.
+    leading_front_matter_hrefs: list = field(default_factory=list)
+    # Leading files that DO have what looks like a real title heading
+    # (so the whole file is kept, unlike leading_front_matter_hrefs
+    # above) but where everything AFTER that heading is still more
+    # Gutenberg boilerplate -- a list of GutenbergMarker (method
+    # "leading_partial", element is the heading to keep, everything
+    # after it under <body> is what a repair module should remove).
+    leading_front_matter_partial: list = field(default_factory=list)
     # Spine entries after the file the END marker lands in, folded in
     # as more back matter even though they carry no marker of their
     # own -- see module docstring. Always in spine order.
@@ -150,8 +203,62 @@ def _real_spine_hrefs(book):
     return hrefs
 
 
+_HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+
+
 def _element_class_list(el):
     return (el.get("class") or "").split()
+
+
+def _first_heading(tree):
+    """The first heading (h1-h6) in document order, and its own text
+    -- or (None, None) if the document has none. Used by the leading-
+    front-matter sweep to classify a whole file (see
+    _BOILERPLATE_HEADING_RE above) rather than gutenberg_repair.py's
+    own node-by-node heading guard, which walks backward from an
+    actual marker instead of scanning a whole file for its first one."""
+    if tree is None:
+        return None, None
+    for el in tree.iter():
+        if not isinstance(el.tag, str):
+            continue
+        if el.tag.split("}")[-1].lower() in _HEADING_TAGS:
+            return el, "".join(el.itertext()).strip()
+    return None, None
+
+
+def _text_after_top_level(tree, el):
+    """Text of everything after el's own top-under-body ancestor --
+    mirrors gutenberg_repair.py's own _ancestor_under_body walk
+    (kept separate since this module is analysis-only, never mutates
+    the tree), used only to sanity-check that what follows a leading
+    file's real-looking title heading is actually more Gutenberg
+    boilerplate before agreeing to trim it away, rather than assuming
+    so just because the file happens to come before the front
+    marker's own file."""
+    if tree is None or el is None:
+        return ""
+    body = tree.find(".//{*}body")
+    if body is None:
+        return ""
+    node = el
+    top = None
+    while node is not None:
+        parent = node.getparent()
+        if parent is None:
+            return ""
+        if parent is body:
+            top = node
+            break
+        node = parent
+    if top is None:
+        return ""
+    parts = []
+    sib = top.getnext()
+    while sib is not None:
+        parts.append("".join(sib.itertext()))
+        sib = sib.getnext()
+    return "".join(parts)
 
 
 def _tagged_candidates(tree):
@@ -177,7 +284,22 @@ def _find_marker_element(tree, pattern):
     ancestors up the tree will also technically match (their text
     includes the same substring), so this picks the one with the
     shortest total text as a stand-in for "narrowest containing
-    element" rather than doing a full ancestor-exclusion walk."""
+    element" rather than doing a full ancestor-exclusion walk.
+
+    Also checks each element's own TAIL text (lxml's term for text
+    that follows a self-closing or childless element but still
+    precedes the next sibling) -- some markers turn out to be bare
+    text directly under <body> with no wrapping tag at ALL, not even
+    a <p>: GutenbergText-HRule.epub's "End of this Project Gutenberg
+    Etext..." line sits as an <hr/>'s tail. That text isn't part of
+    ANY element's own itertext() (tail text belongs to the parent's
+    flow, not the preceding element's own subtree), so the loop above
+    would only ever match on body/html themselves -- returning one of
+    those as "the element to anchor a removal on" is useless, since
+    _ancestor_under_body can't walk anything up from body itself.
+    Returns immediately on a tail match rather than competing on the
+    shortest-text heuristic above: the owning element is already about
+    as specific an anchor as this ever gets."""
     if tree is None:
         return None, ""
     best = None
@@ -186,6 +308,9 @@ def _find_marker_element(tree, pattern):
     for el in tree.iter():
         if not isinstance(el.tag, str):
             continue
+        tail_match = pattern.search(el.tail or "")
+        if tail_match:
+            return el, tail_match.group(0).strip()
         text = "".join(el.itertext())
         match = pattern.search(text)
         if not match:
@@ -248,9 +373,82 @@ def analyze_book_gutenberg(book) -> BookGutenbergSummary:
                 back = GutenbergMarker(href=chapter.href, method="text", marker_text=matched, element=el)
                 break
 
+    # Further fallback: pre-1997 style, no "*** START/END OF ... EBOOK
+    # ***" line anywhere in the book at all -- see module docstring
+    # and the two regexes' own comments above. Tried last since it's
+    # the least specific of the three tiers.
+    if front is None:
+        for chapter in ordered:
+            el, matched = _find_marker_element(chapter.document, _SMALL_PRINT_END_RE)
+            if el is not None:
+                front = GutenbergMarker(href=chapter.href, method="small_print", marker_text=matched, element=el)
+                break
+
+    if back is None:
+        for chapter in ordered:
+            el, matched = _find_marker_element(chapter.document, _OLD_ETEXT_END_RE)
+            if el is not None:
+                back = GutenbergMarker(href=chapter.href, method="old_etext_end", marker_text=matched, element=el)
+                break
+
     summary.front = front
     summary.back = back
     summary.detected = front is not None or back is not None
+
+    if front is not None:
+        front_idx = next((i for i, c in enumerate(ordered) if c.href == front.href), None)
+        if front_idx is not None:
+            # Whole files strictly before the marker's own file.
+            # Confirmed against GutenbergText-HRule.epub, where the
+            # first two of its three files are nothing BUT boilerplate
+            # (a front disclaimer page, then a donation-appeal page)
+            # -- but each one has its OWN heading (calibre stamps one
+            # in at every physical page-break point in this
+            # conversion, not just at a real chapter/title start), so
+            # a plain "no heading = safe to drop" rule isn't enough on
+            # its own here the way it was for gutenberg_repair.py's
+            # single-file, marker-anchored sweep. Three-way split per
+            # file instead:
+            real_spine_hrefs = _real_spine_hrefs(book)
+            leading_drop = []
+            leading_partial = []
+            for chapter in ordered[:front_idx]:
+                if chapter.href not in real_spine_hrefs:
+                    continue
+                heading_el, heading_text = _first_heading(chapter.document)
+                text = "".join(chapter.document.itertext()) if chapter.document is not None else ""
+
+                if heading_el is None:
+                    # No heading at all -- confidently boilerplate only
+                    # if it also mentions Project Gutenberg by name,
+                    # same bar as everywhere else in this module.
+                    if _MENTIONS_GUTENBERG_RE.search(text):
+                        leading_drop.append(chapter.href)
+                    continue
+
+                if _BOILERPLATE_HEADING_RE.search(heading_text):
+                    # The file's only heading is itself a boilerplate
+                    # section title ("Information about Project
+                    # Gutenberg"), not a real one -- whole file drops.
+                    leading_drop.append(chapter.href)
+                    continue
+
+                # Heading looks like a real title (e.g. "Goldsmiths
+                # Friend Abroad Again") -- keep the file AND the
+                # heading, but only trim what follows it if that
+                # remainder itself still mentions Project Gutenberg;
+                # otherwise leave the whole file alone rather than
+                # guess, same "unambiguous cases only" restraint as
+                # everywhere else in this project.
+                trailing_text = _text_after_top_level(chapter.document, heading_el)
+                if _MENTIONS_GUTENBERG_RE.search(trailing_text):
+                    leading_partial.append(GutenbergMarker(
+                        href=chapter.href, method="leading_partial",
+                        marker_text=heading_text, element=heading_el,
+                    ))
+
+            summary.leading_front_matter_hrefs = leading_drop
+            summary.leading_front_matter_partial = leading_partial
 
     if back is not None:
         back_idx = next((i for i, c in enumerate(ordered) if c.href == back.href), None)

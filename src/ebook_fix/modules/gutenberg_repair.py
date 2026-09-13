@@ -22,6 +22,17 @@ What actually happens, by case
   own header. Confirmed against the Tom Sawyer example: calibre stamps
   a `<h1>` book title in from the OPF metadata *before* the Gutenberg
   boilerplate paragraphs even start, and that title needs to survive.
+- leading_front_matter_hrefs (see ebook_fix.gutenberg) are whole spine
+  files before the front marker's own file, dropped the same way
+  trailing_back_matter_hrefs are on the back side.
+- leading_front_matter_partial (see ebook_fix.gutenberg) is the case a
+  whole-file drop can't handle: a leading file that has its own real-
+  looking title heading followed by more boilerplate in the SAME file
+  (GutenbergText-HRule.epub: a calibre-injected `<h1>` book title
+  immediately followed by the actual PG disclaimer paragraphs, no
+  marker line anywhere in that file at all). The heading survives, a
+  forward sweep mirroring the back-matter one below removes everything
+  after it.
 - Back matter:
   - Modern tag format, whole file is nothing but the footer (the
     common case): the whole spine entry gets dropped -- removed from
@@ -50,7 +61,7 @@ NCX-editing support is bigger than this module's job.
 from __future__ import annotations
 from pathlib import PurePosixPath
 from ebook_fix.report import Report
-from ebook_fix.gutenberg import analyze_book_gutenberg
+from ebook_fix.gutenberg import analyze_book_gutenberg, _BOILERPLATE_HEADING_RE
 
 OPF_NS = "http://www.idpf.org/2007/opf"
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
@@ -81,6 +92,18 @@ class GutenbergRepair:
                 "Front disclaimer to remove",
                 f"Front Gutenberg disclaimer detected (via {gb.front.method})",
             )
+            for href in gb.leading_front_matter_hrefs:
+                report.add(
+                    href,
+                    "Leading front-matter file to remove",
+                    "Whole file is leftover Gutenberg boilerplate with no marker of its own",
+                )
+            for marker in gb.leading_front_matter_partial:
+                report.add(
+                    marker.href,
+                    "Leading front-matter trimmed after title",
+                    f"Real title heading (\"{marker.marker_text}\") kept, Gutenberg boilerplate after it removed",
+                )
 
         if gb.back_found and getattr(self.config, "fix_back_matter", True):
             report.add(
@@ -122,6 +145,24 @@ class GutenbergRepair:
                     "Front disclaimer removed",
                     f"Front Gutenberg disclaimer removed (detected via {gb.front.method})",
                 )
+            for href in gb.leading_front_matter_hrefs:
+                if _remove_whole_chapter(book, href):
+                    changed = True
+                    report.add(
+                        href,
+                        "Leading front-matter file removed",
+                        "Whole file removed -- was leftover Gutenberg boilerplate with no marker of its own",
+                    )
+            for marker in gb.leading_front_matter_partial:
+                partial_chapter = _find_chapter(book, marker.href)
+                if partial_chapter is not None and _remove_after_heading(partial_chapter, marker):
+                    partial_chapter.modified = True
+                    changed = True
+                    report.add(
+                        marker.href,
+                        "Leading front-matter trimmed after title",
+                        f"Kept the real title heading (\"{marker.marker_text}\"), removed Gutenberg boilerplate after it",
+                    )
 
         if gb.back_found and getattr(self.config, "fix_back_matter", True):
             if _repair_back(book, gb.back):
@@ -184,7 +225,10 @@ def _ancestor_under_body(body, el):
 def _remove_keep_tail(el):
     """Removes el, but if it had non-whitespace tail text (content
     that technically belongs to el in lxml's model, not to its
-    neighbors), reattaches that tail rather than silently losing it."""
+    neighbors), reattaches that tail rather than silently losing it.
+    Only right when the caller can't already be sure everything in
+    that direction is boilerplate -- see _remove_discard_tail below
+    for the sweeps that already know better."""
     tail = el.tail
     parent = el.getparent()
     if parent is None:
@@ -196,6 +240,24 @@ def _remove_keep_tail(el):
             prev.tail = (prev.tail or "") + tail
         else:
             parent.text = (parent.text or "") + tail
+
+
+def _remove_discard_tail(el):
+    """Removes el AND its tail, no reattachment. Used only by sweeps
+    that have already established everything in that direction is
+    confirmed boilerplate (back matter's forward sweep -- "nothing
+    legitimate follows the END marker" is that module's own stated
+    rule already -- and the leading-partial forward sweep below),
+    where _remove_keep_tail's reattachment would actively be wrong:
+    this book's own boilerplate often sits as bare tail text on an
+    <hr/> with no wrapping tag at all (e.g. "Title: Goldsmiths Friend
+    Abroad Again" hanging off an <hr/> in GutenbergText-HRule.epub),
+    and reattaching that tail elsewhere would just relocate the
+    boilerplate instead of removing it."""
+    parent = el.getparent()
+    if parent is None:
+        return
+    parent.remove(el)
 
 
 # ---------------------------------------------------------------------
@@ -216,24 +278,31 @@ def _remove_front_boilerplate(chapter, marker):
         _remove_keep_tail(top)
         return True
 
-    # method == "text": sweep backward from the marker's top-level
-    # ancestor, removing preceding siblings too, but stop at the first
-    # heading and leave it (and everything before it) alone -- see
-    # module docstring.
+    # method == "text"/"small_print": sweep backward from the marker's
+    # top-level ancestor, removing preceding siblings too, but stop at
+    # the first heading and leave it (and everything before it) alone
+    # -- see module docstring. One refinement: a heading whose OWN
+    # text is itself Gutenberg/small-print-labeled ("The Legal Small
+    # Print") isn't a real title the way "Adventures of Tom Sawyer, By
+    # Twain, Complete" is -- the sweep passes through that one instead
+    # of stopping, same _BOILERPLATE_HEADING_RE classification the
+    # leading-front-matter sweep in ebook_fix.gutenberg uses for whole
+    # files. Confirmed against GutenbergText-HRule.epub, where the
+    # small-print block's own file starts with exactly this kind of
+    # heading right before the small-print text itself begins.
     to_remove = [top]
     node = top.getprevious()
     while node is not None:
         if _local_tag(node) in _HEADING_TAGS:
-            break
+            heading_text = "".join(node.itertext())
+            if not _BOILERPLATE_HEADING_RE.search(heading_text):
+                break
         to_remove.append(node)
         node = node.getprevious()
 
     for node in to_remove:
-        _remove_keep_tail(node)
-    return True
-
-
-# ---------------------------------------------------------------------
+        _remove_discard_tail(node)
+    return True# ---------------------------------------------------------------------
 # Back matter
 # ---------------------------------------------------------------------
 
@@ -260,8 +329,24 @@ def _remove_back_boilerplate_subtree(chapter, marker):
     if top is None:
         return False
 
+    # The marker text can live as this element's own TAIL rather than
+    # inside its subtree -- bare text directly under <body> with no
+    # wrapping tag at all (see ebook_fix.gutenberg._find_marker_element's
+    # own docstring: GutenbergText-HRule.epub's "End of this Project
+    # Gutenberg Etext..." line sits as an <hr/>'s tail). When that's
+    # the case, `top` IS already the marker's own container -- but
+    # sweeping forward from top.getnext() alone would leave the tail
+    # text itself behind, so it's truncated at the match here too.
+    # Nothing legitimate follows an END marker by definition (see
+    # below), so everything in the tail from the match onward is
+    # discarded, not just the matched substring itself.
+    if marker.marker_text and top.tail and marker.marker_text in top.tail:
+        top.tail = top.tail[:top.tail.find(marker.marker_text)]
+
     # No heading guard in this direction: by definition nothing
-    # legitimate follows the END marker.
+    # legitimate follows the END marker -- so, unlike the front-matter
+    # sweep below, tails get discarded rather than preserved (see
+    # _remove_discard_tail).
     to_remove = [top]
     node = top.getnext()
     while node is not None:
@@ -269,7 +354,34 @@ def _remove_back_boilerplate_subtree(chapter, marker):
         node = node.getnext()
 
     for node in to_remove:
-        _remove_keep_tail(node)
+        _remove_discard_tail(node)
+    return True
+
+
+def _remove_after_heading(chapter, marker):
+    """Leading-file "partial" case (see ebook_fix.gutenberg's
+    leading_front_matter_partial): the marker's own element is a real-
+    looking title heading to KEEP, not remove -- mirrors
+    _remove_back_boilerplate_subtree's forward sweep exactly, just
+    starting one node later so the anchor itself survives."""
+    body = _find_body(chapter.document)
+    if body is None or marker.element is None:
+        return False
+    top = _ancestor_under_body(body, marker.element)
+    if top is None:
+        return False
+
+    to_remove = []
+    node = top.getnext()
+    while node is not None:
+        to_remove.append(node)
+        node = node.getnext()
+
+    if not to_remove:
+        return False
+
+    for node in to_remove:
+        _remove_discard_tail(node)
     return True
 
 
