@@ -64,6 +64,7 @@ from ebook_fix.structure import SplitConfidence, analyze_structure, element_text
 from ebook_fix.writer import EPUBWriter
 from ebook_fix.apostrophes import analyze_book_possessives, apply_possessive_resolutions
 from ebook_fix.color import analyze_book_color
+from ebook_fix.frontmatter import analyze_book_frontmatter, MatterLabel, FRONT_ZONE, BACK_ZONE
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -387,6 +388,53 @@ def _color_review_groups(book, analysis_report=None):
     return groups
 
 
+def _frontmatter_review_groups(book):
+    """Every front/back-matter page whose classification wasn't
+    confident enough to trust unattended -- confidence "medium" or
+    "low" -- worth a person's own look, same confident-enough-to-skip
+    posture as _color_review_groups above. Confident classifications
+    (zone MAIN always included, since analyze_book_frontmatter always
+    scores that "high") aren't included here at all: nothing to
+    review there.
+
+    Only ever considers a book where chapters.py actually confirmed a
+    chapter sequence to anchor zones on. With no confirmed sequence at
+    all, every single page in the book falls into frontmatter.py's
+    "unknown zone" fallback at once -- that's a chapter-detection
+    problem, not a front/back-matter labeling one, and Case 3's own
+    review flow is where that already belongs, not here.
+
+    Flat list rather than href-grouped-with-multiple-items shape the
+    other three review kinds use above: each entry here already is
+    one whole page, so there's nothing to group further within it.
+    """
+    summary = analyze_book_frontmatter(book)
+    if not summary.boundaries_confirmed:
+        return []
+    chapters_by_href = {c.href: c for c in book.chapters}
+    items = []
+    for m in summary.chapters:
+        if m.zone not in (FRONT_ZONE, BACK_ZONE) or m.confidence == "high":
+            continue
+        chapter = chapters_by_href.get(m.href)
+        preview = element_text_preview(chapter.document, word_limit=40) if chapter is not None else ""
+        items.append({
+            "href": m.href,
+            "zone": m.zone,
+            "label": m.label,
+            "confidence": m.confidence,
+            "reason": m.reason,
+            "preview": preview,
+        })
+    return items
+
+
+# Ordered (value, display name) pairs for the Review tab's front/back-
+# matter dropdown -- MatterLabel's own declaration order already reads
+# front-to-back-to-main, so no separate ordering is needed here.
+FRONTMATTER_LABEL_CHOICES = [(label.value, label.value.title()) for label in MatterLabel]
+
+
 @contextmanager
 def _captured_output():
     """Engine.analyze() and the modules it calls into
@@ -593,10 +641,12 @@ def book_review(session_id):
     groups = _split_candidate_groups(book)
     possessive_groups = _possessive_groups(book)
     color_groups = _color_review_groups(book)
+    frontmatter_items = _frontmatter_review_groups(book)
 
     staged = _read_staged(_staged_review_path(session_dir))
     staged_possessive_resolutions = {}
     staged_color_ids = set()
+    staged_frontmatter_labels = {}
     if staged is not None:
         staged_ids = set(staged.get("accepted_ids", []))
         for group in groups:
@@ -604,6 +654,7 @@ def book_review(session_id):
                 item["auto_checked"] = item["id"] in staged_ids
         staged_possessive_resolutions = staged.get("possessive_resolutions", {})
         staged_color_ids = set(staged.get("accepted_color_ids", []))
+        staged_frontmatter_labels = staged.get("frontmatter_labels", {})
 
     for group in possessive_groups:
         for item in group["candidates"]:
@@ -611,6 +662,8 @@ def book_review(session_id):
     for group in color_groups:
         for item in group["findings"]:
             item["accepted"] = item["id"] in staged_color_ids
+    for item in frontmatter_items:
+        item["resolution"] = staged_frontmatter_labels.get(item["href"], "")
 
     return render_template(
         "review.html",
@@ -623,6 +676,9 @@ def book_review(session_id):
         has_possessive_candidates=bool(possessive_groups),
         color_groups=color_groups,
         has_color_findings=bool(color_groups),
+        frontmatter_items=frontmatter_items,
+        has_frontmatter_items=bool(frontmatter_items),
+        frontmatter_label_choices=FRONTMATTER_LABEL_CHOICES,
         is_staged=staged is not None,
         split_result=None,
     )
@@ -637,6 +693,7 @@ def save_review(session_id):
     groups = _split_candidate_groups(book)
     possessive_groups = _possessive_groups(book)
     color_groups = _color_review_groups(book)
+    frontmatter_items = _frontmatter_review_groups(book)
 
     accepted_ids = set(request.form.getlist("accept"))
     accepted_color_ids = set(request.form.getlist("color_accept"))
@@ -646,6 +703,13 @@ def save_review(session_id):
             resolution = request.form.get(f"poss_{item['id']}", "")
             if resolution in ("possessive", "plural"):
                 possessive_resolutions[item["id"]] = resolution
+
+    valid_labels = {value for value, _display in FRONTMATTER_LABEL_CHOICES}
+    frontmatter_labels = {}
+    for item in frontmatter_items:
+        resolution = request.form.get(f"fm_{item['href']}", "")
+        if resolution in valid_labels:
+            frontmatter_labels[item["href"]] = resolution
 
     # Just a preview of what would happen -- the actual split only
     # happens when the Repair tab applies everything. A file needs 2+
@@ -667,6 +731,7 @@ def save_review(session_id):
         "accepted_ids": sorted(accepted_ids),
         "possessive_resolutions": possessive_resolutions,
         "accepted_color_ids": sorted(accepted_color_ids),
+        "frontmatter_labels": frontmatter_labels,
     }
     _staged_review_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
 
@@ -679,6 +744,8 @@ def save_review(session_id):
     for group in color_groups:
         for item in group["findings"]:
             item["accepted"] = item["id"] in accepted_color_ids
+    for item in frontmatter_items:
+        item["resolution"] = frontmatter_labels.get(item["href"], "")
 
     return render_template(
         "review.html",
@@ -691,6 +758,9 @@ def save_review(session_id):
         has_possessive_candidates=bool(possessive_groups),
         color_groups=color_groups,
         has_color_findings=bool(color_groups),
+        frontmatter_items=frontmatter_items,
+        has_frontmatter_items=bool(frontmatter_items),
+        frontmatter_label_choices=FRONTMATTER_LABEL_CHOICES,
         is_staged=True,
         split_result={
             "would_split": would_split,
@@ -859,7 +929,18 @@ def apply_repair(session_id):
         # applied above -- the repair modules below need to see the
         # book as it actually is right now, not as it was when the
         # Metadata/Review tabs were first opened.
-        analysis_report = EPUBAnalyzer().analyze(book)
+        #
+        # frontmatter_labels, if any were staged, get threaded straight
+        # into this one analysis call rather than applied as a separate
+        # patch step the way possessive/color resolutions are above --
+        # analyze_book_frontmatter's own overrides feed r.color,
+        # r.scene_breaks, and r.paragraphs for free since all three
+        # already reuse this same r.frontmatter object (see
+        # EPUBAnalyzer.analyze's docstring), so a person's correction
+        # here actually changes what those modules do this pass, not
+        # just what the Review tab displayed.
+        frontmatter_labels = staged_review.get("frontmatter_labels", {}) if staged_review is not None else {}
+        analysis_report = EPUBAnalyzer().analyze(book, frontmatter_overrides=frontmatter_labels)
 
         engine = Engine(config=config)
         reports_by_module, pass_num = engine.run_selected_repairs(book, engine.modules, analysis_report, max_passes=5)

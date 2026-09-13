@@ -30,7 +30,7 @@
   {% endif %}
 {% endif %}
 
-{% if not has_candidates and not has_possessive_candidates and not has_color_findings %}
+{% if not has_candidates and not has_possessive_candidates and not has_color_findings and not has_frontmatter_items %}
 <p class="empty-state">Nothing here needs review right now.</p>
 {% else %}
 <form method="post" action="{{ url_for('save_review', session_id=session_id) }}">
@@ -134,6 +134,41 @@
       </div>
     </div>
     {% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <h2>Front/Back Matter</h2>
+  {% if not has_frontmatter_items %}
+  <p class="empty-state">No front/back-matter page needed a second look &mdash; either none was detected, or every page found was labeled with high confidence already.</p>
+  {% else %}
+  <p class="details-toggle">
+    Every page the tool placed before the first confirmed chapter or after the last one, where
+    it wasn't confident enough in its own guess to trust unattended. Pick the correct label to
+    confirm or correct it &mdash; that also feeds forward into Scene Break, Color Strip, and
+    other repairs that already treat front/back matter differently from the main text. Leave a
+    row on &ldquo;Not yet reviewed&rdquo; to leave that page exactly as the tool's own best guess,
+    unconfirmed.
+  </p>
+  {% for item in frontmatter_items %}
+  <div class="review-group">
+    <h3>{{ item.href }}</h3>
+    <div class="review-item" style="align-items:center;">
+      <div style="flex:1;">
+        <span class="item-title">Best guess: {{ item.label }}</span>
+        <span class="confidence-tag confidence-{{ item.confidence|replace(' ', '-') }}">{{ item.confidence }}</span>
+        {% if item.preview %}<div class="review-preview">&ldquo;{{ item.preview }}&rdquo;</div>{% endif %}
+        <div class="review-notes">{{ item.reason }}</div>
+        <div style="margin-top:0.5rem;">
+          <select name="fm_{{ item.href }}">
+            <option value="" {% if not item.resolution %}selected{% endif %}>Not yet reviewed (keep as shown above)</option>
+            {% for value, display in frontmatter_label_choices %}
+            <option value="{{ value }}" {% if item.resolution == value %}selected{% endif %}>{{ display }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
   </div>
   {% endfor %}
   {% endif %}

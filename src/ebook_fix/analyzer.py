@@ -146,7 +146,7 @@ class AnalysisReport:
     merged_core_fields:MergedCoreFields=field(default_factory=MergedCoreFields)
 
 class EPUBAnalyzer:
-    def analyze(self,book):
+    def analyze(self,book,frontmatter_overrides=None):
         r=AnalysisReport()
 
         # Computed ahead of the per-chapter loop below (rather than at
@@ -155,8 +155,17 @@ class EPUBAnalyzer:
         # sequence to anchor its zones on, and the loop below needs
         # frontmatter's answer to decide whether a thin chapter is an
         # actual problem or an expected short front/back-matter page.
+        #
+        # frontmatter_overrides, if given, is a person's own
+        # resolution from the GUI Review tab (see
+        # frontmatter.analyze_book_frontmatter's own docstring for the
+        # {href: label} shape) -- threaded through here rather than
+        # applied as a separate patch afterward, since r.color,
+        # r.scene_breaks, and r.paragraphs below all reuse this same
+        # r.frontmatter object rather than recomputing their own, so a
+        # reviewer's correction reaches every one of them for free.
         r.chapters=analyze_book_chapters(book)
-        r.frontmatter=analyze_book_frontmatter(book,chapter_summary=r.chapters)
+        r.frontmatter=analyze_book_frontmatter(book,chapter_summary=r.chapters,overrides=frontmatter_overrides)
         matter_by_href={m.href:m for m in r.frontmatter.chapters}
 
         for ch in book.chapters:

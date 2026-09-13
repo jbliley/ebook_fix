@@ -1493,7 +1493,84 @@ Sidewinders and MM21 among them, are too).
   `frontmatter.py` -- moot now; it landed in `parser.py` (population)
   + new `toc.py` (validation), with `frontmatter.py` untouched.
 
-## Continuity note
+## Done: front/back matter -- GUI Review tab, confirmed labels feed back into repair (2026-09-12)
+
+Jacob's ask: detect and confidently label front/back matter, and pop
+anything not confident enough into review. The classification itself
+(`frontmatter.py`) already existed in decent shape from the
+2026-08-27 confidence pass above -- what was missing was anywhere a
+person actually saw or corrected a low-confidence guess, and any way
+a correction actually changed downstream behavior rather than just
+being cosmetic.
+
+**Where review lives:** the GUI Review tab, same place as chapter-
+split review/possessive resolution/decorative color removal (Jacob's
+call -- CLI review file was the other option). A new "Front/Back
+Matter" section lists every page in the FRONT or BACK zone whose
+confidence is "medium" or "low" -- "high" confidence pages aren't
+shown at all, per the "if confident, don't bother a person" framing.
+Deliberately excludes books with no confirmed chapter sequence at all
+(`boundaries_confirmed=False`): every single page in a book like that
+falls into frontmatter.py's "unknown zone" fallback at once, which is
+a chapter-detection problem, not a front/back-matter labeling one --
+Case 3's own review flow is where that belongs, not a review list with
+every page in the book on it. Each item shows the tool's current best
+guess, its reason, a short text preview, and a dropdown of every
+`MatterLabel` value plus a "not yet reviewed" default that leaves that
+page exactly as shown -- matching the possessive-resolution section's
+own "leave as-is unless you pick something" convention rather than
+silently treating an unopened dropdown as a confirmation.
+
+**What resolving one actually does (Jacob's second call: feed it
+back, not just bookkeeping):** `analyze_book_frontmatter()` gained an
+`overrides={href: label}` parameter -- an override wins over every
+other signal unconditionally, is recorded at "high" confidence with
+its own distinct reason ("confirmed by reviewer in the GUI Review
+tab"), and its zone is derived from the label itself (a small
+label->zone table) rather than collected as a second, separate
+choice. `EPUBAnalyzer.analyze()` threads a `frontmatter_overrides`
+parameter straight into this one call -- and because `color.py`,
+`scene_breaks.py`, and `paragraphs.py` all already take a
+`frontmatter_summary` parameter and only compute their own fresh copy
+when none is passed in (see the analysis-first architecture note up
+top), a correction made in the Review tab reaches all three for free,
+with no changes needed in any of those three modules themselves. The
+GUI's `apply_repair()` reads any staged `frontmatter_labels` and
+passes them straight into that one `analyze()` call, same spot the
+staged split/possessive/color choices already get applied from.
+
+**A real, adjacent bug this surfaced, fixed alongside:**
+`MM5_Complete.epub` came back with 33 review items on first pass --
+almost every one of its 28 `chapterN.xhtml` files reading as "back
+matter, low confidence." Traced it to `chapters.py`'s own boundary
+detection: this book's table of contents is one page with an anchored
+link for all 28 chapters right there in the page itself, so
+`chapters.analyze_book_chapters()` legitimately confirms a full 1..28
+sequence, but every one of those 28 boundary objects' `.href` is the
+*same* TOC page. Zone-anchoring assumes each confirmed boundary marks
+a distinct chapter file's start; fed a sequence that all collapses to
+one href, `first_idx`/`last_idx` collapse to that single index too, so
+literally every real chapter file that follows reads as back matter
+with false confidence. A genuine one-chapter, one-file book hits this
+same shape by coincidence (one boundary, one href) and needed to stay
+working -- the actual tell is specifically *multiple* boundary objects
+collapsing into *fewer* hrefs than boundaries, which only happens when
+several markers were found crammed onto shared pages. Detected that
+case and falls back to the same honest "no confirmed sequence, unknown
+zone" state a book with zero detected chapters gets, rather than
+confidently mislabeling real chapters. `MM5_Complete.epub` now
+correctly shows zero front/back-matter review items instead of 33.
+
+**Verified:** full `analyze`/`repair`/`auto-fix` regression across all
+14 sample books; `app.test_client()` sweep of the Review tab across
+all 14 (correct item counts, zero crashes, high-confidence pages
+correctly excluded); staged an override end-to-end (stage ->
+`apply_repair` -> confirmed the same override reaches the exact
+`EPUBAnalyzer().analyze()` call the repair pass itself uses); repair
+idempotency re-checked on a book with an active override, byte-
+identical on a second pass.
+
+
 This file is the source of truth for "what's next" on the analysis
 side, more reliable than relying on conversation memory across
 sessions. Update it as items get picked up, scoped, finished, or

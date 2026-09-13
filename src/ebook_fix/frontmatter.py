@@ -83,6 +83,34 @@ class MatterLabel(Enum):
     MAIN_CONTENT = "main content"
 
 
+FRONT_LABELS = {
+    MatterLabel.COVER, MatterLabel.TITLE_PAGE, MatterLabel.COPYRIGHT,
+    MatterLabel.PUBLISHER, MatterLabel.DEDICATION, MatterLabel.EPIGRAPH,
+    MatterLabel.TABLE_OF_CONTENTS, MatterLabel.FRONT_MATTER,
+}
+BACK_LABELS = {
+    MatterLabel.ACKNOWLEDGMENTS, MatterLabel.AFTERWORD,
+    MatterLabel.ABOUT_AUTHOR, MatterLabel.COLOPHON, MatterLabel.BACK_MATTER,
+}
+
+
+def zone_for_label(label_value: str) -> str:
+    """Which zone a given MatterLabel value implies -- used both to
+    derive a reviewer's chosen label into a zone below, and by the GUI
+    to group review items without duplicating this mapping. Every
+    MatterLabel not in FRONT_LABELS/BACK_LABELS above (i.e. just
+    MAIN_CONTENT) implies MAIN_ZONE."""
+    try:
+        label = MatterLabel(label_value)
+    except ValueError:
+        return MAIN_ZONE
+    if label in FRONT_LABELS:
+        return FRONT_ZONE
+    if label in BACK_LABELS:
+        return BACK_ZONE
+    return MAIN_ZONE
+
+
 @dataclass
 class ChapterMatter:
     href: str = ""
@@ -290,21 +318,68 @@ def _label_from_text(text, word_count, metadata=None):
 # Entry point
 # ---------------------------------------------------------------------
 
-def analyze_book_frontmatter(book, chapter_summary=None) -> BookFrontMatterSummary:
+def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> BookFrontMatterSummary:
     """Classify every spine entry into a front/back/main zone plus a
     best-guess label. `chapter_summary` should be the
     chapters.BookChapterSummary the analyzer already computed for this
     book -- passed in so this doesn't have to re-run chapter boundary
     detection itself. Falls back to computing it if none is given, so
-    this still works called standalone."""
+    this still works called standalone.
+
+    `overrides`, if given, is an {href: MatterLabel value} dict of a
+    person's own resolution from the GUI Review tab -- see
+    `_frontmatter_review_groups`/`save_review` in gui/app.py. An
+    override wins over every other signal below unconditionally: a
+    person's explicit call is worth more than any pattern match, and
+    gets recorded at "high" confidence with its own distinct reason so
+    it reads differently from an auto-detected high-confidence match
+    in the GUI/CLI output. The zone an override implies is derived
+    from the label itself (see `zone_for_label` above) rather than
+    taken as a separate input, so the Review tab only ever needs to
+    collect one choice per page, not two.
+
+    This is the single point every other analyzer/repair module's own
+    frontmatter awareness flows through (color.py, scene_breaks.py,
+    paragraphs.py, class_map.py all take a `frontmatter_summary`
+    parameter and default to computing it fresh only if none was
+    passed in) -- so a caller that threads a `BookFrontMatterSummary`
+    computed with overrides through to those doesn't need any changes
+    of its own to make a reviewer's correction take effect there too.
+    """
     if chapter_summary is None:
         from ebook_fix.chapters import analyze_book_chapters
         chapter_summary = analyze_book_chapters(book)
+    overrides = overrides or {}
 
     ordered = _spine_ordered_chapters(book)
     href_order = [chapter.href for chapter in ordered]
 
-    confirmed_hrefs = {c.href for c in (chapter_summary.confirmed_boundaries or [])}
+    confirmed_boundaries = chapter_summary.confirmed_boundaries or []
+    confirmed_hrefs = {c.href for c in confirmed_boundaries}
+
+    # Guard against a real anomaly this surfaced on a sample book: a
+    # single page (e.g. a one-page anchored table of contents) can
+    # itself contain markers for every chapter number in the book,
+    # so chapters.py legitimately confirms a full 1..N sequence but
+    # every single boundary object's .href collapses to that one
+    # page. Zone-anchoring below assumes each confirmed boundary marks
+    # the START of a distinct chapter file -- fed a dozens-strong
+    # sequence that all resolves to one href, first_idx and last_idx
+    # collapse to that single index too, so literally everything
+    # after that one page (every real chapter file that follows it)
+    # reads as "back matter." A book with one genuine chapter in one
+    # file is exactly this same shape by coincidence (one boundary,
+    # one href) and is NOT this anomaly -- the tell is specifically
+    # more than one distinct boundary collapsing into fewer hrefs than
+    # boundaries, which only happens when multiple markers were found
+    # crammed into shared pages. Treated the same as no confirmed
+    # sequence at all (honest "low confidence, unknown zone" for every
+    # page) rather than confidently mislabeling real chapters as back
+    # matter -- see analyze_structure()/split-structure for the
+    # separate, richer detection this book's own chapter *splitting*
+    # already goes through instead of this older sequence.
+    if len(confirmed_boundaries) > 1 and len(confirmed_hrefs) == 1:
+        confirmed_hrefs = set()
 
     first_idx = None
     last_idx = None
@@ -318,6 +393,32 @@ def analyze_book_frontmatter(book, chapter_summary=None) -> BookFrontMatterSumma
     summary = BookFrontMatterSummary(boundaries_confirmed=first_idx is not None)
 
     for i, chapter in enumerate(ordered):
+        override_label = overrides.get(chapter.href)
+        if override_label is not None:
+            try:
+                label = MatterLabel(override_label)
+            except ValueError:
+                # Not a real MatterLabel value -- stale or tampered
+                # form data. Falls through to normal detection below
+                # rather than raising, same as any other malformed
+                # input this project treats defensively.
+                override_label = None
+        if override_label is not None:
+            zone = zone_for_label(override_label)
+            confidence = "high"
+            reason = "confirmed by reviewer in the GUI Review tab"
+            summary.chapters.append(ChapterMatter(
+                href=chapter.href, zone=zone, label=label.value,
+                confidence=confidence, reason=reason,
+            ))
+            if zone == FRONT_ZONE:
+                summary.front_matter_count += 1
+            elif zone == BACK_ZONE:
+                summary.back_matter_count += 1
+            elif zone == MAIN_ZONE:
+                summary.main_content_count += 1
+            continue
+
         text = _chapter_text(chapter)
         word_count = len(text.split())
 

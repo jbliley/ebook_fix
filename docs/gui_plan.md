@@ -1191,6 +1191,32 @@ render; idempotency of both new repair functions confirmed by diffing
 extracted zip contents between two passes, not raw bytes, same
 standard as everything else in this project.
 
+## Done -- Review tab: fourth finding type, Front/Back Matter (2026-09-12)
+
+A fourth section added to the Review tab alongside chapter-start
+boundaries, possessive candidates, and decorative color -- every page
+in a FRONT/BACK zone whose confidence is "medium" or "low" gets a
+dropdown of every specific label (title page, copyright, dedication,
+etc.) plus a "not yet reviewed" default that leaves it exactly as
+shown. Full technical detail (the `overrides` parameter on
+`analyze_book_frontmatter()`, why a resolution here actually changes
+what Color Strip/Scene Break/paragraph checks do rather than just
+updating a label, and a real collapsed-boundary bug this surfaced and
+fixed on `MM5_Complete.epub`) is in `docs/analysis_roadmap.md`'s own
+2026-09-12 entry, since the classification logic itself lives in
+`frontmatter.py`, not the GUI layer -- this entry is just the Review
+tab's side of it: a new `_frontmatter_review_groups()` helper in
+`gui/app.py`, a `frontmatter_labels` key alongside the existing three
+in `staged_review.json`, and the new section in `review.html`.
+
+Verified: `app.test_client()` sweep of the Review tab across all 14
+sample books (correct per-book item counts, zero crashes,
+high-confidence pages correctly excluded from the list); staged a
+label correction end-to-end through to `apply_repair` and confirmed
+the same correction reaches the exact `EPUBAnalyzer().analyze()` call
+the repair pass itself uses; full `analyze`/`repair`/`auto-fix`
+regression across all 14 books.
+
 ## Planned -- Jacob's next batch (2026-09-11)
 
 Written up per Jacob's request, scoped through a round of clarifying
