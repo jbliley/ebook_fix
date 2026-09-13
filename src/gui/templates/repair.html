@@ -92,6 +92,16 @@
       <input type="checkbox" name="modules" value="{{ m.attr }}" id="mod-{{ m.attr }}" {% if m.checked %}checked{% endif %}>
       <label for="mod-{{ m.attr }}" style="display:inline; font-weight:normal; margin:0;">{{ m.label }}{% if m.count %} ({{ m.count }} issue{{ 's' if m.count != 1 else '' }}){% endif %}</label>
     </div>
+    {% if m.issues %}
+    <details style="margin: -0.3rem 0 0.4rem 1.9rem;">
+      <summary style="cursor:pointer; font-size:0.82rem; color:#3182ce;">What's being fixed?</summary>
+      <ul style="margin:0.4rem 0 0.2rem 1rem; padding-left:1rem; font-size:0.82rem; color:#444;">
+        {% for issue in m.issues %}
+        <li><code>{{ issue.location }}</code>: {{ issue.description }}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
     {% endfor %}
   </div>
   <button type="submit" class="button">Apply Everything</button>

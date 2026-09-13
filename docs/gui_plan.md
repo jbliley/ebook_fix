@@ -1408,3 +1408,34 @@ stray backup, with the `_fixed.epub` still sitting separately.
 Real-world confirmation (an actual Windows lock, not a simulated one)
 still needs a person hitting it live -- Jacob's original report is
 what's actually driving this fix.
+
+## Done -- Repair tab: "What's being fixed?" dropdown per module (2026-09-13)
+
+Jacob's ask: curious what Cover Repair, specifically, is actually
+doing to a book while deciding whether to run it -- a count alone
+("1 issue") doesn't say what the issue is.
+
+No new analysis needed -- `book_repair()` was already calling each
+module's own `.analyze(book, analysis_report)` to get a count for the
+checkbox label, and that call already returns a full `Report` with
+every individual `Issue` (location + description), the same data the
+CLI's own `--details` flag prints. Just needed to stop throwing that
+list away after reading `.count` off it, and give the person
+somewhere to see it.
+
+Built with a plain HTML `<details>`/`<summary>` element per module
+(only rendered when that module found something), no new JS at all --
+clicking "What's being fixed?" natively expands a list of
+`location: description` lines, e.g. Cover Repair on a real book now
+shows "content.opf: EPUB2/EPUB3 cover declarations will be brought
+into agreement" right there. Sits as its own block below each
+module's checkbox row rather than inside it, since `.module-row`'s
+existing flex layout would otherwise squeeze it in sideways next to
+the label instead of dropping to its own line.
+
+Verified: Cover Repair's dropdown shows the exact expected description
+on a real book; an `app.test_client()` sweep across all 14 sample
+books confirms the Repair tab still renders and `apply_repair` still
+runs correctly; full CLI `analyze` regression across all 14, untouched
+since this is a GUI-only, read-only display change.
+

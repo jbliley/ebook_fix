@@ -789,18 +789,30 @@ def book_repair(session_id):
     for attr, label in _REPAIR_MODULES:
         module_config = getattr(config, attr)
         module_cls = _REPAIR_MODULE_CLASSES[attr]
-        count = module_cls(module_config).analyze(book, analysis_report).count
+        report = module_cls(module_config).analyze(book, analysis_report)
         modules.append({
             "attr": attr,
             "label": label,
-            "count": count,
+            "count": report.count,
+            # Full per-finding detail (location + description, same
+            # text the CLI's own --details flag prints), so the Repair
+            # tab can show exactly what a module found rather than
+            # just how many -- Jacob's ask, prompted by wanting to see
+            # what Cover Repair specifically does to a book before
+            # running it. Only ever read by the template when count >
+            # 0 (see repair.html's {% if m.issues %} guard), so an
+            # empty list here for a no-op module costs nothing.
+            "issues": [
+                {"location": issue.location, "description": issue.description}
+                for issue in report.issues
+            ],
             # Pre-checked from config, same as before -- but only when
             # there's actually something for it to do against this
             # book. A module config-enabled but with nothing to fix
             # (e.g. EPUB 3 Upgrade on a book that's already EPUB 3)
             # starts unchecked instead of running a no-op pass; still
             # toggleable by hand either way.
-            "checked": module_config.enabled and count > 0,
+            "checked": module_config.enabled and report.count > 0,
         })
 
     staged_metadata = _read_staged(_staged_metadata_path(session_dir))
