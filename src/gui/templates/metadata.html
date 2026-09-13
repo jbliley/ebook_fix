@@ -26,6 +26,11 @@
     {% else %}
     <input type="text" id="field-{{ f.name }}" name="{{ f.name }}" value="{{ f.value }}">
     {% endif %}
+    {% if f.name == 'author' %}
+    <div class="author-swap">
+      <button type="button" class="button secondary" style="margin-top:0.4rem; padding:0.3rem 0.7rem; font-size:0.8rem;" onclick="swapAuthorName()">Swap to &ldquo;First Last&rdquo;</button>
+    </div>
+    {% endif %}
     {% if f.mismatch %}
     <div class="mismatch-choices">
       Pick a value:
@@ -99,6 +104,30 @@
       e.returnValue = "";
     }
   });
+
+  // Mirrors metadata.author_names._as_first_last exactly (used there
+  // for a different purpose -- reconciling an EPUB/Calibre disagreement
+  // that turns out to be the same name in two orders): exactly one
+  // comma, non-empty on both sides, "Last, First" -> "First Last". A
+  // second comma (a suffix like "Smith, John, Jr.") or a value that's
+  // already "First Last" is left untouched -- same "only the
+  // unambiguous case" restraint as the Python original, not a guess.
+  // If Python's version of this logic ever changes, this copy should
+  // too.
+  window.swapAuthorName = function() {
+    var el = document.getElementById("field-author");
+    var parts = el.value.split(",");
+    if (parts.length !== 2) return;
+    var last = parts[0].trim();
+    var first = parts[1].trim();
+    if (!last || !first) return;
+    el.value = first + " " + last;
+    // Setting .value directly doesn't fire a real "input" event on its
+    // own -- dispatched here so the dirty-tracking listener above
+    // (which just listens on the form) picks this up the same as if
+    // it had been typed.
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  };
 })();
 </script>
 {% endblock %}

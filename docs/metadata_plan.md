@@ -991,6 +991,90 @@ All three of the open questions below are now decided, per Jacob:
 
 None currently open.
 
+## Session: Metadata tab -- "Swap to First Last" author button (2026-09-12)
+
+Jacob's ask: a button that turns "Twain, Mark" into "Mark Twain" right
+on the Metadata tab, since he's running into this more often than the
+EPUB/Calibre-mismatch case `author_names.detect_reversed_author()`
+already handles automatically.
+
+Reused rather than reinvented: `author_names._as_first_last()` already
+does exactly this transform (exactly one comma, non-empty on both
+sides -> "First Last"), just as one half of the two-sided reversal
+*detection* between an EPUB and a Calibre sidecar. This is the same
+transform applied on demand, one-sided, at a person's own request
+rather than triggered by a disagreement between two sources.
+
+Built client-side in JS rather than a server round-trip, so it's
+instant and doesn't disturb anything else on the page -- a small
+"Swap to 'First Last'" button next to the Author field alone (not
+every field, this is author-specific) that mirrors `_as_first_last`'s
+exact rule: splits on comma, no-ops on anything other than exactly
+one comma with non-empty text on both sides (a suffix like "Smith,
+John, Jr." has two commas and is correctly left alone, same restraint
+as the Python original -- if that rule ever changes, this copy needs
+the same update). Dispatches its own synthetic "input" event after
+setting the field, so the existing unsaved-changes-warning script
+(2026-09-12, earlier the same day) picks up the change the same as if
+it had been typed, with no changes needed to that script itself.
+
+Verified: full `analyze` regression across all 14 sample books, plus
+an `app.test_client()` sweep confirming the button and its Author
+field both render correctly for every book.
+
+## Session: automated metadata lookup -- scoped, not yet built (2026-09-12)
+
+Jacob's ask: pull book info (title, author, description, etc.)
+automatically from an online lookup keyed on ISBN, a Google Books ID,
+or an ASIN, to make first-pass metadata entry less manual. Scoped
+here per his own "hold off if it's a lot of work" -- verdict below is
+that it isn't, relatively speaking, but this needed a few real
+decisions before any code, so it's written up rather than built yet.
+
+**Lookup source:** ISBN is the only one of the three worth building
+against.
+- **Open Library**'s API needs no signup/key at all, and Google
+  Books' basic volume search works unauthenticated too (rate-limited,
+  fine for one-book-at-a-time personal use) -- both take an ISBN and
+  return title, author(s), description, publisher, published date,
+  and usually a cover image URL, as plain JSON over HTTPS. No new
+  dependency needed; Python's own `urllib` is enough, in keeping with
+  this project's minimal-dependency approach (see CLAUDE.md-equivalent
+  project conventions -- hand-roll before adding a library).
+- **ASIN** isn't practically usable: Amazon's Product Advertising API
+  requires being an approved affiliate with an active sales history,
+  not something a personal tool can realistically rely on. Not worth
+  building against something likely to stop working.
+- **Google Books ID** only helps once you already have one -- there's
+  no free path from "book I own" to its Google Books ID except
+  already knowing the ISBN, so this isn't really a separate lookup
+  path from ISBN, just a different-shaped key into the same service.
+
+**Open questions before building:**
+- Whether enough of Jacob's actual books already carry a usable ISBN
+  in `dc:identifier` to make this worth it as an ISBN-only feature, or
+  whether a title/author search fallback (less exact, more false-
+  positive risk) is needed from day one.
+- Whether a match auto-fills the Metadata tab's fields directly, or
+  lands as a proposed set of values a person reviews and accepts field
+  by field first -- same "confident vs. needs a look" posture as
+  everything else in this project, but metadata is the one area where
+  a wrong auto-fill (a mismatched cover-vs-content ISBN, a book with
+  multiple editions) would silently overwrite something already
+  correct, which argues for review-first here more than most other
+  repairs.
+- This would be the first feature in the whole project that needs
+  outbound internet access -- everything else runs fully offline
+  today. Worth being upfront about that in the GUI itself (an explicit
+  button/action, not something that fires automatically just from
+  opening the Metadata tab), both for the person's own awareness and
+  because it needs to fail gracefully and obviously when offline
+  rather than hanging or erroring cryptically.
+
+**Not started.** Revisit if/when Jacob wants to move forward -- the
+lookup module itself should be small; the review-first UX and offline
+handling are the real design work.
+
 ## Session: first real-library confirmation + calibredb error cleanup (2026-09-10)
 
 Jacob's first real end-to-end test against his actual Calibre library

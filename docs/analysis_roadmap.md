@@ -88,6 +88,18 @@ this is a holding pen, not a commitment.
 - **Font embedding gaps -- done, see below** (both directions: a
   `@font-face` rule pointing at a font that isn't embedded, and a font
   that's embedded but no `@font-face` rule ever uses it).
+- Strip an embedded body-text font, let the e-reader's own choice
+  apply -- raised by Jacob (2026-09-12), same motivation and same
+  confident/review split as hardcoded text-color stripping below:
+  confidently strip a font used for the whole book's body text,
+  route anything narrower/decorative (chapter-opener display fonts,
+  a monospace font for code, an in-story "different language" font)
+  to the Review tab rather than guessing. Genuinely new complexity
+  beyond color-strip: removing an embedded font file means also
+  cleaning up its manifest entry and any `encryption.xml` reference
+  for an IDPF-obfuscated font, not just a CSS property value. See
+  "Done: hardcoded text-color detection" below for the full writeup --
+  not yet scoped into concrete steps.
 - Encoding declaration mismatches -- declared XML/HTML encoding
   doesn't match the file's actual bytes.
 
@@ -1294,6 +1306,49 @@ and a second `repair` pass on the already-repaired output makes zero
 further changes (idempotent, diffed at the extracted-content level).
 Full sample suite re-run through both `repair` and `auto-fix` with no
 crashes and valid XML throughout.
+
+## Session: strip embedded fonts, let the e-reader's own choice apply (2026-09-12)
+
+Jacob's question: worth doing, mirroring `color.py`'s hardcoded-color
+stripping, unless there's a real argument against it. Verdict: worth
+doing, but not a blanket strip-everything the way color mostly can be
+-- fonts carry real intent more often than a hardcoded color does (a
+stylized font for chapter openers, a distinct look for an in-story
+"different language," a monospace font for code in a technical book),
+so a full strip risks losing something a person actually wanted kept,
+in a way color-strip's own confident/review split was built to avoid
+in the first place.
+
+**The path forward is the same split already proven for color, not a
+new design:** confidently strip an embedded font used for a book's own
+body text (the common, boring case -- and easily identified the same
+way `color.py` already identifies body-text color, via the dominant-
+class/zone signals `class_map.py`/`frontmatter.py` already compute),
+and route anything narrower or clearly decorative (a heading-only
+font, a font used on a handful of paragraphs rather than the whole
+book) to the Review tab rather than guessing.
+
+**What's genuinely new here, beyond what color-strip needed:**
+- Font files are a real embedded resource (an actual file in the
+  manifest), not a CSS property value -- removing one means also
+  removing its manifest entry, and, if present, its `encryption.xml`
+  reference (some embedded fonts are IDPF-obfuscated per the EPUB
+  spec; leaving a dangling `encryption.xml` entry pointing at a
+  now-deleted font would fail validation).
+- File-size reduction is a genuine side benefit here that color-strip
+  never had -- an embedded font file can be tens of KB to over 1MB,
+  so stripping an unnecessary one measurably shrinks the book, on top
+  of the accessibility win of letting a person's own e-reader font
+  settings (size, face, dyslexia-friendly alternatives) actually apply
+  consistently.
+
+**Not started, not yet scoped into concrete steps** -- worth a proper
+Q&A pass (matching color-strip's own confident/review boundary
+exactly, or drawing it somewhere else; whether decorative-font
+detection reuses `class_map.py`'s existing selector/zone machinery
+directly or needs its own) before any code, same as font stripping's
+own place in the candidate list above.
+
 
 
 ## Next: Case 3 -- anthology/omnibus support, or in-body Contents-page linking
