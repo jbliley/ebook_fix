@@ -980,6 +980,84 @@ anchor a new entry against). One piece of that gap is now closed:
 - Same manual-review posture as class_standardize: a dry-run/review
   step before anything is applied, not an automatic split on `repair`.
 
+## Book splitter -- separate files for a bundled anthology/omnibus (2026-09-13, not started)
+
+Raised by Jacob, with a real example: a Mountain Man omnibus EPUB
+bundling *Creed of the Mountain Man* and *Guns of the Mountain Man*
+into one file. His actual want, plainly stated: for a 50+ book series
+still expanding, he wants each entry as its own file in his library,
+not bundled 2-to-a-file omnibus editions -- "a ways down the road,"
+his words, so this is scoping only, nothing built.
+
+**Genuinely a different kind of feature, not a bigger version of
+everything else in this file.** Every existing repair module (and the
+chapter-splitting work above) edits one EPUB in place. This would need
+to *produce two or more complete, independent, valid EPUBs* from a
+single input -- each with its own manifest, spine, metadata, and
+cover, not just a reorganized TOC within one file. Worth being upfront
+about that scope difference before this goes any further.
+
+**What the real example actually looks like, dug into directly rather
+than guessed at:**
+- The in-body Contents page already labels each work explicitly --
+  `class="toc_entry_part"` anchors to a dedicated one-line title-
+  divider page (`<div class="title-part">GUNS OF THE MOUNTAIN MAN</div>`,
+  its own spine file) -- and chapter numbering cleanly restarts at 1
+  for each work (book one: chapters 1-31 + an "AUTHOR'S NOTE", book
+  two: chapters 1-32). A strong, reliable, semantic detection signal,
+  not a guess.
+- The copyright page independently corroborates the same split,
+  separately copyrighting each novel by name and year ("*Creed of the
+  Mountain Man* copyright (c) 1999... *Guns of the Mountain Man*
+  copyright (c) 1999...") -- two independent signals agreeing is
+  exactly the kind of corroboration this project's confidence-gating
+  elsewhere already leans on.
+- The complications are just as real: the shared title page lists
+  *both* titles as title/subtitle on one page, meant to be read once
+  for the whole omnibus -- splitting cleanly means trimming it per
+  output file, not just copying it twice. The file's own `dc:title`
+  metadata only reflects the first book, not the second, so it can't
+  be trusted for either output file's title without also reading the
+  in-body signal above. There's no per-book ISBN anywhere in the file
+  -- only the omnibus edition's own ISBN, which doesn't belong to
+  either individual novel. And footnotes turned out to be genuinely
+  interleaved: one shared footnotes file has entries referenced from
+  chapters in *both* books, so even splitting "notes" cleanly needs
+  matching each footnote back to whichever book's chapter references
+  it, not just a straight file copy.
+
+**Real open questions, not yet answered, before this could be built:**
+- Shared front matter (a generic "Dear Readers" publisher letter, the
+  copyright page, a single cover image representing the whole
+  omnibus) -- duplicated into both output files, trimmed per file, or
+  kept only with the first and dropped from the rest?
+- Per-book metadata with no clean source in the file at all (ISBN,
+  cover art, accurate series position) -- this is exactly what the
+  scoped-but-not-built ISBN/online metadata lookup
+  (`docs/metadata_plan.md`, 2026-09-12) would be for, if that gets
+  built first: look up each split-out title by name once a person
+  confirms the split, rather than leaving those fields blank.
+  `docs/series_metadata_plan.md` likely also has a role here (series
+  name is obvious -- "Mountain Man" -- but the actual numbered
+  position in a 50+ book series isn't derivable from the file alone).
+- Detection generalization: this example's signal (an explicit
+  `toc_entry_part`-style TOC anchor plus a numbering restart) is about
+  as clean as this gets. A book with the same bundled-omnibus shape
+  but a plainer, unlabeled TOC would need to fall back to something
+  closer to Case 3's own restart-detection gap (see
+  `docs/analysis_roadmap.md`'s "Next" section) -- worth confirming how
+  common the clean-signal case actually is across Jacob's own
+  collection before deciding whether the harder, unlabeled case is
+  worth building at all.
+- Whether this becomes a new CLI command/GUI flow of its own (produces
+  N new files, doesn't touch the original) rather than fitting the
+  existing `repair`/`auto-fix` shape at all, given the output isn't
+  "one fixed file" the way everything else in this project is.
+
+**Not started.** The uploaded example file is fully picked apart above
+rather than kept as a fixture yet -- worth adding to `examples/` once
+real work on this begins, not before.
+
 ## Open questions to resolve when we pick this back up
 - Whether Phase 0's structure tree subsumes chapters.py entirely or
   sits alongside it.

@@ -1466,8 +1466,11 @@ Three independent, unscoped items, neither currently a priority:
   file, each restarting its own numbering -- Case 3 has no label word
   to anchor a restart on the way the normal pipeline's Part-sequence
   handling already does for case 1/2, so this would need its own
-  detection strategy. Flagged by Jacob as worth covering eventually,
-  not urgent.
+  detection strategy. Superseded by "book splitter," below, which is
+  the actual feature Jacob wants here (detecting the restart alone
+  wouldn't accomplish much on its own -- splitting into separate files
+  is the point). See `docs/xhtml_recoder_plan.md`'s 2026-09-13 entry
+  for the full scoping writeup and a real example.
 - Linking an in-body Contents page's chapter names to the chapters
   they name -- also found against MM21: `part1.xhtml` is a real
   "CONTENTS" page listing every chapter name (`One`, `Two`, `Three`,
