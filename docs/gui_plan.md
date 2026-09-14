@@ -1224,35 +1224,76 @@ questions before anything gets built -- nothing in this section is
 started yet. Each item below is its own independent phase; order
 isn't decided.
 
-### Cover replace (upload, or reuse the Calibre folder's own cover)
+### Cover replace (upload, or reuse the Calibre folder's own cover) -- done, 2026-09-14
 
-Two related but separate actions, both landing through the existing
-`CoverRepair` pipeline (declaration/manifest handling stays automatic,
-same as it already is for every other cover fix) rather than a new
-one-off writer:
-- **Upload a replacement image** from the Metadata (or a new Cover)
-  tab -- a person picks a file, it becomes the book's cover image.
-- **Reuse the Calibre folder's own cover**, when the book is
-  Calibre-managed -- Calibre libraries keep a `cover.jpg` sitting
-  right next to `metadata.opf` in the book's own folder; offer to pull
-  that image into the EPUB directly, no upload needed. **One-directional
-  only, folder -> EPUB, confirmed with Jacob** -- this does not push a
-  newly-uploaded cover back out to the Calibre folder or `metadata.db`
-  the way the existing metadata write-back sync does for text fields;
-  that direction isn't being built here.
+Turned out the CLI/engine side of this was already fully built and
+just never wired into the GUI at all -- `replace-cover` has been a
+working CLI command with its own `Engine.replace_cover()` all along
+(local file or URL source, filename-collision handling, the works),
+just with no caller anywhere in the GUI. Extracted its core mutation
+logic into a new shared function, `cover.apply_cover_replacement()`,
+so the CLI and the GUI call the exact same code rather than
+duplicating it -- verified the refactor is behavior-identical on both
+of `replace_cover`'s existing code paths (a book with a usable cover
+already, and one with none at all).
 
-Not yet scoped:
-- Whether "reuse the Calibre folder's cover" is offered automatically
-  whenever a mismatch is detected (the existing cover-mismatch
-  NEEDS_REVIEW finding calibre_detect.py's analysis already surfaces),
-  or needs an explicit action a person takes -- likely ties into the
-  existing "Open questions" note below about where cover-mismatch
-  comparison lives (this tab vs. Before/After).
-- Image validation before it's accepted (right dimensions/aspect
-  ratio, actually a valid image file, not something already handled
-  elsewhere) -- `CoverRepair`'s existing checks are about the
-  *declaration*, not the pixel content, so this may need its own
-  light validation pass.
+Both actions from the earlier plan, on the Metadata tab:
+- **Upload a replacement image** -- a small multipart form, own POST
+  route (`/book/<id>/metadata/cover`), separate from the main
+  metadata text-field form since file uploads need their own
+  encoding. Sniffs the uploaded bytes to confirm it's actually a
+  recognized image format before staging anything (this IS the
+  "image validation" the earlier "not yet scoped" note wondered
+  about -- confirming it's a real, readable image was judged enough;
+  no dimension/aspect-ratio gate, since a person picking their own
+  cover on purpose doesn't need the tool to second-guess the choice).
+- **Reuse the Calibre folder's own cover** -- a one-click button next
+  to a preview of it, only shown when the book is Calibre-managed and
+  a `cover.jpg` actually exists in its folder. Resolved the other
+  "not yet scoped" question (automatic vs. explicit) as explicit: a
+  person clicks "Use this instead," it isn't offered automatically
+  just because a mismatch was detected.
+
+**Jacob also asked for a preview with dimensions on the tab**, which
+ended up shaping the whole feature more than a small add-on: added
+`cover.image_dimensions()`, a hand-rolled JPEG/PNG/GIF/WEBP header
+parser (no Pillow/imaging dependency, matching this project's
+hand-roll-first approach), cross-checked against ImageMagick on real
+and generated test images across all four formats. The Metadata tab
+now shows three previews side by side when relevant: the book's
+current cover, a Calibre folder's own cover.jpg (as the "use this
+instead" option), and a staged pending replacement -- each with
+pixel dimensions and file size, as a data-URI thumbnail rather than a
+separate asset route (simpler for something this small).
+
+**Staging:** its own `staged_cover.json`, deliberately separate from
+`staged_metadata.json` -- that file gets fully overwritten on every
+Metadata tab save (one form, no partial-field merging), so a cover
+choice living inside it would get silently wiped out the next time a
+person edited an unrelated text field. Caught and fixed a real bug
+here before it shipped: the cover-apply step in `apply_repair()` was
+initially nested inside the `if staged_metadata is not None:` block,
+which would have silently skipped a cover-only staging with no text
+field ever touched -- moved it out to its own independent check.
+A "Cancel" button on the pending-replacement preview clears the
+staged choice back to the book's real current cover.
+
+Verified: an `app.test_client()` sweep across all 14 sample books and
+every tab; upload-and-apply and use-Calibre-cover-and-apply both
+confirmed end-to-end by unzipping the actual output and diffing the
+embedded cover bytes against the source image; a simulated
+Calibre-managed book (metadata.opf + metadata.db + a `cover.jpg` in
+the book's own folder) built specifically to exercise that path,
+since none of the sample books are actually Calibre-managed; two
+independent stage-and-apply runs produce byte-identical output
+(idempotent); full CLI `analyze`/`replace-cover` regression across
+all 14 sample books.
+
+Not yet built, only because nothing forced the question: no cover
+found in EITHER the book nor a Calibre folder next to it -- the
+Metadata tab just shows "No usable cover found" with no crash, but
+there's no online-lookup fallback offered (that's the
+scoped-but-not-built ISBN metadata lookup's territory, not this).
 
 ### Bug fix (done, 2026-09-12) -- GUI errors if the original file is removed mid-session
 

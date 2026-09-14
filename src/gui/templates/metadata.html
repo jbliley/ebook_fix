@@ -14,7 +14,59 @@
 </p>
 {% endif %}
 
-<form method="post" action="{{ url_for('save_metadata', session_id=session_id) }}">
+<div class="field-block" style="border:1px solid #eee; border-radius:8px; padding:1rem;">
+  <label style="margin-bottom:0.6rem; display:block;">Cover</label>
+  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start;">
+    <div>
+      <div style="font-size:0.8rem; color:#666; margin-bottom:0.3rem;">Current</div>
+      {% if current_cover_preview %}
+      <img src="{{ current_cover_preview.data_uri }}" alt="Current cover" style="max-width:120px; max-height:180px; border:1px solid #ddd; border-radius:4px; display:block;">
+      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+        {% if current_cover_preview.dimensions %}{{ current_cover_preview.dimensions }}<br>{% endif %}
+        {{ current_cover_preview.size_label }}
+      </div>
+      {% else %}
+      <div style="font-size:0.82rem; color:#888; max-width:120px;">No usable cover found.</div>
+      {% endif %}
+    </div>
+
+    {% if staged_cover_preview %}
+    <div>
+      <div style="font-size:0.8rem; color:#2f855a; margin-bottom:0.3rem;">Pending replacement</div>
+      <img src="{{ staged_cover_preview.data_uri }}" alt="Staged replacement cover" style="max-width:120px; max-height:180px; border:2px solid #68d391; border-radius:4px; display:block;">
+      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+        {% if staged_cover_preview.dimensions %}{{ staged_cover_preview.dimensions }}<br>{% endif %}
+        {{ staged_cover_preview.size_label }}
+      </div>
+      <form method="post" action="{{ url_for('clear_cover', session_id=session_id) }}" style="margin-top:0.4rem;">
+        <button type="submit" class="button secondary" style="padding:0.25rem 0.6rem; font-size:0.78rem;">Cancel</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if calibre_cover_preview %}
+    <div>
+      <div style="font-size:0.8rem; color:#666; margin-bottom:0.3rem;">Calibre folder's cover</div>
+      <img src="{{ calibre_cover_preview.data_uri }}" alt="Calibre folder's cover" style="max-width:120px; max-height:180px; border:1px solid #ddd; border-radius:4px; display:block;">
+      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+        {% if calibre_cover_preview.dimensions %}{{ calibre_cover_preview.dimensions }}<br>{% endif %}
+        {{ calibre_cover_preview.size_label }}
+      </div>
+      <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" style="margin-top:0.4rem;">
+        <input type="hidden" name="use_calibre_cover" value="1">
+        <button type="submit" class="button secondary" style="padding:0.25rem 0.6rem; font-size:0.78rem;">Use this instead</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" enctype="multipart/form-data" style="margin-top:0.8rem;">
+    <input type="file" name="cover_file" accept="image/jpeg,image/png,image/gif,image/webp">
+    <button type="submit" class="button secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;">Upload replacement</button>
+  </form>
+</div>
+
+<form method="post" id="metadata-form" action="{{ url_for('save_metadata', session_id=session_id) }}">
   {% for f in fields %}
   <div class="field-block">
     <label for="field-{{ f.name }}">
@@ -82,7 +134,7 @@
   // Stage Changes is a real form POST that redirects back to a fresh
   // GET of this same page (staged values and all), so a completed save
   // always starts this listener over from a clean slate.
-  var form = document.querySelector("form");
+  var form = document.getElementById("metadata-form");
   var dirty = false;
   var submitting = false;
 

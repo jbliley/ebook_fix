@@ -6,10 +6,11 @@
   below, all in a single pass ending in one file &mdash; not a separate copy per tab.
 </p>
 
-{% if has_staged_metadata or has_staged_review %}
+{% if has_staged_metadata or has_staged_review or has_staged_cover %}
 <div class="staged-banner">
   {% if has_staged_metadata %}Metadata: {{ staged_field_count }} field(s) staged.{% endif %}
   {% if has_staged_review %}{{ ' ' if has_staged_metadata }}Review: {{ staged_boundary_count }} boundary/boundaries, {{ staged_possessive_count }} possessive resolution(s), {{ staged_color_count }} color removal(s) staged.{% endif %}
+  {% if has_staged_cover %}{{ ' ' if has_staged_metadata or has_staged_review }}Cover: a replacement is staged.{% endif %}
 </div>
 {% else %}
 <div class="staged-banner" style="background:#f7fafc;border-color:#e2e8f0;color:#555;">

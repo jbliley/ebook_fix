@@ -38,6 +38,7 @@ what a repair pass actually changed.
 from __future__ import annotations
 
 import io
+import base64
 import json
 import mimetypes
 import subprocess
@@ -65,6 +66,7 @@ from ebook_fix.writer import EPUBWriter
 from ebook_fix.apostrophes import analyze_book_possessives, apply_possessive_resolutions
 from ebook_fix.color import analyze_book_color
 from ebook_fix.frontmatter import analyze_book_frontmatter, MatterLabel, FRONT_ZONE, BACK_ZONE
+from ebook_fix import cover as cover_module
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -83,6 +85,7 @@ from ebook_fix.modules.apostrophe_repair import ApostropheRepair
 from ebook_fix.modules.color_strip import ColorStripRepair
 from gui import analysis_view
 from metadata.core_fields import write_core_field
+from metadata import calibre_detect
 from metadata.language_codes import language_options
 
 app = Flask(__name__)
@@ -557,6 +560,41 @@ def book_analysis(session_id):
     )
 
 
+def _cover_preview(data: bytes, media_type: str) -> dict:
+    """A small dict the Metadata tab's cover section renders directly:
+    a data-URI (no separate route needed to serve the bytes -- covers
+    are small enough that inlining them is simpler than adding a
+    dedicated asset endpoint just for this), pixel dimensions when
+    they're knowable (see cover.image_dimensions -- always None for
+    SVG, occasionally None for a malformed image), and a human file
+    size. Shared by every preview the Metadata tab shows: the book's
+    current cover, a just-uploaded replacement, and a Calibre folder's
+    own cover.jpg, so all three render identically."""
+    dims = cover_module.image_dimensions(data)
+    size = len(data)
+    size_label = f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / (1024 * 1024):.1f} MB"
+    return {
+        "data_uri": f"data:{media_type};base64,{base64.b64encode(data).decode('ascii')}",
+        "dimensions": f"{dims[0]} \u00d7 {dims[1]} px" if dims else None,
+        "size_label": size_label,
+    }
+
+
+def _staged_cover_path(session_dir: Path) -> Path:
+    # Deliberately its own file, not a key inside staged_metadata.json
+    # -- save_metadata() below replaces that whole dict on every save
+    # (one form, no partial-field merging), so a cover choice living
+    # in there would get silently wiped out the next time a person
+    # edited an unrelated text field and clicked Stage Changes. Same
+    # reasoning as staged_review.json already being separate from
+    # staged_metadata.json for the Review tab's own unrelated form.
+    return session_dir / "staged_cover.json"
+
+
+def _staged_cover_dir(session_dir: Path) -> Path:
+    return session_dir / "staged_cover"
+
+
 @app.route("/book/<session_id>/metadata")
 @_handle_missing_source
 def book_metadata(session_id):
@@ -584,6 +622,61 @@ def book_metadata(session_id):
     series_info = series_metadata.read(book)
     calibre_ctx = analysis_report.calibre_context
 
+    # Current cover: read straight from the book's own zip archive
+    # (analyze_book_cover only ever returns which manifest item/path
+    # is the cover, never the bytes) rather than book.images, which --
+    # like every other Resource on Book -- only ever holds id/href/
+    # media-type, never binary content. None if the book has no usable
+    # cover at all rather than raising, same as everywhere else a
+    # missing cover gets treated as "nothing to show," not an error.
+    current_cover_preview = None
+    cover_summary = cover_module.analyze_book_cover(book)
+    if cover_summary.cover_item is not None and cover_summary.exists_in_archive:
+        try:
+            with zipfile.ZipFile(book.source, "r") as archive:
+                current_cover_preview = _cover_preview(
+                    archive.read(cover_summary.resolved_href),
+                    cover_summary.cover_item.media_type,
+                )
+        except (KeyError, OSError):
+            current_cover_preview = None
+
+    # A Calibre-managed book's own folder conventionally has its own
+    # cover.jpg alongside the EPUB -- offered as a one-click "use this
+    # instead" option distinct from uploading a file by hand. Only
+    # ever read for a preview here; nothing about this book's actual
+    # cover changes until a person explicitly picks it AND applies the
+    # repair pass (see save_cover/apply_repair).
+    calibre_cover_preview = None
+    if calibre_ctx.is_calibre_managed and calibre_ctx.book_folder is not None:
+        calibre_cover_path = calibre_ctx.book_folder / "cover.jpg"
+        if calibre_cover_path.is_file():
+            try:
+                data = calibre_cover_path.read_bytes()
+                media_type = cover_module.sniff_image_media_type(data)
+                if media_type is not None:
+                    calibre_cover_preview = _cover_preview(data, media_type)
+                    calibre_cover_preview["source_path"] = str(calibre_cover_path)
+            except OSError:
+                calibre_cover_preview = None
+
+    # A staged replacement (uploaded file, or "use Calibre's cover"
+    # picked on an earlier visit to this tab) previews as "pending"
+    # rather than replacing current_cover_preview above -- the actual
+    # book on disk hasn't changed yet, so showing both side by side is
+    # more honest than swapping the "current" one out early.
+    staged_cover_preview = None
+    staged_cover = _read_staged(_staged_cover_path(session_dir))
+    staged_cover_source = staged_cover.get("cover_source") if staged_cover else None
+    if staged_cover_source:
+        try:
+            data = Path(staged_cover_source).read_bytes()
+            media_type = cover_module.sniff_image_media_type(data)
+            if media_type is not None:
+                staged_cover_preview = _cover_preview(data, media_type)
+        except OSError:
+            staged_cover_preview = None
+
     # The EPUB's own current dc:language value, not merged.display_value
     # -- this dropdown edits the EPUB directly (write_core_field targets
     # the book, same as every other field here), so it should start on
@@ -599,6 +692,10 @@ def book_metadata(session_id):
         session_id=session_id,
         filename=filename,
         fields=fields,
+        current_cover_preview=current_cover_preview,
+        calibre_cover_preview=calibre_cover_preview,
+        staged_cover_preview=staged_cover_preview,
+        has_staged_cover=staged_cover is not None,
         language_value=current_language,
         language_choices=language_options(current_language),
         language_note=merged.language.note,
@@ -629,6 +726,61 @@ def save_metadata(session_id):
     }
     _staged_metadata_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
 
+    return redirect(url_for("book_metadata", session_id=session_id))
+
+
+@app.route("/book/<session_id>/metadata/cover", methods=["POST"])
+def save_cover(session_id):
+    """Stages a cover replacement -- either an uploaded file or "use
+    Calibre's cover" -- into its own staged_cover.json (see
+    _staged_cover_path's own docstring for why that's separate from
+    staged_metadata.json). Nothing about the book itself changes until
+    apply_repair actually runs; this only ever writes to this
+    session's own temp folder.
+    """
+    session_dir = _session_dir(session_id)
+
+    use_calibre = request.form.get("use_calibre_cover") == "1"
+    upload = request.files.get("cover_file")
+
+    if use_calibre:
+        calibre_ctx = calibre_detect.detect(_source_path(session_dir))
+        if calibre_ctx.is_calibre_managed and calibre_ctx.book_folder is not None:
+            calibre_cover_path = calibre_ctx.book_folder / "cover.jpg"
+            if calibre_cover_path.is_file():
+                staged = {"cover_source": str(calibre_cover_path)}
+                _staged_cover_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
+        return redirect(url_for("book_metadata", session_id=session_id))
+
+    if upload is not None and upload.filename:
+        data = upload.read()
+        media_type = cover_module.sniff_image_media_type(data)
+        if media_type is not None:
+            # Saved under this session's own folder with a name based
+            # on the sniffed format, not the browser-supplied filename
+            # -- an uploaded file's own name is only ever a hint, and
+            # sniffing already confirmed what this actually is.
+            cover_dir = _staged_cover_dir(session_dir)
+            cover_dir.mkdir(exist_ok=True)
+            ext = cover_module.extension_for_media_type(media_type)
+            for old in cover_dir.glob("staged_cover.*"):
+                old.unlink(missing_ok=True)
+            saved_path = cover_dir / f"staged_cover.{ext}"
+            saved_path.write_bytes(data)
+            staged = {"cover_source": str(saved_path)}
+            _staged_cover_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
+
+    return redirect(url_for("book_metadata", session_id=session_id))
+
+
+@app.route("/book/<session_id>/metadata/cover/clear", methods=["POST"])
+def clear_cover(session_id):
+    """Cancels a staged cover replacement -- back to the book's actual
+    current cover, same as never having picked one."""
+    session_dir = _session_dir(session_id)
+    _staged_cover_path(session_dir).unlink(missing_ok=True)
+    for old in _staged_cover_dir(session_dir).glob("staged_cover.*"):
+        old.unlink(missing_ok=True)
     return redirect(url_for("book_metadata", session_id=session_id))
 
 
@@ -817,10 +969,12 @@ def book_repair(session_id):
 
     staged_metadata = _read_staged(_staged_metadata_path(session_dir))
     staged_review = _read_staged(_staged_review_path(session_dir))
+    staged_cover = _read_staged(_staged_cover_path(session_dir))
     staged_field_count = len(staged_metadata["fields"]) if staged_metadata else 0
     staged_boundary_count = len(staged_review["accepted_ids"]) if staged_review else 0
     staged_possessive_count = len(staged_review.get("possessive_resolutions", {})) if staged_review else 0
     staged_color_count = len(staged_review.get("accepted_color_ids", [])) if staged_review else 0
+    has_staged_cover = bool(staged_cover and staged_cover.get("cover_source"))
 
     replaced_flag = _replaced_flag_path(session_dir)
     already_replaced = replaced_flag.exists()
@@ -833,6 +987,7 @@ def book_repair(session_id):
         modules=modules,
         has_staged_metadata=staged_metadata is not None,
         has_staged_review=staged_review is not None,
+        has_staged_cover=has_staged_cover,
         staged_field_count=staged_field_count,
         staged_boundary_count=staged_boundary_count,
         staged_possessive_count=staged_possessive_count,
@@ -887,6 +1042,35 @@ def apply_repair(session_id):
         series_name = staged_metadata["series_name"]
         if series_name:
             series_metadata.write(book, series_name, staged_metadata["series_index"])
+
+    # Staged cover replacement, if any -- own staged file, not a key
+    # inside staged_metadata (see _staged_cover_path), so it survives
+    # independently of whatever's happened on the Metadata tab's own
+    # text-field form -- and checked independently of staged_metadata
+    # too, for the same reason: a person may have staged only a cover
+    # choice and never touched a text field at all, in which case
+    # staged_metadata is None but there's still a cover to apply.
+    # cover_source is a plain filesystem path: either an uploaded file
+    # saved under this session's own folder, or (when the person chose
+    # "use Calibre's cover" instead) the Calibre folder's own
+    # cover.jpg directly, never copied -- see save_cover below. Read
+    # fresh here rather than trusting whatever was true when it was
+    # staged, since either kind of path could in principle have moved
+    # or vanished since. Failing silently and leaving the book's
+    # existing cover untouched is deliberate: one missing staged image
+    # shouldn't fail an entire repair pass, and the Metadata tab's own
+    # preview will still show the true current cover next time the
+    # person looks, so nothing is hidden.
+    staged_cover = _read_staged(_staged_cover_path(session_dir))
+    cover_source = staged_cover.get("cover_source") if staged_cover else None
+    if cover_source:
+        try:
+            cover_data = Path(cover_source).read_bytes()
+            cover_media_type = cover_module.sniff_image_media_type(cover_data)
+            if cover_media_type is not None:
+                cover_module.apply_cover_replacement(book, cover_data, cover_media_type)
+        except (OSError, ValueError):
+            pass
 
     # Staged split boundaries, if any -- re-derives candidates fresh
     # against the book as it exists right now (post-metadata-edit,

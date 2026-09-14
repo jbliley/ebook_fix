@@ -1111,21 +1111,6 @@ class Engine:
             raise ValueError(f"can't find a file at \"{source}\"")
         return path.read_bytes()
 
-    @staticmethod
-    def _guess_images_dir(book, opf_base) -> str:
-        """Picks a folder for a brand-new cover file, for the case
-        where the book has no usable cover to replace in place: reuse
-        whatever folder the book's other images already live in, so
-        the new cover doesn't stand out organizationally. Falls back
-        to the OPF's own folder if the book has no other images."""
-        for image in book.images:
-            resolved = cover_module.resolve_href(opf_base, image.href)
-            directory = posixpath.dirname(resolved)
-            if directory:
-                return directory
-        base_str = str(opf_base)
-        return "" if base_str == "." else base_str
-
     def replace_cover(self, epub, output, source, overwrite=False):
         """Installs a person-supplied image (a local file path or a
         URL) as the book's cover, in place if there's already a
@@ -1161,74 +1146,18 @@ class Engine:
             book = parser.load(source_epub)
             self.log("")
 
-            existing_cover = cover_module.analyze_book_cover(book)
-
             if not self._check_output_path(output, overwrite):
                 return
 
-            target_name = cover_module.standard_cover_filename(media_type, source)
-            opf = book.opf_document
-            base = PurePosixPath(book.package_path).parent
-
-            has_usable_existing = (
-                existing_cover.cover_item is not None
-                and existing_cover.exists_in_archive
-            )
-
-            if has_usable_existing:
-                old_path = existing_cover.resolved_href
-                new_path = cover_module.swap_filename(old_path, target_name)
-
-                occupied = (
-                    (cover_module.archive_names(book) | set(book.new_files))
-                    - book.removed_files
-                    - {old_path}
-                )
-                if new_path in occupied:
-                    self.log(
-                        f"ERROR: can't install the new cover at \"{new_path}\" -- "
-                        "a different, unrelated file already exists there."
-                    )
-                    return
-
-                book.new_files[new_path] = data
-                if new_path != old_path:
-                    book.removed_files.add(old_path)
-
-                item_el = cover_module.find_manifest_item_element(opf, existing_cover.cover_item.id)
-                if item_el is not None:
-                    item_el.set("href", cover_module.swap_filename(item_el.get("href", ""), target_name))
-                    item_el.set("media-type", media_type)
-
-                cover_module.rewrite_chapter_image_references(book, old_path, new_path)
-                cover_module.sync_declarations(opf, existing_cover.cover_item)
-
-                old_display = old_path
-            else:
-                images_dir = self._guess_images_dir(book, base)
-                new_path = posixpath.normpath(f"{images_dir}/{target_name}" if images_dir else target_name)
-
-                occupied = cover_module.archive_names(book) | set(book.new_files)
-                if new_path in occupied:
-                    self.log(
-                        f"ERROR: can't install the new cover at \"{new_path}\" -- "
-                        "a different, unrelated file already exists there."
-                    )
-                    return
-
-                book.new_files[new_path] = data
-                relative_href = posixpath.relpath(new_path, str(base)) if str(base) != "." else new_path
-                new_item = cover_module.create_cover_item(opf, relative_href, media_type)
-                cover_module.sync_declarations(opf, new_item)
-
-                old_display = "(none)"
-
-            book.opf_modified = True
-            book.mark_modified()
+            try:
+                result = cover_module.apply_cover_replacement(book, data, media_type)
+            except ValueError as exc:
+                self.log(f"ERROR: {exc}")
+                return
 
             self.header("[Cover Replaced]")
-            self.log(f"Old: {old_display}")
-            self.log(f"New: {new_path}")
+            self.log(f"Old: {result['old_path']}")
+            self.log(f"New: {result['new_path']}")
             self.log("")
 
             writer = EPUBWriter()

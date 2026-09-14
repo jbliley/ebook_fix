@@ -203,6 +203,85 @@ def sniff_image_media_type(data: bytes) -> str | None:
     return None
 
 
+def image_dimensions(data: bytes) -> tuple[int, int] | None:
+    """Pixel (width, height) straight from an image's own header bytes
+    -- no Pillow/imaging library dependency, in keeping with this
+    project's hand-roll-before-adding-a-library approach, and this is
+    a well-worn, well-documented handful of fixed byte offsets per
+    format, not something that benefits from a library. Used only for
+    the GUI's cover preview (see gui/app.py) -- returns None on
+    anything unrecognized or malformed rather than raising, since a
+    missing dimension is just a smaller preview, not a failure.
+    Doesn't handle SVG (a vector format -- "dimensions" there depends
+    on a viewBox/width/height attribute search, not a fixed byte
+    layout, and isn't worth it for how rarely an EPUB cover is an SVG)."""
+    try:
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            if len(data) < 24:
+                return None
+            width = int.from_bytes(data[16:20], "big")
+            height = int.from_bytes(data[20:24], "big")
+            return width, height
+
+        if data[:6] in (b"GIF87a", b"GIF89a"):
+            if len(data) < 10:
+                return None
+            width = int.from_bytes(data[6:8], "little")
+            height = int.from_bytes(data[8:10], "little")
+            return width, height
+
+        if data[:3] == b"\xff\xd8\xff":
+            # JPEG: scan markers until an SOF (Start Of Frame) one --
+            # height/width sit right after it, past a length field and
+            # a one-byte sample precision. Markers with no payload
+            # (0xD0-0xD9, 0x01) have no length field to skip over.
+            i = 2
+            n = len(data)
+            while i + 9 < n:
+                if data[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = data[i + 1]
+                if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD9:
+                    i += 2
+                    continue
+                if marker == 0xDA:  # Start Of Scan -- image data follows, no more markers worth reading
+                    break
+                seg_len = int.from_bytes(data[i + 2:i + 4], "big")
+                is_sof = marker in (
+                    0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                    0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
+                )
+                if is_sof:
+                    height = int.from_bytes(data[i + 5:i + 7], "big")
+                    width = int.from_bytes(data[i + 7:i + 9], "big")
+                    return width, height
+                i += 2 + seg_len
+            return None
+
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            if data[12:16] == b"VP8X" and len(data) >= 30:
+                width = int.from_bytes(data[24:27], "little") + 1
+                height = int.from_bytes(data[27:30], "little") + 1
+                return width, height
+            if data[12:16] == b"VP8 " and len(data) >= 30:
+                # Lossy format: dimensions are 14-bit fields just past
+                # the frame tag, each with 2 high bits of scale info
+                # to mask off.
+                width = int.from_bytes(data[26:28], "little") & 0x3FFF
+                height = int.from_bytes(data[28:30], "little") & 0x3FFF
+                return width, height
+            if data[12:16] == b"VP8L" and len(data) >= 25:
+                bits = int.from_bytes(data[21:25], "little")
+                width = (bits & 0x3FFF) + 1
+                height = ((bits >> 14) & 0x3FFF) + 1
+                return width, height
+            return None
+    except (IndexError, ValueError):
+        return None
+    return None
+
+
 # ---------------------------------------------------------------------
 # Shared write-side helpers
 # ---------------------------------------------------------------------
@@ -362,3 +441,105 @@ def create_cover_item(opf, href: str, media_type: str, item_id: str | None = Non
     item_el.set("properties", "cover-image")
 
     return ManifestItem(id=item_id, href=href, media_type=media_type, properties="cover-image")
+
+
+def _guess_images_dir(book, opf_base) -> str:
+    """Picks a folder for a brand-new cover file, for the case where
+    the book has no usable cover to replace in place: reuse whatever
+    folder the book's other images already live in, so the new cover
+    doesn't stand out organizationally. Falls back to the OPF's own
+    folder if the book has no other images. Moved here from
+    Engine._guess_images_dir alongside the rest of apply_cover_
+    replacement below -- pure cover-domain logic, doesn't need
+    anything Engine-specific."""
+    for image in book.images:
+        resolved = resolve_href(opf_base, image.href)
+        directory = posixpath.dirname(resolved)
+        if directory:
+            return directory
+    base_str = str(opf_base)
+    return "" if base_str == "." else base_str
+
+
+def apply_cover_replacement(book, data: bytes, media_type: str) -> dict:
+    """Installs `data` (already confirmed to be `media_type` by the
+    caller, e.g. via sniff_image_media_type) as book's cover, in place
+    if there's already a usable one, or as a brand-new manifest entry
+    otherwise. The actual mutation both Engine.replace_cover (the CLI)
+    and the GUI's staged cover replacement (gui/app.py's apply_repair)
+    need -- pulled out here so neither duplicates it, same "shared
+    write-side helper" precedent as everything else in this section of
+    the module. Never loads or saves a book itself, and never fetches
+    `data` from anywhere -- the caller already has both.
+
+    Raises ValueError on the one real failure case (the target
+    filename is already occupied by an unrelated file), rather than
+    returning a sentinel -- matches Engine._fetch_cover_bytes' own
+    error-handling style, so callers can catch ValueError uniformly
+    for anything cover-replacement-related.
+
+    Returns {"old_path": ..., "new_path": ...} (old_path is the string
+    "(none)" if the book had no usable cover to begin with) for
+    whatever the caller wants to report -- a CLI log line, a GUI
+    report entry, etc.
+    """
+    existing_cover = analyze_book_cover(book)
+    target_name = standard_cover_filename(media_type)
+    opf = book.opf_document
+    base = PurePosixPath(book.package_path).parent
+
+    has_usable_existing = (
+        existing_cover.cover_item is not None
+        and existing_cover.exists_in_archive
+    )
+
+    if has_usable_existing:
+        old_path = existing_cover.resolved_href
+        new_path = swap_filename(old_path, target_name)
+
+        occupied = (
+            (archive_names(book) | set(book.new_files))
+            - book.removed_files
+            - {old_path}
+        )
+        if new_path in occupied:
+            raise ValueError(
+                f"can't install the new cover at \"{new_path}\" -- "
+                "a different, unrelated file already exists there."
+            )
+
+        book.new_files[new_path] = data
+        if new_path != old_path:
+            book.removed_files.add(old_path)
+
+        item_el = find_manifest_item_element(opf, existing_cover.cover_item.id)
+        if item_el is not None:
+            item_el.set("href", swap_filename(item_el.get("href", ""), target_name))
+            item_el.set("media-type", media_type)
+
+        rewrite_chapter_image_references(book, old_path, new_path)
+        sync_declarations(opf, existing_cover.cover_item)
+
+        old_display = old_path
+    else:
+        images_dir = _guess_images_dir(book, base)
+        new_path = posixpath.normpath(f"{images_dir}/{target_name}" if images_dir else target_name)
+
+        occupied = archive_names(book) | set(book.new_files)
+        if new_path in occupied:
+            raise ValueError(
+                f"can't install the new cover at \"{new_path}\" -- "
+                "a different, unrelated file already exists there."
+            )
+
+        book.new_files[new_path] = data
+        relative_href = posixpath.relpath(new_path, str(base)) if str(base) != "." else new_path
+        new_item = create_cover_item(opf, relative_href, media_type)
+        sync_declarations(opf, new_item)
+
+        old_display = "(none)"
+
+    book.opf_modified = True
+    book.mark_modified()
+
+    return {"old_path": old_display, "new_path": new_path}
