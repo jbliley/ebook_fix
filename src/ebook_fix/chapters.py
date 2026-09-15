@@ -575,6 +575,144 @@ def extract_case3_candidates(href: str, tree) -> list:
     return extract_candidates(href, tree, classify_fn=_classify_case3, score_fn=_score_case3_candidate)
 
 
+def _is_contents_page(href: str, tree) -> bool:
+    """Detects whether a chapter file is an in-body Contents/TOC listing
+    (plain-text chapter name or number list), not narrative content.
+    
+    Signals checked:
+    1. Filename/ID hints: path or id containing 'toc', 'contents', 'table'
+       (these alone are enough to confirm if combined with reasonable
+       text pattern evidence)
+    2. Text pattern: multiple sequential chapter-name-like entries with
+       no narrative content interspersed
+    """
+    if tree is None:
+        return False
+    
+    # Signal 1: Filename/ID hints
+    href_lower = href.lower()
+    id_hint_words = {'toc', 'contents', 'table', 'index', 'front', 'intro', 'about'}
+    has_filename_hint = any(word in href_lower for word in id_hint_words)
+    
+    # Signal 2: Text pattern analysis
+    ns = {'xhtml': 'http://www.w3.org/1999/xhtml'}
+    
+    # Get all paragraph-like elements (p, li, div)
+    elements = (
+        tree.findall('.//xhtml:p', ns) +
+        tree.findall('.//xhtml:li', ns) +
+        tree.findall('.//xhtml:div[@class]', ns)
+    )
+    
+    if len(elements) < 8:
+        # Too few elements to be a Contents page -- genuine ones typically
+        # have at least 8-10 chapter entries
+        return False
+    
+    # Collect non-empty text lines
+    text_lines = []
+    for elem in elements:
+        text = ''.join(elem.itertext()).strip()
+        if text and len(text) > 0:
+            text_lines.append(text)
+    
+    if len(text_lines) < 8:
+        return False
+    
+    # Count links - Contents pages have very few or no links
+    links = tree.findall('.//xhtml:a', ns)
+    if len(links) > len(text_lines) * 0.15:
+        # More than 15% links - probably not a Contents page
+        return False
+    
+    # Check line length: most lines should be reasonably short
+    # (chapter names are typically under 60 chars, but some can be longer titles)
+    very_short_lines = sum(1 for line in text_lines if len(line) < 40)
+    if very_short_lines < len(text_lines) * 0.5:
+        # Less than 50% very short lines - probably not a Contents page
+        return False
+    
+    # Check for narrative-style punctuation (periods/question marks)
+    # Contents pages should have almost none of these
+    sentence_markers = sum(
+        line.count('.') + line.count('?') + line.count('!')
+        for line in text_lines
+    )
+    if sentence_markers > len(text_lines) * 0.1:
+        # Too many sentence-ending marks - probably narrative
+        return False
+    
+    # Now check for sequential chapter-name patterns
+    # This is the strongest signal: a Contents page has MANY consecutive
+    # chapter entries, not just a few scattered numbers
+    chapter_pattern_matches = []
+    
+    for line in text_lines:
+        # Match chapter-number patterns: spelled out names, Arabic numerals,
+        # Roman numerals, with optional "Chapter" prefix and separators
+        is_chapter_marker = re.match(
+            r'^(?:'
+            r'(?:Chapter\s+)?(?:\d+|[IVX]+|'
+            r'Zero|One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|'
+            r'Eleven|Twelve|Thirteen|Fourteen|Fifteen|Sixteen|'
+            r'Seventeen|Eighteen|Nineteen|Twenty|'
+            r'Twenty-One|Twenty-Two|Twenty-Three|Twenty-Four|Twenty-Five|'
+            r'Twenty-Six|Twenty-Seven|Twenty-Eight|Twenty-Nine|Thirty|'
+            r'Thirty-One|Thirty-Two|Thirty-Three|Thirty-Four|Thirty-Five|'
+            r'Thirty-Six|Thirty-Seven|Thirty-Eight|Thirty-Nine|Forty|'
+            r'Forty-One|Forty-Two|Forty-Three|Forty-Four|Forty-Five|'
+            r'Forty-Six|Forty-Seven|Forty-Eight|Forty-Nine|Fifty)'
+            r'(?:\s*[-.:)])?'
+            r'|Part\s+(?:[IVX]+|\d+|'
+            r'One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten)'
+            r')'
+            r'(?:\s|$)',
+            line,
+            re.IGNORECASE
+        )
+        
+        if is_chapter_marker:
+            chapter_pattern_matches.append(line)
+        else:
+            # If we hit a non-chapter line and we've already collected some matches,
+            # it means the Contents list is ending. Stop here.
+            if len(chapter_pattern_matches) >= 5:
+                break
+            # Otherwise, if we haven't found enough yet, just continue searching
+            # (e.g., skipping over header text before the list starts)
+    
+    # We need a significant run of chapter-like entries to confirm it's a Contents page
+    # Less than 5 matches means probably just a few isolated numbers in narrative
+    if len(chapter_pattern_matches) < 5:
+        return False
+    
+    # Additional check: the matches should be concentrated in one area,
+    # not scattered throughout (narrative would scatter them)
+    # Find the index of the last match
+    last_match = chapter_pattern_matches[-1]
+    try:
+        last_match_idx = text_lines.index(last_match)
+        matches_concentrated = last_match_idx < len(text_lines) * 0.75
+    except ValueError:
+        # Shouldn't happen, but be safe
+        matches_concentrated = False
+    
+    if has_filename_hint:
+        # Filename hint + chapter pattern match = confirm Contents page
+        if matches_concentrated:
+            return True
+    else:
+        # Without filename hint, require a very strong signal:
+        # either 15+ matches (very confident that this is a Contents page),
+        # or 8+ matches AND concentrated in first 75% of the file
+        if len(chapter_pattern_matches) >= 15:
+            return True
+        if len(chapter_pattern_matches) >= 8 and matches_concentrated:
+            return True
+    
+    return False
+
+
 def analyze_case3_book_chapters(book) -> BookChapterSummary:
     """Case 3 counterpart to analyze_book_chapters above. Callers
     should only reach for this after confirming the normal analysis
@@ -589,6 +727,11 @@ def analyze_case3_book_chapters(book) -> BookChapterSummary:
     for chapter in book.chapters:
         href = getattr(chapter, "href", "")
         tree = getattr(chapter, "document", None)
+        
+        # Skip Contents pages to avoid false-positive chapter split candidates
+        if _is_contents_page(href, tree):
+            continue
+        
         chapter_candidates = extract_case3_candidates(href, tree)
         for c in chapter_candidates:
             order += 1
