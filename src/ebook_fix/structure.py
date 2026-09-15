@@ -122,6 +122,17 @@ class BoundaryEvidence:
     # confirmed boundaries (80%+ of sequence has hints). Boosts
     # confidence even without TOC/anchor corroboration.
     css_hint_consistent: bool = False
+    
+    # Heading hierarchy consistency: True if this boundary uses semantic
+    # heading tags (h1-h6) that form a coherent pattern across the sequence
+    # (80%+ have heading tags, and they form consistent transitions).
+    heading_hierarchy_consistent: bool = False
+    
+    # Anchor link count: how many internal cross-references point to this
+    # boundary. Higher counts indicate stronger corroboration from the book's
+    # own content (indexes, cross-references, etc.). Used by anchor specificity
+    # scoring to boost confidence.
+    anchor_link_count: int = 0
 
     # -- Requirement 3: margin over the runner-up sequence --
     # Lives here rather than only at the book level so a boundary
@@ -156,11 +167,13 @@ class BoundaryEvidence:
     @property
     def has_corroboration(self) -> bool:
         """Boundary has at least one external corroboration signal:
-        TOC entry match, anchor link match, or consistent CSS hints."""
+        TOC entry match, anchor link match, consistent CSS hints, or
+        consistent heading tag hierarchy."""
         return (
             self.matched_toc_entry is not None 
             or bool(self.matched_anchor_id)
             or self.css_hint_consistent
+            or self.heading_hierarchy_consistent
         )
 
     @property
@@ -674,7 +687,10 @@ def apply_anchor_corroboration(book: Any, tree: BookStructure) -> BookStructure:
     apply_toc_corroboration. Mutates the tree's nodes in place and
     also returns it, for chaining. A book with no internal
     cross-reference links at all leaves matched_anchor_id unchanged on
-    every node."""
+    every node.
+    
+    Also populates anchor_link_count for scoring: how many separate
+    in-book links point to each boundary (higher = stronger signal)."""
     targets = _internal_link_targets(book)
     if not targets:
         return tree
@@ -689,6 +705,9 @@ def apply_anchor_corroboration(book: Any, tree: BookStructure) -> BookStructure:
         matched = _candidate_ids(node.evidence.candidate) & possible
         if matched:
             node.evidence.matched_anchor_id = sorted(matched)[0]
+            # Count how many links point to this boundary
+            # (number of distinct fragments matching this candidate)
+            node.evidence.anchor_link_count = len(matched)
 
     return tree
 
@@ -730,9 +749,118 @@ def apply_css_hint_consistency(book: Any, tree: BookStructure) -> BookStructure:
     return tree
 
 
-# ---------------------------------------------------------------------
-# Phase 0g -- combining every signal into one confidence score
-# ---------------------------------------------------------------------
+def apply_anchor_specificity_boost(book: Any, tree: BookStructure) -> BookStructure:
+    """Boosts confidence for boundaries that are referenced by multiple
+    internal cross-references (indexes, "see Chapter X" links, etc.).
+    
+    A boundary pointed to by 3+ distinct links has strong implicit
+    corroboration from the book's own content. Treats these as having
+    anchor corroboration even without an exact matched_anchor_id match.
+    """
+    # Collect confirmed chapter nodes
+    confirmed_nodes = []
+    for node in _walk_structure_nodes(tree.nodes, include_parts=False):
+        if (node.evidence and node.evidence.in_winning_sequence 
+            and node.evidence.candidate):
+            confirmed_nodes.append(node)
+    
+    # Mark boundaries with 3+ anchor links as having anchor corroboration
+    for node in confirmed_nodes:
+        if node.evidence.anchor_link_count >= 3:
+            # Set a synthetic matched_anchor_id if not already matched
+            if not node.evidence.matched_anchor_id:
+                node.evidence.matched_anchor_id = f"[{node.evidence.anchor_link_count} internal links]"
+
+    return tree
+
+
+def apply_heading_hierarchy_consistency(book: Any, tree: BookStructure) -> BookStructure:
+    """Boosts confidence for boundaries whose heading tags form a consistent
+    hierarchy across the confirmed sequence.
+    
+    A consistent hierarchy indicates well-formed HTML where chapter markers use
+    semantic heading tags in an intentional pattern. Signals checked:
+    - All h1: Perfect consistency
+    - All h1 + occasional h2: Good consistency (h2s might be subsections)
+    - Consistent jumps (h1→h2, then h2→h1): Expected pattern
+    - Random jumps (h1→h4, h3→h1): Weak signal or inconsistent
+    
+    If 80%+ of confirmed boundaries have heading tags AND they form a
+    coherent hierarchy (not random jumps), mark all with heading tags as
+    heading_hierarchy_consistent=True for a confidence boost.
+    """
+    # Collect confirmed chapter nodes
+    confirmed_nodes = []
+    for node in _walk_structure_nodes(tree.nodes, include_parts=False):
+        if (node.evidence and node.evidence.in_winning_sequence 
+            and node.evidence.candidate):
+            confirmed_nodes.append(node)
+    
+    if not confirmed_nodes:
+        return tree
+    
+    # Count heading tags and collect their levels
+    heading_levels = []
+    with_heading_tags = 0
+    
+    for node in confirmed_nodes:
+        candidate = node.evidence.candidate
+        if candidate.is_heading_tag and candidate.heading_level is not None:
+            with_heading_tags += 1
+            heading_levels.append(candidate.heading_level)
+    
+    # Need at least 80% using heading tags for this signal to apply
+    if not confirmed_nodes or with_heading_tags < len(confirmed_nodes) * 0.8:
+        return tree
+    
+    # Check hierarchy consistency: valid patterns are:
+    # 1. All same level (e.g., all h1 or all h2)
+    # 2. Consistent transitions (e.g., h1→h2→h1→h2)
+    # 3. One main level with occasional subsections (h1, h1, h2, h1, h1, h2)
+    
+    if not heading_levels:
+        return tree
+    
+    # Pattern 1: All same level
+    if len(set(heading_levels)) == 1:
+        hierarchy_consistent = True
+    else:
+        # Pattern 2 & 3: Check for coherent transitions
+        # Count primary and secondary levels
+        level_counts = {}
+        for level in heading_levels:
+            level_counts[level] = level_counts.get(level, 0) + 1
+        
+        # Primary level is the most common one
+        primary_level = max(level_counts, key=level_counts.get)
+        primary_count = level_counts[primary_level]
+        
+        # Secondary levels are much less common (under 20%)
+        secondary_levels = [
+            level for level in level_counts 
+            if level != primary_level and level_counts[level] < len(heading_levels) * 0.2
+        ]
+        
+        # Check if secondary levels are "sensible" (typically +1 from primary)
+        sensible_secondary = all(
+            level > primary_level and level <= primary_level + 1
+            for level in secondary_levels
+        )
+        
+        # Allow random jumps to secondary levels only if they're rare
+        hierarchy_consistent = (
+            sensible_secondary or 
+            len(secondary_levels) == 0 or
+            (len(secondary_levels) <= 2 and all(l <= 3 for l in secondary_levels))
+        )
+    
+    # If hierarchy is consistent, mark all heading-tag boundaries
+    if hierarchy_consistent:
+        for node in confirmed_nodes:
+            if node.evidence and node.evidence.candidate.is_heading_tag:
+                node.evidence.heading_hierarchy_consistent = True
+
+    return tree
 #
 # 0d through 0f built the pieces: sequence membership, TOC
 # corroboration, anchor corroboration. Requirement 3 (a healthy margin
@@ -825,6 +953,12 @@ def apply_content_length_check(book: Any, tree: BookStructure,
     corroborated or "sequence only," rather than either silently
     dropping it or letting it through as split-eligible on its own.
 
+    Context-aware: if ALL chapters in a sequence are short (e.g., a
+    short-chapter book or annotated edition), the content_length check
+    is relaxed. This prevents flagging intentionally-brief chapters as
+    stray headings just because they don't meet an arbitrary global
+    minimum.
+
     Scoping note for the very last confirmed chapter in the book
     (nothing after it to bound the slice against): this only counts to
     the end of that chapter's own file, not onward through whatever
@@ -841,11 +975,16 @@ def apply_content_length_check(book: Any, tree: BookStructure,
     their confidence either way.
     """
     chapter_nodes = list(_walk_chapters(tree.nodes))
+    
+    # First pass: collect word counts
+    word_counts = []
     for i, node in enumerate(chapter_nodes):
         if node.evidence is None or node.evidence.candidate is None:
+            word_counts.append(None)
             continue
         start_element = node.evidence.candidate.element
         if start_element is None:
+            word_counts.append(None)
             continue
 
         next_node = chapter_nodes[i + 1] if i + 1 < len(chapter_nodes) else None
@@ -856,12 +995,38 @@ def apply_content_length_check(book: Any, tree: BookStructure,
             end_element = next_node.evidence.candidate.element
 
         count = _content_word_count(book, node.start_href, start_element, end_href, end_element)
-        node.evidence.content_length_ok = count >= min_words
-        if count < min_words:
-            node.evidence.notes.append(
-                f"Only ~{count} word{'s' if count != 1 else ''} before the next boundary "
-                f"(minimum {min_words}) -- reads as a stray heading rather than a full chapter."
-            )
+        word_counts.append(count)
+    
+    # Second pass: check if sequence is intentionally short
+    # If 80%+ of chapters are under min_words, relax the check
+    valid_counts = [c for c in word_counts if c is not None]
+    short_chapters = sum(1 for c in valid_counts if c < min_words)
+    is_short_chapter_book = (
+        valid_counts and short_chapters >= len(valid_counts) * 0.8
+    )
+    
+    # Third pass: apply checks with context
+    for i, node in enumerate(chapter_nodes):
+        if node.evidence is None or word_counts[i] is None:
+            continue
+        
+        count = word_counts[i]
+        
+        # If it's a short-chapter book, relax the minimum
+        if is_short_chapter_book:
+            # For short-chapter books, just verify there's SOME content
+            node.evidence.content_length_ok = count > 0
+            if count == 0:
+                node.evidence.notes.append("No content before next boundary.")
+        else:
+            # Normal case: strict minimum
+            node.evidence.content_length_ok = count >= min_words
+            if count < min_words:
+                node.evidence.notes.append(
+                    f"Only ~{count} word{'s' if count != 1 else ''} before the next boundary "
+                    f"(minimum {min_words}) -- reads as a stray heading rather than a full chapter."
+                )
+    
     return tree
 
 
@@ -1096,7 +1261,9 @@ def analyze_structure(book: Any) -> BookStructure:
     tree = build_structure(summary)
     apply_toc_corroboration(book, tree)
     apply_anchor_corroboration(book, tree)
+    apply_anchor_specificity_boost(book, tree)
     apply_css_hint_consistency(book, tree)
+    apply_heading_hierarchy_consistency(book, tree)
     score_confidence(book, tree)
     return tree
 

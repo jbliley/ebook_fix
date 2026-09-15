@@ -155,6 +155,7 @@ class ChapterCandidate:
     label_kind: str | None = None   # "chapter", "part" (Book/Part/Volume), or None (bare numeral)
     isolated: bool = True           # element's own text is *only* the marker
     is_heading_tag: bool = False
+    heading_level: int | None = None  # h1=1, h2=2, etc. Only set if is_heading_tag=True
     css_hint: bool = False          # class or id mentions chapter/title/heading
     score: float = 0.0
     confirmed: bool = False         # part of the winning sequence
@@ -501,6 +502,7 @@ def extract_candidates(href: str, tree, classify_fn=None, score_fn=None) -> list
             label_kind=label_kind,
             isolated=True,
             is_heading_tag=tag.startswith("h") and len(tag) == 2,
+            heading_level=int(tag[1]) if (tag.startswith("h") and len(tag) == 2) else None,
             css_hint=_css_mentions_chapter(el),
             element=el,
         )
