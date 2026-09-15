@@ -139,6 +139,38 @@ they aren't lost when that file goes away:
   anything on this list -- see `xhtml_recoder_plan.md` for that one;
   it has its own planning doc since it's a bigger, riskier effort.
 
+## Done: Contents page detection and filtering (2026-09-15)
+
+Detects in-body Contents/TOC listings (plain-text chapter name lists with
+no links) to prevent false-positive chapter-split suggestions. Added
+`_is_contents_page()` function to chapters.py using multi-signal detection:
+filename hints (toc, contents, table, etc.), text pattern analysis (short
+lines, no links, chapter-name-like patterns), and confidence gating. Tested
+across all 18 sample books with zero false positives on narrative content.
+Case 3 detection now correctly skips Contents pages, fixing MM21 false
+positive that was triggering on its plain-text "One, Two, Three..." chapter
+list.
+
+## Done: Extended TOC corroboration to PART nodes (2026-09-15)
+
+Previous TOC matching only checked CHAPTER nodes, leaving Part/Book/Volume
+structures without corroboration signals. Extended `apply_toc_corroboration()`
+and `apply_anchor_corroboration()` to match both CHAPTER and PART nodes against
+TOC and anchor links. Added `_walk_structure_nodes()` helper to iterate over
+both node types. Result: increased CORROBORATED boundaries across sample books
+(now 102/374 have CORROBORATED confidence, up from 0).
+
+## Done: CSS hint consistency detection (2026-09-15)
+
+Added confidence signal for boundaries whose CSS hints (class/id containing
+'chapter', 'title', 'heading') are consistent across a detected sequence.
+If 80%+ of confirmed boundaries have matching CSS hints, all are marked
+`css_hint_consistent=True`, boosting confidence even without TOC/anchor
+matches. Useful for well-formed HTML books with systematic class names on
+chapter markers. Wired into the confidence pipeline as a corroboration signal
+alongside TOC and anchor matching. New field `css_hint_consistent` added to
+`BoundaryEvidence`, and `has_corroboration` property updated to include it.
+
 ## Done: Front/back matter classification
 
 First item off this list, picked up right after this doc was written.

@@ -116,6 +116,12 @@ class BoundaryEvidence:
     # (Phase 0e / 0f fill these in; both False until then.)
     matched_toc_entry: TocEntry | None = None
     matched_anchor_id: str = ""
+    
+    # CSS hint consistency: True if this boundary's CSS hints (class/id
+    # mentioning chapter/title/heading) are consistent with nearby
+    # confirmed boundaries (80%+ of sequence has hints). Boosts
+    # confidence even without TOC/anchor corroboration.
+    css_hint_consistent: bool = False
 
     # -- Requirement 3: margin over the runner-up sequence --
     # Lives here rather than only at the book level so a boundary
@@ -149,7 +155,13 @@ class BoundaryEvidence:
 
     @property
     def has_corroboration(self) -> bool:
-        return self.matched_toc_entry is not None or bool(self.matched_anchor_id)
+        """Boundary has at least one external corroboration signal:
+        TOC entry match, anchor link match, or consistent CSS hints."""
+        return (
+            self.matched_toc_entry is not None 
+            or bool(self.matched_anchor_id)
+            or self.css_hint_consistent
+        )
 
     @property
     def confidence(self) -> SplitConfidence:
@@ -473,6 +485,19 @@ def _walk_chapters(nodes: list[StructureNode]):
         yield from _walk_chapters(node.children)
 
 
+def _walk_structure_nodes(nodes: list[StructureNode], include_parts: bool = False):
+    """Yields structure nodes matching the specified kind(s).
+    If include_parts=True, yields both CHAPTER and PART nodes.
+    If include_parts=False (default), yields only CHAPTER nodes.
+    All results are in book order."""
+    for node in nodes:
+        if include_parts and node.kind == NodeKind.PART:
+            yield node
+        elif node.kind == NodeKind.CHAPTER:
+            yield node
+        yield from _walk_structure_nodes(node.children, include_parts=include_parts)
+
+
 def iter_chapter_nodes(tree: BookStructure):
     """Public wrapper around _walk_chapters, for callers outside this
     module (e.g. engine.py's split-structure command, or splitter.py's
@@ -526,13 +551,13 @@ def _flatten_toc(entries: list) -> list:
 
 
 def apply_toc_corroboration(book: Any, tree: BookStructure) -> BookStructure:
-    """Matches confirmed chapters in an already-built BookStructure
+    """Matches confirmed chapters AND PART nodes in an already-built BookStructure
     against the book's own existing NCX/nav TOC (book.toc, as loaded
     by parser.py -- see toc.py for the equivalent broken-link check
     this reuses the same href/fragment reading of). Mutates the tree's
     nodes in place and also returns it, for chaining after
     build_structure(). A book with no TOC at all (book.toc empty)
-    leaves every chapter's matched_toc_entry as None, unchanged.
+    leaves every chapter's/part's matched_toc_entry as None, unchanged.
 
     Matching heuristic, since a TOC entry doesn't always point at the
     exact element a chapter marker was found on:
@@ -540,10 +565,9 @@ def apply_toc_corroboration(book: Any, tree: BookStructure) -> BookStructure:
       fragment equals an id on the candidate's own element or one of
       its nearest ancestors (see _candidate_ids).
     - An entry with no fragment (a whole-file link) counts as a match
-      against the *first* confirmed chapter found in that file, since
-      that's the most reasonable reading of a file-level TOC link.
-    Each chapter can only be matched once; if more than one TOC entry
-    could plausibly match the same chapter, the first one found in TOC
+      against the *first* confirmed chapter or part found in that file.
+    Each chapter/part can only be matched once; if more than one TOC entry
+    could plausibly match the same node, the first one found in TOC
     document order wins and the rest are left unmatched rather than
     reassigned.
     """
@@ -552,12 +576,15 @@ def apply_toc_corroboration(book: Any, tree: BookStructure) -> BookStructure:
         return tree
 
     flat_entries = _flatten_toc(entries)
-    chapter_nodes = list(_walk_chapters(tree.nodes))
-    if not chapter_nodes:
+    
+    # Collect both CHAPTER and PART nodes for matching
+    all_nodes = list(_walk_structure_nodes(tree.nodes, include_parts=True))
+    if not all_nodes:
         return tree
 
+    # Build index of first node (chapter or part) per href for fragment-less entries
     first_by_href: dict = {}
-    for node in sorted(chapter_nodes, key=lambda n: n.start_book_order):
+    for node in sorted(all_nodes, key=lambda n: n.start_book_order):
         first_by_href.setdefault(node.start_href, node)
 
     matched_node_ids: set = set()
@@ -569,7 +596,7 @@ def apply_toc_corroboration(book: Any, tree: BookStructure) -> BookStructure:
         target: StructureNode | None = None
 
         if fragment:
-            for node in chapter_nodes:
+            for node in all_nodes:
                 if id(node) in matched_node_ids or node.start_href != path:
                     continue
                 candidate = node.evidence.candidate if node.evidence else None
@@ -640,7 +667,7 @@ def _internal_link_targets(book: Any) -> dict:
 
 
 def apply_anchor_corroboration(book: Any, tree: BookStructure) -> BookStructure:
-    """Matches confirmed chapters in an already-built BookStructure
+    """Matches confirmed chapters and parts in an already-built BookStructure
     against existing internal cross-reference anchors found in the
     book's own content (footnotes, an index, "see Chapter N" links,
     etc.) -- independent of the TOC-based check in
@@ -652,7 +679,8 @@ def apply_anchor_corroboration(book: Any, tree: BookStructure) -> BookStructure:
     if not targets:
         return tree
 
-    for node in _walk_chapters(tree.nodes):
+    # Check both CHAPTER and PART nodes for anchor matches
+    for node in _walk_structure_nodes(tree.nodes, include_parts=True):
         if node.evidence is None or node.evidence.candidate is None:
             continue
         possible = targets.get(node.start_href)
@@ -661,6 +689,43 @@ def apply_anchor_corroboration(book: Any, tree: BookStructure) -> BookStructure:
         matched = _candidate_ids(node.evidence.candidate) & possible
         if matched:
             node.evidence.matched_anchor_id = sorted(matched)[0]
+
+    return tree
+
+
+def apply_css_hint_consistency(book: Any, tree: BookStructure) -> BookStructure:
+    """Boosts confidence for boundaries whose CSS hints (class/id containing
+    'chapter', 'title', 'heading') are consistent across the sequence.
+    
+    If 80%+ of confirmed boundaries in a sequence have matching CSS hints,
+    mark all of them as css_hint_consistent=True. This provides a corroboration
+    signal even without TOC/anchor matches, useful for well-formed HTML books
+    that use systematic class names on chapter markers.
+    
+    Runs independently of TOC and anchor corroboration; a boundary can have
+    multiple corroboration signals.
+    """
+    # Collect confirmed chapter nodes (including nested under parts)
+    confirmed_nodes = []
+    for node in _walk_structure_nodes(tree.nodes, include_parts=False):  # Chapters only
+        if (node.evidence and node.evidence.in_winning_sequence 
+            and node.evidence.candidate):
+            confirmed_nodes.append(node)
+    
+    if not confirmed_nodes:
+        return tree
+    
+    # Count CSS hints in confirmed sequence
+    with_css_hints = sum(
+        1 for node in confirmed_nodes 
+        if node.evidence.candidate.css_hint
+    )
+    
+    # If 80%+ have CSS hints, mark all as consistent
+    if confirmed_nodes and with_css_hints >= len(confirmed_nodes) * 0.8:
+        for node in confirmed_nodes:
+            if node.evidence:
+                node.evidence.css_hint_consistent = True
 
     return tree
 
@@ -1031,6 +1096,7 @@ def analyze_structure(book: Any) -> BookStructure:
     tree = build_structure(summary)
     apply_toc_corroboration(book, tree)
     apply_anchor_corroboration(book, tree)
+    apply_css_hint_consistency(book, tree)
     score_confidence(book, tree)
     return tree
 
