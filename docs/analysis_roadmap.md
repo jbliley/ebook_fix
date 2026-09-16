@@ -160,6 +160,21 @@ TOC and anchor links. Added `_walk_structure_nodes()` helper to iterate over
 both node types. Result: increased CORROBORATED boundaries across sample books
 (now 102/374 have CORROBORATED confidence, up from 0).
 
+## Done: Split verification module (2026-09-15)
+
+Built comprehensive pre-split verification system in new `split_verification.py`
+module. Performs 4 critical checks before applying chapter splits:
+1. Boundary confidence - ensures 80%+ CORROBORATED (SAFE), 50-80% (REVIEW), <50% (UNSAFE)
+2. Word count preservation - detects false-positive chapters (under 10 words)
+3. No orphaned elements - checks for tables/lists/blockquotes split across boundaries
+4. Chapter completeness - verifies contiguous chapter sequence with no gaps
+
+Produces detailed `SplitVerification` reports with overall level (SAFE/REVIEW/UNSAFE)
+and per-check pass/fail status. Results across 18 sample books: 8 SAFE, 8 REVIEW, 
+2 UNSAFE. SAFE books can auto-split without review; REVIEW books should have human
+check; UNSAFE books need investigation. Verification results guide user decisions
+on whether to auto-split or require review before applying changes.
+
 ## Done: Improved structural cleanliness check (2026-09-15)
 
 Modified `apply_structural_cleanliness_check()` to avoid false positives when a
