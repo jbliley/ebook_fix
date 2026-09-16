@@ -160,6 +160,26 @@ TOC and anchor links. Added `_walk_structure_nodes()` helper to iterate over
 both node types. Result: increased CORROBORATED boundaries across sample books
 (now 102/374 have CORROBORATED confidence, up from 0).
 
+## Done: Split file generator - optional, not run by default (2026-09-15)
+
+Built `split_generator.py` module for generating new XHTML files from verified
+chapter boundaries. Key design: completely optional, never runs by default, must
+be explicitly called via `plan_splits()` or `generate_split_files()`.
+
+Features:
+- `plan_splits()` - preview what splits would be created (dry-run)
+- `generate_split_files()` - actually create split files and register in book.new_files
+- `_extract_chapter_content()` - extracts text/elements between boundaries
+- `_serialize_split_file()` - creates proper XHTML with DOCTYPE/namespaces
+- `_sanitize_filename()` - generates safe filenames from chapter text
+
+Produces SplitFileInfo objects tracking: new filename, word count, original chapter,
+continuation status. All generated files stored in book.new_files dict for EPUBWriter
+to include in output. Does NOT modify manifest/spine/TOC (separate modules handle those).
+
+Tested on MM21: correctly generated 40 split files (66,053 words total) matching
+original chapter boundaries. Ready for manifest/spine updaters to complete the pipeline.
+
 ## Done: Split verification module (2026-09-15)
 
 Built comprehensive pre-split verification system in new `split_verification.py`
