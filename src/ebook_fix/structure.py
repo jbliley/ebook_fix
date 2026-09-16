@@ -1079,6 +1079,12 @@ def apply_structural_cleanliness_check(tree: BookStructure) -> BookStructure:
     the *content* is long enough (that's
     apply_content_length_check above) or corroborated (0e/0f). PART
     nodes are skipped, same as elsewhere in this file.
+    
+    Note: A boundary element's own class/epub:type is not checked for
+    footnote keywords (only ancestors are), since elements like
+    <span class="footnote_number"> are commonly used for chapter markers
+    in formatted books and don't indicate the chapter is inside a
+    footnote block -- it's just styling.
     """
     for node in _walk_chapters(tree.nodes):
         if node.evidence is None or node.evidence.candidate is None:
@@ -1090,17 +1096,22 @@ def apply_structural_cleanliness_check(tree: BookStructure) -> BookStructure:
         clean = True
         reason = None
         el = element
+        first_iteration = True
         while el is not None:
             tag = _element_tag(el)
             if tag in _UNSAFE_ANCESTOR_TAGS:
                 clean = False
                 reason = f"sits inside a <{tag}>, which would be broken across two files if cut here"
                 break
-            keyword = _note_container_keyword(el)
-            if keyword:
-                clean = False
-                reason = f"sits inside what looks like a {keyword} block ({keyword!r} in its epub:type or class)"
-                break
+            # Only check parent ancestors for footnote keywords, not the element itself
+            # (an element can have 'footnote' in its class without being inside a footnote block)
+            if not first_iteration:
+                keyword = _note_container_keyword(el)
+                if keyword:
+                    clean = False
+                    reason = f"sits inside what looks like a {keyword} block ({keyword!r} in its parent's epub:type or class)"
+                    break
+            first_iteration = False
             el = el.getparent() if hasattr(el, "getparent") else None
 
         node.evidence.structurally_clean = clean

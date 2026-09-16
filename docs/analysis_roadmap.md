@@ -160,6 +160,46 @@ TOC and anchor links. Added `_walk_structure_nodes()` helper to iterate over
 both node types. Result: increased CORROBORATED boundaries across sample books
 (now 102/374 have CORROBORATED confidence, up from 0).
 
+## Done: Improved structural cleanliness check (2026-09-15)
+
+Modified `apply_structural_cleanliness_check()` to avoid false positives when a
+chapter marker element's own CSS class contains footnote keywords (e.g.,
+`<span class='footnote_number'>`). The fix: only check parent ancestors for
+footnote/endnote blocks, not the marker element itself. A formatted chapter
+number styled with "footnote_number" class is common and safe; only an actual
+chapter marker INSIDE a footnote block should fail this check. Result:
+OmnibusExample jumped from 23 NEEDS_REVIEW to 23 CORROBORATED. Overall impact:
++23 CORROBORATED, -23 NEEDS_REVIEW (40 → 17).
+
+## Done: Heading tag hierarchy consistency detection (2026-09-15)
+
+Detects and boosts confidence for boundaries that use semantic heading tags
+(h1-h6) in a consistent pattern. Added `heading_level` field to `ChapterCandidate`
+to extract the heading tag number (1-6). New `apply_heading_hierarchy_consistency()`
+function checks if 80%+ of confirmed boundaries have heading tags AND form coherent
+transitions (e.g., all h1, or h1→h2→h1, but not random jumps like h1→h5).
+Result: GutenbergText-ChapterSplit jumped from all SEQUENCE_ONLY to all CORROBORATED
+(35 boundaries). Wired into confidence pipeline after CSS hint check.
+
+## Done: Context-aware content length checking (2026-09-15)
+
+Modified `apply_content_length_check()` to recognize short-chapter books vs.
+stray headings. If 80%+ of chapters are under the minimum word threshold,
+the check is relaxed from "must meet minimum" to "must have some content"
+to avoid falsely flagging intentionally-brief chapters. Result: MM5_Complete
+went from 28 NEEDS_REVIEW (all flagged as "too short") to 28 SEQUENCE_ONLY
+(correct - they're in sequence, just without external corroboration).
+
+## Done: Anchor link specificity scoring (2026-09-15)
+
+Boundaries referenced by 3+ internal cross-reference links receive implicit
+corroboration credit (indexes, "see Chapter X" links, etc.). Added `anchor_link_count`
+field to `BoundaryEvidence` to track link multiplicity. New `apply_anchor_specificity_boost()`
+function marks boundaries with 3+ links as having synthetic anchor corroboration.
+Wired into pipeline after anchor matching. Useful for books with extensive internal
+referencing but not currently moving many boundaries (CrossReferences-Synthetic
+only gained 5, likely needing more reference links).
+
 ## Done: CSS hint consistency detection (2026-09-15)
 
 Added confidence signal for boundaries whose CSS hints (class/id containing
