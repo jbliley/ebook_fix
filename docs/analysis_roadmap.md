@@ -160,6 +160,23 @@ TOC and anchor links. Added `_walk_structure_nodes()` helper to iterate over
 both node types. Result: increased CORROBORATED boundaries across sample books
 (now 102/374 have CORROBORATED confidence, up from 0).
 
+## Done: Manifest and spine updater (2026-09-15)
+
+Built `manifest_updater.py` module to register split files in EPUB package.opf:
+
+Features:
+- `update_manifest()` - adds entries for new XHTML files with safe ID generation
+- `update_spine()` - adds itemrefs to preserve reading order
+- `apply_split_updates()` - applies both manifest and spine updates atomically
+- `verify_manifest_spine_integrity()` - validates consistency after updates
+- Smart position detection - inserts new files right after original chapter in spine
+
+Tested on MM21: successfully registered 40 split files in both manifest and spine
+with zero errors. Manifest/spine integrity verified - all idrefs exist, no duplicates.
+Works with split_generator.py to complete the split pipeline.
+
+Does NOT write files - EPUBWriter handles that. Just updates package.opf references.
+
 ## Done: Split file generator - optional, not run by default (2026-09-15)
 
 Built `split_generator.py` module for generating new XHTML files from verified
