@@ -44,6 +44,7 @@ from ebook_fix.modules.author_initials_repair import AuthorInitialsRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMappingEntry, load_mapping_file, MappingError
 from ebook_fix.modules.color_strip import ColorStripRepair
+from ebook_fix.modules.font_strip import FontStripRepair
 from ebook_fix.modules.gutenberg_repair import GutenbergRepair
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.ellipsis import normalize_ellipsis_text
@@ -131,6 +132,16 @@ class Engine:
         # other module here is, it belongs in the normal pipeline too.
         if getattr(self.config, "color_repair", None) and getattr(self.config.color_repair, "enabled", True):
             modules.append(ColorStripRepair(self.config.color_repair))
+        # Runs right after Color Strip, the other module dealing in
+        # confidence-gated CSS-level cosmetics -- only ever touches a
+        # `font-family` declaration/@font-face rule/embedded font file,
+        # never general chapter text, and only the confident bucket
+        # ebook_fix.fonts's analysis identifies (confirmed body-text
+        # class, <body> itself, or inline font-family directly on a
+        # main-narrative paragraph); everything else is reported, not
+        # touched -- see ebook_fix.fonts's module docstring.
+        if getattr(self.config, "font_repair", None) and getattr(self.config.font_repair, "enabled", True):
+            modules.append(FontStripRepair(self.config.font_repair))
         # Runs before Whitespace Normalizer: both modules can end up
         # wanting to touch the very same text/tail node (an ellipsis
         # sitting in a paragraph that also has, say, doubled internal
@@ -1003,6 +1014,28 @@ class Engine:
 
                 if details:
                     for finding in color.review:
+                        self.log(f"    {finding.href}: {finding.context!r} ({finding.reason})")
+
+            # Possible Decorative Font -- FLAG ONLY, never auto-repaired.
+            # See ebook_fix.fonts module docstring for why: an embedded
+            # font on a heading, a narrowly-used class, a nested
+            # <em>/<span>, or a class without a confirmed body-text
+            # role could be a deliberate design choice, and only a
+            # person looking at the book can tell. Font Strip (see
+            # ebook_fix.modules.font_strip) only ever acts on the
+            # confident bucket -- this section exists purely so a
+            # person can review the rest and decide by hand.
+            fonts = analysis_report.fonts
+            if fonts.review_count:
+                self.log("\n[Possible Decorative Font -- Manual Review]")
+                self.log(
+                    f"  • Embedded font outside the confirmed body text "
+                    f"(possibly intentional): {fonts.review_count} -- "
+                    f"not auto-repaired, review and remove by hand if unwanted"
+                )
+
+                if details:
+                    for finding in fonts.review:
                         self.log(f"    {finding.href}: {finding.context!r} ({finding.reason})")
 
             # Module Diagnostics Execution

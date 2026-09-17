@@ -65,6 +65,7 @@ from ebook_fix.structure import SplitConfidence, analyze_structure, element_text
 from ebook_fix.writer import EPUBWriter
 from ebook_fix.apostrophes import analyze_book_possessives, apply_possessive_resolutions
 from ebook_fix.color import analyze_book_color
+from ebook_fix.fonts import analyze_book_font_usage
 from ebook_fix.frontmatter import analyze_book_frontmatter, MatterLabel, FRONT_ZONE, BACK_ZONE
 from ebook_fix import cover as cover_module
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
@@ -83,6 +84,7 @@ from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair
 from ebook_fix.modules.color_strip import ColorStripRepair
+from ebook_fix.modules.font_strip import FontStripRepair
 from gui import analysis_view
 from metadata.core_fields import write_core_field
 from metadata import calibre_detect
@@ -124,6 +126,7 @@ _REPAIR_MODULES = [
     ("image_repair", "Image Repair"),
     ("cover_repair", "Cover Repair"),
     ("color_repair", "Color Strip"),
+    ("font_repair", "Font Strip"),
     ("ellipsis_repair", "Ellipsis Normalizer"),
     ("apostrophe_repair", "Apostrophe Repair"),
     ("whitespace_repair", "Whitespace Normalizer"),
@@ -151,6 +154,7 @@ _REPAIR_MODULE_CLASSES = {
     "image_repair": ImageRepair,
     "cover_repair": CoverRepair,
     "color_repair": ColorStripRepair,
+    "font_repair": FontStripRepair,
     "ellipsis_repair": EllipsisRepair,
     "apostrophe_repair": ApostropheRepair,
     "whitespace_repair": WhitespaceRepair,
@@ -383,6 +387,39 @@ def _color_review_groups(book, analysis_report=None):
                     "location_kind": f.location_kind,
                     "context": f.context,
                     "value": f.value,
+                    "reason": f.reason,
+                }
+                for f in findings
+            ],
+        })
+    return groups
+
+
+def _font_review_groups(book, analysis_report=None):
+    """Every review-bucket (not confident) embedded-font finding worth
+    showing a person, grouped by href -- same shape and same posture
+    as _color_review_groups above. Confident findings aren't included
+    here at all: those are already handled unattended by
+    FontStripRepair, nothing to review. See ebook_fix.fonts's module
+    docstring for the confident/review split. Unlike color, accepting
+    a review-bucket font finding here only ever removes the CSS-level
+    declaration -- never the @font-face rule or the font file itself,
+    see FontStripRepair.apply_review_removals() for why."""
+    fonts = analysis_report.fonts if analysis_report is not None else analyze_book_font_usage(book)
+    by_href: dict = {}
+    for finding in fonts.review:
+        by_href.setdefault(finding.href, []).append(finding)
+
+    groups = []
+    for href, findings in by_href.items():
+        groups.append({
+            "href": href,
+            "findings": [
+                {
+                    "id": f.id,
+                    "location_kind": f.location_kind,
+                    "context": f.context,
+                    "value": f.family,
                     "reason": f.reason,
                 }
                 for f in findings
@@ -793,11 +830,13 @@ def book_review(session_id):
     groups = _split_candidate_groups(book)
     possessive_groups = _possessive_groups(book)
     color_groups = _color_review_groups(book)
+    font_groups = _font_review_groups(book)
     frontmatter_items = _frontmatter_review_groups(book)
 
     staged = _read_staged(_staged_review_path(session_dir))
     staged_possessive_resolutions = {}
     staged_color_ids = set()
+    staged_font_ids = set()
     staged_frontmatter_labels = {}
     if staged is not None:
         staged_ids = set(staged.get("accepted_ids", []))
@@ -806,6 +845,7 @@ def book_review(session_id):
                 item["auto_checked"] = item["id"] in staged_ids
         staged_possessive_resolutions = staged.get("possessive_resolutions", {})
         staged_color_ids = set(staged.get("accepted_color_ids", []))
+        staged_font_ids = set(staged.get("accepted_font_ids", []))
         staged_frontmatter_labels = staged.get("frontmatter_labels", {})
 
     for group in possessive_groups:
@@ -814,6 +854,9 @@ def book_review(session_id):
     for group in color_groups:
         for item in group["findings"]:
             item["accepted"] = item["id"] in staged_color_ids
+    for group in font_groups:
+        for item in group["findings"]:
+            item["accepted"] = item["id"] in staged_font_ids
     for item in frontmatter_items:
         item["resolution"] = staged_frontmatter_labels.get(item["href"], "")
 
@@ -828,6 +871,8 @@ def book_review(session_id):
         has_possessive_candidates=bool(possessive_groups),
         color_groups=color_groups,
         has_color_findings=bool(color_groups),
+        font_groups=font_groups,
+        has_font_findings=bool(font_groups),
         frontmatter_items=frontmatter_items,
         has_frontmatter_items=bool(frontmatter_items),
         frontmatter_label_choices=FRONTMATTER_LABEL_CHOICES,
@@ -845,10 +890,12 @@ def save_review(session_id):
     groups = _split_candidate_groups(book)
     possessive_groups = _possessive_groups(book)
     color_groups = _color_review_groups(book)
+    font_groups = _font_review_groups(book)
     frontmatter_items = _frontmatter_review_groups(book)
 
     accepted_ids = set(request.form.getlist("accept"))
     accepted_color_ids = set(request.form.getlist("color_accept"))
+    accepted_font_ids = set(request.form.getlist("font_accept"))
     possessive_resolutions = {}
     for group in possessive_groups:
         for item in group["candidates"]:
@@ -883,6 +930,7 @@ def save_review(session_id):
         "accepted_ids": sorted(accepted_ids),
         "possessive_resolutions": possessive_resolutions,
         "accepted_color_ids": sorted(accepted_color_ids),
+        "accepted_font_ids": sorted(accepted_font_ids),
         "frontmatter_labels": frontmatter_labels,
     }
     _staged_review_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
@@ -896,6 +944,9 @@ def save_review(session_id):
     for group in color_groups:
         for item in group["findings"]:
             item["accepted"] = item["id"] in accepted_color_ids
+    for group in font_groups:
+        for item in group["findings"]:
+            item["accepted"] = item["id"] in accepted_font_ids
     for item in frontmatter_items:
         item["resolution"] = frontmatter_labels.get(item["href"], "")
 
@@ -910,6 +961,8 @@ def save_review(session_id):
         has_possessive_candidates=bool(possessive_groups),
         color_groups=color_groups,
         has_color_findings=bool(color_groups),
+        font_groups=font_groups,
+        has_font_findings=bool(font_groups),
         frontmatter_items=frontmatter_items,
         has_frontmatter_items=bool(frontmatter_items),
         frontmatter_label_choices=FRONTMATTER_LABEL_CHOICES,
@@ -974,6 +1027,7 @@ def book_repair(session_id):
     staged_boundary_count = len(staged_review["accepted_ids"]) if staged_review else 0
     staged_possessive_count = len(staged_review.get("possessive_resolutions", {})) if staged_review else 0
     staged_color_count = len(staged_review.get("accepted_color_ids", [])) if staged_review else 0
+    staged_font_count = len(staged_review.get("accepted_font_ids", [])) if staged_review else 0
     has_staged_cover = bool(staged_cover and staged_cover.get("cover_source"))
 
     replaced_flag = _replaced_flag_path(session_dir)
@@ -992,6 +1046,7 @@ def book_repair(session_id):
         staged_boundary_count=staged_boundary_count,
         staged_possessive_count=staged_possessive_count,
         staged_color_count=staged_color_count,
+        staged_font_count=staged_font_count,
         result=None,
         has_fixed=_fixed_output_path(session_dir).exists(),
         already_replaced=already_replaced,
@@ -1111,6 +1166,7 @@ def apply_repair(session_id):
         # loaded) is safe and necessary here.
         possessive_resolved_count = 0
         color_review_count = 0
+        font_review_count = 0
         if staged_review is not None:
             possessive_resolutions = staged_review.get("possessive_resolutions", {})
             if possessive_resolutions:
@@ -1120,6 +1176,11 @@ def apply_repair(session_id):
             if accepted_color_ids:
                 color_review_report = ColorStripRepair(config.color_repair).apply_review_removals(book, accepted_color_ids)
                 color_review_count = color_review_report.count
+
+            accepted_font_ids = staged_review.get("accepted_font_ids", [])
+            if accepted_font_ids:
+                font_review_report = FontStripRepair(config.font_repair).apply_review_removals(book, accepted_font_ids)
+                font_review_count = font_review_report.count
 
         # Fresh analysis, reflecting any staged metadata/split changes
         # applied above -- the repair modules below need to see the
@@ -1202,11 +1263,13 @@ def apply_repair(session_id):
         staged_boundary_count=0,
         staged_possessive_count=0,
         staged_color_count=0,
+        staged_font_count=0,
         result={
             "output_path": str(output_path),
             "split_count": split_count,
             "possessive_resolved_count": possessive_resolved_count,
             "color_review_count": color_review_count,
+            "font_review_count": font_review_count,
             "module_summaries": module_summaries,
             "pass_count": pass_num,
             "engine_output": engine_output,

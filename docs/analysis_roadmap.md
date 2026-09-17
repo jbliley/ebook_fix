@@ -160,43 +160,6 @@ TOC and anchor links. Added `_walk_structure_nodes()` helper to iterate over
 both node types. Result: increased CORROBORATED boundaries across sample books
 (now 102/374 have CORROBORATED confidence, up from 0).
 
-## Done: Manifest and spine updater (2026-09-15)
-
-Built `manifest_updater.py` module to register split files in EPUB package.opf:
-
-Features:
-- `update_manifest()` - adds entries for new XHTML files with safe ID generation
-- `update_spine()` - adds itemrefs to preserve reading order
-- `apply_split_updates()` - applies both manifest and spine updates atomically
-- `verify_manifest_spine_integrity()` - validates consistency after updates
-- Smart position detection - inserts new files right after original chapter in spine
-
-Tested on MM21: successfully registered 40 split files in both manifest and spine
-with zero errors. Manifest/spine integrity verified - all idrefs exist, no duplicates.
-Works with split_generator.py to complete the split pipeline.
-
-Does NOT write files - EPUBWriter handles that. Just updates package.opf references.
-
-## Done: Split file generator - optional, not run by default (2026-09-15)
-
-Built `split_generator.py` module for generating new XHTML files from verified
-chapter boundaries. Key design: completely optional, never runs by default, must
-be explicitly called via `plan_splits()` or `generate_split_files()`.
-
-Features:
-- `plan_splits()` - preview what splits would be created (dry-run)
-- `generate_split_files()` - actually create split files and register in book.new_files
-- `_extract_chapter_content()` - extracts text/elements between boundaries
-- `_serialize_split_file()` - creates proper XHTML with DOCTYPE/namespaces
-- `_sanitize_filename()` - generates safe filenames from chapter text
-
-Produces SplitFileInfo objects tracking: new filename, word count, original chapter,
-continuation status. All generated files stored in book.new_files dict for EPUBWriter
-to include in output. Does NOT modify manifest/spine/TOC (separate modules handle those).
-
-Tested on MM21: correctly generated 40 split files (66,053 words total) matching
-original chapter boundaries. Ready for manifest/spine updaters to complete the pipeline.
-
 ## Done: Split verification module (2026-09-15)
 
 Built comprehensive pre-split verification system in new `split_verification.py`
@@ -1859,6 +1822,94 @@ correctly excluded); staged an override end-to-end (stage ->
 `EPUBAnalyzer().analyze()` call the repair pass itself uses); repair
 idempotency re-checked on a book with an active override, byte-
 identical on a second pass.
+
+
+## Done: embedded body-text font stripping (2026-09-17)
+
+Closed out the design scoped in the "strip embedded fonts, let the
+e-reader's own choice apply" session note above -- mirrors
+`ebook_fix.color`'s confident/review split almost exactly, applied to
+`font-family` instead of hardcoded color, with one genuinely new piece
+color-strip never needed: an embedded font is a real file in the
+manifest, not just a CSS property value.
+
+**New module, `ebook_fix.fonts`:** parses every `@font-face` rule in
+the book (external stylesheets AND a chapter's own embedded `<style>`
+block) and pairs each declared family with the resource(s) it actually
+embeds -- a family can ship more than one file (woff + ttf variants of
+the same face), so this is a proper family->hrefs map, not a 1:1
+guess. Only ever looks at a `font-family` declaration when it resolves
+to one of the book's own embedded families -- a plain `Georgia, serif`
+system font is correctly out of scope here, that's
+`class_standardize`'s "theme-neutral" territory, same line
+`color_strip` already draws for its own `font-family`/`font-size`
+exclusions. Confident: the confirmed body-text class, `<body>` itself,
+or inline font-family directly on a main-narrative `<p>`. Review:
+everything else -- a heading face, a pull-quote, a narrowly-used
+class, anywhere outside the main narrative.
+
+**The new piece: `fully_confident_families()`.** A font resource is
+only ever slated for deletion once EVERY usage of its family anywhere
+in the book -- not just the ones this pass happens to touch -- is
+itself confident. A font shared between the body-text class and a
+heading class keeps its file and `@font-face` rule even while its
+confident (body-text) usage gets stripped; nothing was ever
+half-deleted out from under something else that still needs it.
+
+**New repair module, `ebook_fix.modules.font_strip`:** strips a
+confident `font-family` declaration exactly like `color_strip` does.
+Once a family clears `fully_confident_families()`, also removes its
+`@font-face` rule (wherever it lives), the font resource's manifest
+entry and physical file, and -- if the book ships one --
+`META-INF/encryption.xml`, trimming just that font's
+`<EncryptedData>` entry or dropping the whole file if nothing
+obfuscated is left. `apply_review_removals()` (GUI Review tab, an
+accepted row) is deliberately narrower than color's own version: it
+only ever strips the CSS-level declaration, never the resource/
+`@font-face` rule -- safely deciding "is this font now unused
+everywhere" after a partial, ad-hoc set of accepted ids needs a full
+re-scan this doesn't attempt yet. The always-safe unattended path
+(a font embedded purely for body text, nothing else touching it)
+already handles the common case correctly on its own.
+
+**Config, engine, GUI:** new `FontRepairConfig` (`font_repair`,
+default on, same reasoning as `color_repair`); `FontStripRepair`
+registered right after `Color Strip` in the pipeline, same
+independent-of-ordering cluster; CLI `analyze` gained a
+"[Possible Decorative Font -- Manual Review]" section matching
+color's own. GUI: Analysis tab's manual-review section, Review tab's
+"Possible Decorative Font" group (select/unselect all, per-finding
+accept checkboxes), Repair tab's Font Strip checkbox and staged/
+result counts -- all wired the same way color's already are.
+
+**Verified:** none of the 18 real sample books embed a font at all
+(expected -- verified this is genuinely "no findings," not a bug, by
+running full `analyze`/`repair`/`auto-fix` regression across all 18
+with Font Strip active in the pipeline start to finish, zero
+failures, multi-pass convergence unaffected). Built three synthetic
+EPUBs from scratch to actually exercise the feature end to end, since
+no sample book covers it: (1) a body-text font + a separate heading
+font -- confirmed only the body-text font's CSS declaration,
+`@font-face` rule, and file get removed, the heading font's all three
+survive untouched; (2) the same book with `META-INF/encryption.xml`
+obfuscating both fonts -- confirmed the removed font's entry gets
+trimmed out while the still-used font's entry survives; (3) both
+fonts made fully confident -- confirmed `encryption.xml` itself gets
+deleted once nothing obfuscated is left in it. Also ran the GUI
+Review tab end-to-end through `app.test_client()`: staged an
+acceptance of the review-bucket heading-font finding, applied it from
+the Repair tab, and confirmed the output file has the heading class's
+declaration gone while its `@font-face` rule and font file remain --
+exactly the narrower contract `apply_review_removals()` documents.
+Re-parsed every repaired output; all still valid, idempotent (a
+second pass finds nothing left to do).
+
+**Known gap, flagged honestly rather than assumed away:** the
+`encryption.xml` handling is implemented from the EPUB/IDPF spec and
+verified only against the synthetic samples built for this session --
+none of this project's current example books ships a real
+IDPF-obfuscated font. Treat it as unverified against a real sample
+until one turns up.
 
 
 This file is the source of truth for "what's next" on the analysis

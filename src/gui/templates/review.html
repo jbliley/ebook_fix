@@ -30,7 +30,7 @@
   {% endif %}
 {% endif %}
 
-{% if not has_candidates and not has_possessive_candidates and not has_color_findings and not has_frontmatter_items %}
+{% if not has_candidates and not has_possessive_candidates and not has_color_findings and not has_font_findings and not has_frontmatter_items %}
 <p class="empty-state">Nothing here needs review right now.</p>
 {% else %}
 <form method="post" action="{{ url_for('save_review', session_id=session_id) }}">
@@ -127,6 +127,41 @@
       <input type="checkbox" name="color_accept" value="{{ item.id }}" id="color-{{ loop.index0 }}-{{ group.href }}" {% if item.accepted %}checked{% endif %}>
       <div>
         <label for="color-{{ loop.index0 }}-{{ group.href }}" style="display:inline; font-weight:normal; margin:0;">
+          <span class="item-title">{{ item.context }}</span>
+          <span class="confidence-tag confidence-needs-review">{{ item.value }}</span>
+        </label>
+        <div class="review-notes">{{ item.reason }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <h2>Possible Decorative Font</h2>
+  {% if not has_font_findings %}
+  <p class="empty-state">No embedded font outside the confirmed body text &mdash; nothing here needs review.</p>
+  {% else %}
+  <p class="details-toggle">
+    An embedded font the standard Font Strip repair leaves alone because it doesn't look like
+    body text &mdash; a heading face, a pull-quote, a chapter-opener display font. Check a row to
+    remove that declaration anyway; leave it unchecked to keep it exactly as the book has it.
+    Note: accepting a row here only ever removes the CSS declaration itself, never the underlying
+    font file or its @font-face rule &mdash; those only get cleaned up automatically when every
+    usage of a font is confident.
+  </p>
+  <div style="margin-bottom:0.5rem;">
+    <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllChecked('font_accept', true)">Select All</button>
+    <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllChecked('font_accept', false)">Unselect All</button>
+  </div>
+  {% for group in font_groups %}
+  <div class="review-group">
+    <h3>{{ group.href }}</h3>
+    {% for item in group.findings %}
+    <div class="review-item">
+      <input type="checkbox" name="font_accept" value="{{ item.id }}" id="font-{{ loop.index0 }}-{{ group.href }}" {% if item.accepted %}checked{% endif %}>
+      <div>
+        <label for="font-{{ loop.index0 }}-{{ group.href }}" style="display:inline; font-weight:normal; margin:0;">
           <span class="item-title">{{ item.context }}</span>
           <span class="confidence-tag confidence-needs-review">{{ item.value }}</span>
         </label>

@@ -165,6 +165,29 @@ class ColorRepairConfig:
 
 
 @dataclass(slots=True)
+class FontRepairConfig:
+    # Removes an embedded font-family declaration only where
+    # ebook_fix.fonts's analysis is confident it's safe to -- the same
+    # confident/review split ColorRepairConfig above uses, applied to
+    # embedded fonts instead of hardcoded color: the confirmed
+    # body-text class, the <body> element itself, or inline
+    # font-family set directly on a main-narrative paragraph. Once
+    # every usage of a given embedded font anywhere in the book turns
+    # out confident, the @font-face rule and the font FILE itself
+    # (manifest entry, and any META-INF/encryption.xml reference) are
+    # removed too, letting the reading system's own font choice apply
+    # instead. A font still used elsewhere (a heading, a pull-quote)
+    # keeps its file and @font-face rule even while its confident
+    # usages get stripped -- see ebook_fix.fonts's module docstring.
+    # On by default for the same reason ColorRepairConfig is: an
+    # embedded body-text font is a common conversion-tool artifact
+    # that fights a reading system's own font choice, and the
+    # confident/review split already keeps this from touching anything
+    # genuinely ambiguous.
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class MetadataRepairConfig:
     enabled: bool = True
     # Also write the same confidently-resolved values back into the
@@ -202,6 +225,7 @@ class Config:
     identifier_repair: IdentifierRepairConfig = field(default_factory=IdentifierRepairConfig)
     author_initials: AuthorInitialsConfig = field(default_factory=AuthorInitialsConfig)
     color_repair: ColorRepairConfig = field(default_factory=ColorRepairConfig)
+    font_repair: FontRepairConfig = field(default_factory=FontRepairConfig)
 
 
 # ---------------------------------------------------------------------
@@ -252,6 +276,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.metadata_repair, modules, "metadata_repair")
     _apply_module_toggle(config.identifier_repair, modules, "identifier_repair")
     _apply_module_toggle(config.color_repair, modules, "color_repair")
+    _apply_module_toggle(config.font_repair, modules, "font_repair")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
@@ -268,6 +293,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.metadata_repair, "metadata_repair", data.get("metadata_repair", {}))
     _apply_section(config.identifier_repair, "identifier_repair", data.get("identifier_repair", {}))
     _apply_section(config.color_repair, "color_repair", data.get("color_repair", {}))
+    _apply_section(config.font_repair, "font_repair", data.get("font_repair", {}))
     if config.ellipsis_repair.target_style not in ("unicode", "ascii"):
         raise ValueError(
             f"Invalid ellipsis_repair.target_style: {config.ellipsis_repair.target_style!r} "
@@ -337,6 +363,7 @@ running_title_repair = true
 metadata_repair = true
 identifier_repair = true
 color_repair = true
+font_repair = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -632,6 +659,26 @@ enabled = true
 # narrowly-used or unmapped class, anything outside the main
 # narrative -- is left alone and reported instead under "[Possible
 # Decorative Color]" in the analyze output, never auto-repaired.
+enabled = true
+
+# ---------------------------------------------------------------------
+# Font Strip
+# ---------------------------------------------------------------------
+[font_repair]
+
+# Removes an embedded font-family declaration only where analysis is
+# confident it's safe to -- the same confident/review split as Color
+# Strip above, applied to embedded fonts: the confirmed body-text
+# class, the <body> element itself, or inline font-family set directly
+# on a main-narrative paragraph. Once every usage of a given embedded
+# font anywhere in the book turns out confident, the @font-face rule
+# and the font file itself (manifest entry, and any
+# META-INF/encryption.xml reference) are removed too, letting the
+# reading system's own font choice apply instead. A font still used
+# elsewhere (a heading, a pull-quote) keeps its file and @font-face
+# rule even while its confident usages get stripped. Everything
+# review-bucket is left alone and reported instead under "[Possible
+# Decorative Font]" in the analyze output, never auto-repaired.
 enabled = true
 """
 
