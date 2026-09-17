@@ -38,6 +38,8 @@ from enum import Enum
 
 from lxml import etree
 
+from ebook_fix.contents_filter import ContentsPageDetector
+
 # Block-level tags we consider as chapter-marker candidates. "div" is
 # deliberately excluded: a div very often wraps a whole chapter's worth
 # of prose, and treating its full text as "one candidate" would produce
@@ -1104,6 +1106,12 @@ def analyze_book_chapters(book) -> BookChapterSummary:
         all_candidates.extend(chapter_candidates)
 
     all_candidates = merge_repeated_markers(all_candidates)
+
+    # Filter out false-positive chapter markers from contents pages
+    detector = ContentsPageDetector()
+    contents_files = detector.detect_contents_files(book)
+    if contents_files:
+        all_candidates = detector.filter_candidates(all_candidates, contents_files)
 
     part_candidates = [c for c in all_candidates if c.label_kind == "part"]
     chapter_candidates = [c for c in all_candidates if c.label_kind != "part"]
