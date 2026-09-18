@@ -61,7 +61,7 @@ from ebook_fix.config import load_config
 from ebook_fix.engine import Engine
 from ebook_fix.parser import EPUBParser
 from ebook_fix.splitter import SplitMarker
-from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, iter_chapter_nodes
+from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, iter_chapter_nodes, _walk_structure_nodes, NodeKind
 from ebook_fix.writer import EPUBWriter
 from ebook_fix.apostrophes import analyze_book_possessives, apply_possessive_resolutions
 from ebook_fix.color import analyze_book_color
@@ -290,7 +290,7 @@ def _read_staged(path: Path):
 
 
 def _split_candidate_groups(book):
-    """Every chapter-start boundary worth showing a person, grouped by
+    """Every chapter and part boundary worth showing a person, grouped by
     the file it's in. A file needs 2+ candidates to be split at all
     (a single boundary has nothing to cut it against) -- same gate
     Engine.split_chapters() already uses -- so a file with just one is
@@ -301,10 +301,12 @@ def _split_candidate_groups(book):
     the template-facing fields, so save_review() below can rebuild the
     exact same groups from a fresh copy of the book and match the
     person's accepted checkbox ids back to real elements to split at
-    -- the node itself never round-trips through the browser."""
+    -- the node itself never round-trips through the browser. Part nodes
+    (prologues/epilogues) are marked with is_part=True so the template
+    can label them differently in the TOC."""
     tree = analyze_structure(book)
     by_href: dict[str, list] = {}
-    for node in iter_chapter_nodes(tree):
+    for node in _walk_structure_nodes(tree.nodes, include_parts=True):
         if node.evidence is None or node.evidence.confidence == SplitConfidence.NONE:
             continue
         by_href.setdefault(node.start_href, []).append(node)
@@ -329,6 +331,7 @@ def _split_candidate_groups(book):
                 "auto_checked": confidence == SplitConfidence.CORROBORATED,
                 "notes": node.evidence.notes,
                 "preview": element_text_preview(node.evidence.candidate.element),
+                "is_part": node.kind == NodeKind.PART,
                 "node": node,
             })
         groups.append({"href": href, "candidates": candidates})
@@ -658,8 +661,8 @@ def save_metadata(session_id):
 
 @app.route("/book/<session_id>/metadata/cover", methods=["POST"])
 def save_cover(session_id):
-    """Stages a cover replacement -- either an uploaded file or "use
-    Calibre's cover" -- into its own staged_cover.json (see
+    """Stages a cover replacement -- either an uploaded file, "use
+    Calibre's cover", or a URL -- into its own staged_cover.json (see
     _staged_cover_path's own docstring for why that's separate from
     staged_metadata.json). Nothing about the book itself changes until
     apply_repair actually runs; this only ever writes to this
@@ -668,6 +671,7 @@ def save_cover(session_id):
     session_dir = _session_dir(session_id)
 
     use_calibre = request.form.get("use_calibre_cover") == "1"
+    cover_url = request.form.get("cover_url", "").strip()
     upload = request.files.get("cover_file")
 
     if use_calibre:
@@ -677,6 +681,12 @@ def save_cover(session_id):
             if calibre_cover_path.is_file():
                 staged = {"cover_source": str(calibre_cover_path)}
                 _staged_cover_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
+        return redirect(url_for("book_repair", session_id=session_id))
+
+    if cover_url:
+        # Store the URL for fetching during apply_repair
+        staged = {"cover_url": cover_url}
+        _staged_cover_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
         return redirect(url_for("book_repair", session_id=session_id))
 
     if upload is not None and upload.filename:
@@ -1114,6 +1124,20 @@ def apply_repair(session_id):
             if cover_media_type is not None:
                 cover_module.apply_cover_replacement(book, cover_data, cover_media_type)
         except (OSError, ValueError):
+            pass
+    
+    # Fetch cover from URL if provided
+    cover_url = staged_cover.get("cover_url") if staged_cover else None
+    if cover_url:
+        try:
+            import urllib.request
+            with urllib.request.urlopen(cover_url, timeout=10) as response:
+                cover_data = response.read()
+                cover_media_type = cover_module.sniff_image_media_type(cover_data)
+                if cover_media_type is not None:
+                    cover_module.apply_cover_replacement(book, cover_data, cover_media_type)
+        except Exception:
+            # URL fetch failed silently - leave existing cover untouched
             pass
 
     # Staged split boundaries, if any -- re-derives candidates fresh

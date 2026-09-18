@@ -62,10 +62,22 @@
     {% endif %}
   </div>
 
-  <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" enctype="multipart/form-data" style="margin-top:0.8rem;">
-    <input type="file" name="cover_file" accept="image/jpeg,image/png,image/gif,image/webp">
-    <button type="submit" class="button secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;">Upload replacement</button>
-  </form>
+  <div style="margin-top:0.8rem;">
+    <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" enctype="multipart/form-data" style="display:flex; gap:0.5rem; align-items:flex-end;">
+      <input type="file" name="cover_file" accept="image/jpeg,image/png,image/gif,image/webp">
+      <button type="submit" class="button secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem; white-space:nowrap;">Upload replacement</button>
+    </form>
+    
+    <div style="margin-top:0.5rem; padding-top:0.8rem; border-top:1px solid #eee;">
+      <label for="cover-url" style="display:block; margin-bottom:0.3rem;">Or use a URL:</label>
+      <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" id="cover-url-form" style="display:flex; gap:0.5rem; align-items:flex-end;">
+        <input type="hidden" name="cover_url" id="cover-url-hidden">
+        <input type="url" id="cover-url" placeholder="https://example.com/image.jpg" style="flex:1; padding:0.4rem; border:1px solid #ccc; border-radius:4px; font-size:0.9rem;">
+        <button type="button" class="button secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem; white-space:nowrap;" onclick="fetchCoverFromUrl()">Fetch cover</button>
+      </form>
+      <div id="url-status" style="margin-top:0.3rem; font-size:0.78rem; color:#888; display:none;"></div>
+    </div>
+  </div>
 </div>
 
 <form method="post" id="metadata-form" action="{{ url_for('save_metadata', session_id=session_id) }}">
@@ -263,6 +275,53 @@
   if (authorField) {
     authorField.addEventListener("input", updateSwapButtonVisibility);
   }
+
+  // Fetch cover from URL with validation
+  window.fetchCoverFromUrl = function() {
+    var urlInput = document.getElementById("cover-url");
+    var urlHidden = document.getElementById("cover-url-hidden");
+    var statusDiv = document.getElementById("url-status");
+    var url = urlInput.value.trim();
+    
+    if (!url) {
+      statusDiv.style.display = "none";
+      return;
+    }
+    
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch (e) {
+      statusDiv.textContent = "Invalid URL format";
+      statusDiv.style.color = "#e53e3e";
+      statusDiv.style.display = "block";
+      return;
+    }
+    
+    statusDiv.textContent = "Validating URL...";
+    statusDiv.style.color = "#666";
+    statusDiv.style.display = "block";
+    
+    // Validate that URL is reachable and is an image
+    fetch(url, { method: "HEAD" })
+      .then(function(response) {
+        if (!response.ok) {
+          throw new Error("HTTP " + response.status);
+        }
+        var contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.startsWith("image/")) {
+          throw new Error("Not an image");
+        }
+        // URL is valid, store it and submit the form
+        urlHidden.value = url;
+        document.getElementById("cover-url-form").submit();
+      })
+      .catch(function(error) {
+        statusDiv.textContent = "Invalid: " + error.message;
+        statusDiv.style.color = "#e53e3e";
+        statusDiv.style.display = "block";
+      });
+  };
 })();
 
 function setAllRepairModules(checked) {

@@ -58,6 +58,7 @@
       <div>
         <label for="item-{{ loop.index0 }}-{{ group.href }}" style="display:inline; font-weight:normal; margin:0;">
           <span class="item-title">{{ item.title }}</span>
+          {% if item.is_part %}<span style="display:inline-block; background:#d6bcfa; color:#6b21a8; padding:0.15rem 0.4rem; border-radius:3px; font-size:0.75rem; margin-left:0.3rem; font-weight:bold;">PART</span>{% endif %}
           <span class="confidence-tag confidence-{{ item.confidence|replace(' ', '-') }}">{{ item.confidence }}</span>
         </label>
         {% if item.preview %}<div class="review-preview">&ldquo;{{ item.preview }}&rdquo;</div>{% endif %}
