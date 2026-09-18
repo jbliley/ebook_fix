@@ -74,7 +74,6 @@
     </div>
     <div class="tabs">
       <a href="{{ url_for('book_analysis', session_id=session_id) }}" class="{{ 'active' if active_tab == 'analysis' else '' }}">Analysis</a>
-      <a href="{{ url_for('book_metadata', session_id=session_id) }}" class="{{ 'active' if active_tab == 'metadata' else '' }}">Metadata</a>
       <a href="{{ url_for('book_review', session_id=session_id) }}" class="{{ 'active' if active_tab == 'review' else '' }}">Review</a>
       <a href="{{ url_for('book_repair', session_id=session_id) }}" class="{{ 'active' if active_tab == 'repair' else '' }}">Repair</a>
       <a href="{{ url_for('book_before_after', session_id=session_id) }}" class="{{ 'active' if active_tab == 'before_after' else '' }}">Before / After</a>

@@ -1,32 +1,136 @@
 {% extends "base.html" %}
 {% block content %}
 <p class="details-toggle">
-  This is the one place that actually changes the book. Whatever you staged on the Metadata and
-  Review tabs gets applied here too, together with whichever standard repairs you leave checked
-  below, all in a single pass ending in one file &mdash; not a separate copy per tab.
+  Edit your book's metadata, then apply standard repairs, all in one place.
+  Everything gets applied together in a single pass.
 </p>
 
-{% if has_staged_metadata or has_staged_review or has_staged_cover %}
-<div class="staged-banner">
-  {% if has_staged_metadata %}Metadata: {{ staged_field_count }} field(s) staged.{% endif %}
-  {% if has_staged_review %}{{ ' ' if has_staged_metadata }}Review: {{ staged_boundary_count }} boundary/boundaries, {{ staged_possessive_count }} possessive resolution(s), {{ staged_color_count }} color removal(s), {{ staged_font_count }} font removal(s) staged.{% endif %}
-  {% if has_staged_cover %}{{ ' ' if has_staged_metadata or has_staged_review }}Cover: a replacement is staged.{% endif %}
-</div>
-{% else %}
-<div class="staged-banner" style="background:#f7fafc;border-color:#e2e8f0;color:#555;">
-  Nothing staged on the Metadata or Review tabs yet. That's fine &mdash; you can still run just
-  the standard repairs below.
-</div>
+{% if not is_calibre_managed %}
+<p style="font-size:0.85rem; color:#888; margin-top:-0.5rem;">
+  This book is showing as standalone, not Calibre-managed. If it's actually in your Calibre
+  library, double check the path you opened it from points at the real copy inside your library
+  folder, not a copy elsewhere.
+</p>
 {% endif %}
+
+<!-- METADATA SECTION -->
+<h2 style="margin-top:1.5rem; margin-bottom:1rem;">Metadata</h2>
+
+<div class="field-block" style="border:1px solid #eee; border-radius:8px; padding:1rem;">
+  <label style="margin-bottom:0.6rem; display:block;">Cover</label>
+  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start;">
+    <div>
+      <div style="font-size:0.8rem; color:#666; margin-bottom:0.3rem;">Current</div>
+      {% if current_cover_preview %}
+      <img src="{{ current_cover_preview.data_uri }}" alt="Current cover" style="max-width:120px; max-height:180px; border:1px solid #ddd; border-radius:4px; display:block;">
+      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+        {% if current_cover_preview.dimensions %}{{ current_cover_preview.dimensions }}<br>{% endif %}
+        {{ current_cover_preview.size_label }}
+      </div>
+      {% else %}
+      <div style="font-size:0.82rem; color:#888; max-width:120px;">No usable cover found.</div>
+      {% endif %}
+    </div>
+
+    {% if staged_cover_preview %}
+    <div>
+      <div style="font-size:0.8rem; color:#2f855a; margin-bottom:0.3rem;">Pending replacement</div>
+      <img src="{{ staged_cover_preview.data_uri }}" alt="Staged replacement cover" style="max-width:120px; max-height:180px; border:2px solid #68d391; border-radius:4px; display:block;">
+      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+        {% if staged_cover_preview.dimensions %}{{ staged_cover_preview.dimensions }}<br>{% endif %}
+        {{ staged_cover_preview.size_label }}
+      </div>
+      <form method="post" action="{{ url_for('clear_cover', session_id=session_id) }}" style="margin-top:0.4rem;">
+        <button type="submit" class="button secondary" style="padding:0.25rem 0.6rem; font-size:0.78rem;">Cancel</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if calibre_cover_preview %}
+    <div>
+      <div style="font-size:0.8rem; color:#666; margin-bottom:0.3rem;">Calibre folder's cover</div>
+      <img src="{{ calibre_cover_preview.data_uri }}" alt="Calibre folder's cover" style="max-width:120px; max-height:180px; border:1px solid #ddd; border-radius:4px; display:block;">
+      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+        {% if calibre_cover_preview.dimensions %}{{ calibre_cover_preview.dimensions }}<br>{% endif %}
+        {{ calibre_cover_preview.size_label }}
+      </div>
+      <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" style="margin-top:0.4rem;">
+        <input type="hidden" name="use_calibre_cover" value="1">
+        <button type="submit" class="button secondary" style="padding:0.25rem 0.6rem; font-size:0.78rem;">Use this instead</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" enctype="multipart/form-data" style="margin-top:0.8rem;">
+    <input type="file" name="cover_file" accept="image/jpeg,image/png,image/gif,image/webp">
+    <button type="submit" class="button secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;">Upload replacement</button>
+  </form>
+</div>
+
+<form method="post" id="metadata-form" action="{{ url_for('save_metadata', session_id=session_id) }}">
+  {% for f in fields %}
+  <div class="field-block">
+    <label for="field-{{ f.name }}">
+      {{ f.label }}
+      {% if f.mismatch %}<span class="mismatch-tag">MISMATCH</span>{% endif %}
+    </label>
+    {% if f.multiline %}
+    <textarea id="field-{{ f.name }}" name="{{ f.name }}">{{ f.value }}</textarea>
+    {% else %}
+    <input type="text" id="field-{{ f.name }}" name="{{ f.name }}" value="{{ f.value }}">
+    {% endif %}
+    {% if f.name == 'author' %}
+    <div class="author-swap">
+      <button type="button" id="swap-btn" class="button secondary" style="margin-top:0.4rem; padding:0.3rem 0.7rem; font-size:0.8rem; display:none;" onclick="swapAuthorName()">Swap to "First Last"</button>
+    </div>
+    {% endif %}
+    {% if f.mismatch %}
+    <div class="mismatch-choices">
+      Pick a value:
+      <button type="button" onclick='document.getElementById("field-{{ f.name }}").value = {{ f.epub_value|tojson }};'>EPUB: {{ f.epub_value }}</button>
+      <button type="button" onclick='document.getElementById("field-{{ f.name }}").value = {{ f.calibre_value|tojson }};'>Calibre: {{ f.calibre_value }}</button>
+    </div>
+    {% if f.note %}<div class="mismatch-note">{{ f.note }}</div>{% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <div class="field-block">
+    <label for="field-language">Language</label>
+    <select id="field-language" name="language">
+      {% for code, choice_label in language_choices %}
+      <option value="{{ code }}" {% if code == language_value %}selected{% endif %}>{{ choice_label }}</option>
+      {% endfor %}
+    </select>
+    <div class="mismatch-note">
+      Sets the EPUB's own language directly. Calibre and EPUB use different, both-correct
+      code formats (eng vs en), so this never shows as a mismatch to pick between. Use
+      this dropdown only if the language itself is actually wrong.
+      {% if language_note %}{{ language_note }}{% endif %}
+    </div>
+  </div>
+
+  <label for="field-series-name">Series</label>
+  <input type="text" id="field-series-name" name="series_name" value="{{ series_name }}" placeholder="Series name (leave blank for none)">
+
+  <label for="field-series-index">Series Position</label>
+  <input type="text" id="field-series-index" name="series_index" value="{{ series_index if series_index is not none else '' }}" placeholder="e.g. 3 or 3.5">
+
+  <button type="submit" class="button">Save Metadata</button>
+</form>
+
+<!-- REPAIR MODULES SECTION -->
+<h2 style="margin-top:2rem; margin-bottom:1rem;">Repairs</h2>
 
 {% if result %}
 <div class="saved-banner">
   Saved to <code>{{ result.output_path }}</code>
   {% if result.pass_count > 1 %}(completed in {{ result.pass_count }} passes){% endif %}.
-  {% if result.split_count %}Split {{ result.split_count }} file{{ 's' if result.split_count != 1 else '' }} from the Review tab's staged boundaries.{% endif %}
-  {% if result.possessive_resolved_count %}Resolved {{ result.possessive_resolved_count }} possessive candidate(s) from the Review tab.{% endif %}
-  {% if result.color_review_count %}Removed {{ result.color_review_count }} decorative color declaration(s) accepted on the Review tab.{% endif %}
-  {% if result.font_review_count %}Removed {{ result.font_review_count }} decorative font declaration(s) accepted on the Review tab.{% endif %}
+  {% if result.split_count %}Split {{ result.split_count }} file{{ 's' if result.split_count != 1 else '' }}.{% endif %}
+  {% if result.possessive_resolved_count %}Resolved {{ result.possessive_resolved_count }} possessive candidate(s).{% endif %}
+  {% if result.color_review_count %}Removed {{ result.color_review_count }} decorative color declaration(s).{% endif %}
+  {% if result.font_review_count %}Removed {{ result.font_review_count }} decorative font declaration(s).{% endif %}
   {% if result.module_summaries %}
   <div class="result-summary">
     Changes made:
@@ -35,17 +139,17 @@
     </ul>
   </div>
   {% elif not result.split_count %}
-  <div class="result-summary">No standard repairs found anything to change.</div>
+  <div class="result-summary">No repairs found anything to change.</div>
   {% endif %}
   {% if result.opf_sync and result.opf_sync.attempted %}
   <div class="result-summary">Calibre metadata.opf: {{ result.opf_sync.message or 'synced.' }}</div>
   {% elif result.opf_sync %}
-  <div class="result-summary">Calibre metadata.opf: not attempted &mdash; {{ result.opf_sync.message }}</div>
+  <div class="result-summary">Calibre metadata.opf: not attempted — {{ result.opf_sync.message }}</div>
   {% endif %}
   {% if result.db_sync and result.db_sync.attempted %}
   <div class="result-summary">Calibre metadata.db: {{ result.db_sync.message or 'synced.' }}</div>
   {% elif result.db_sync %}
-  <div class="result-summary">Calibre metadata.db: not attempted &mdash; {{ result.db_sync.message }}</div>
+  <div class="result-summary">Calibre metadata.db: not attempted — {{ result.db_sync.message }}</div>
   {% endif %}
 </div>
 {% endif %}
@@ -58,7 +162,7 @@
 
 {% if replaced_path %}
 <div class="saved-banner">
-  Replaced. <code>{{ replaced_path }}</code> now holds the repaired book &mdash; Calibre (or
+  Replaced. <code>{{ replaced_path }}</code> now holds the repaired book — Calibre (or
   anything else pointed at that exact path) will pick it up as-is, no renaming needed on your
   end. The pre-repair file was kept as <code>{{ replaced_backup }}</code>.
 </div>
@@ -76,7 +180,7 @@
   <button type="submit" class="button secondary">Replace original file with repaired version</button>
   <p class="details-toggle" style="margin-top:0.4rem;">
     Renames the original to "&lt;name&gt;_original.epub" as a backup, then renames the repaired
-    file to the original's own name and location &mdash; so Calibre's own copy is the fixed one,
+    file to the original's own name and location — so Calibre's own copy is the fixed one,
     without you renaming anything by hand.
   </p>
 </form>
@@ -110,10 +214,61 @@
 </form>
 
 <script>
-  function setAllRepairModules(checked) {
-    document.querySelectorAll('input[name="modules"]').forEach(function (box) {
-      box.checked = checked;
-    });
+(function() {
+  // Unsaved changes warning
+  var form = document.getElementById("metadata-form");
+  var dirty = false;
+  var submitting = false;
+
+  form.addEventListener("input", function() { dirty = true; });
+  form.addEventListener("change", function() { dirty = true; });
+  form.addEventListener("submit", function() { submitting = true; });
+
+  document.querySelectorAll(".mismatch-choices button").forEach(function(btn) {
+    btn.addEventListener("click", function() { dirty = true; });
+  });
+
+  window.addEventListener("beforeunload", function(e) {
+    if (dirty && !submitting) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  });
+
+  // Swap author name - only show button when there's a comma
+  window.swapAuthorName = function() {
+    var el = document.getElementById("field-author");
+    var parts = el.value.split(",");
+    if (parts.length !== 2) return;
+    var last = parts[0].trim();
+    var first = parts[1].trim();
+    if (!last || !first) return;
+    el.value = first + " " + last;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    updateSwapButtonVisibility();
+  };
+
+  // Show/hide the Swap button based on whether there's a comma
+  function updateSwapButtonVisibility() {
+    var authorField = document.getElementById("field-author");
+    var swapBtn = document.getElementById("swap-btn");
+    if (authorField && swapBtn) {
+      swapBtn.style.display = authorField.value.includes(",") ? "inline-block" : "none";
+    }
   }
+
+  // Update visibility on page load and whenever the author field changes
+  updateSwapButtonVisibility();
+  var authorField = document.getElementById("field-author");
+  if (authorField) {
+    authorField.addEventListener("input", updateSwapButtonVisibility);
+  }
+})();
+
+function setAllRepairModules(checked) {
+  document.querySelectorAll('input[name="modules"]').forEach(function (box) {
+    box.checked = checked;
+  });
+}
 </script>
 {% endblock %}
