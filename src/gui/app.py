@@ -632,116 +632,6 @@ def _staged_cover_dir(session_dir: Path) -> Path:
     return session_dir / "staged_cover"
 
 
-@app.route("/book/<session_id>/metadata")
-@_handle_missing_source
-def book_metadata(session_id):
-    session_dir = _session_dir(session_id)
-    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
-    book, analysis_report = _load_analysis(session_dir)
-    merged = analysis_report.merged_core_fields
-    staged = _read_staged(_staged_metadata_path(session_dir))
-
-    fields = []
-    for name in _EDITABLE_FIELDS:
-        mf = getattr(merged, name)
-        value = staged["fields"][name] if staged else mf.display_value
-        fields.append({
-            "name": name,
-            "label": name.replace("_", " ").title(),
-            "value": value,
-            "mismatch": mf.mismatch,
-            "epub_value": mf.epub_value,
-            "calibre_value": mf.calibre_value,
-            "note": mf.note,
-            "multiline": name == "description",
-        })
-
-    series_info = series_metadata.read(book)
-    calibre_ctx = analysis_report.calibre_context
-
-    # Current cover: read straight from the book's own zip archive
-    # (analyze_book_cover only ever returns which manifest item/path
-    # is the cover, never the bytes) rather than book.images, which --
-    # like every other Resource on Book -- only ever holds id/href/
-    # media-type, never binary content. None if the book has no usable
-    # cover at all rather than raising, same as everywhere else a
-    # missing cover gets treated as "nothing to show," not an error.
-    current_cover_preview = None
-    cover_summary = cover_module.analyze_book_cover(book)
-    if cover_summary.cover_item is not None and cover_summary.exists_in_archive:
-        try:
-            with zipfile.ZipFile(book.source, "r") as archive:
-                current_cover_preview = _cover_preview(
-                    archive.read(cover_summary.resolved_href),
-                    cover_summary.cover_item.media_type,
-                )
-        except (KeyError, OSError):
-            current_cover_preview = None
-
-    # A Calibre-managed book's own folder conventionally has its own
-    # cover.jpg alongside the EPUB -- offered as a one-click "use this
-    # instead" option distinct from uploading a file by hand. Only
-    # ever read for a preview here; nothing about this book's actual
-    # cover changes until a person explicitly picks it AND applies the
-    # repair pass (see save_cover/apply_repair).
-    calibre_cover_preview = None
-    if calibre_ctx.is_calibre_managed and calibre_ctx.book_folder is not None:
-        calibre_cover_path = calibre_ctx.book_folder / "cover.jpg"
-        if calibre_cover_path.is_file():
-            try:
-                data = calibre_cover_path.read_bytes()
-                media_type = cover_module.sniff_image_media_type(data)
-                if media_type is not None:
-                    calibre_cover_preview = _cover_preview(data, media_type)
-                    calibre_cover_preview["source_path"] = str(calibre_cover_path)
-            except OSError:
-                calibre_cover_preview = None
-
-    # A staged replacement (uploaded file, or "use Calibre's cover"
-    # picked on an earlier visit to this tab) previews as "pending"
-    # rather than replacing current_cover_preview above -- the actual
-    # book on disk hasn't changed yet, so showing both side by side is
-    # more honest than swapping the "current" one out early.
-    staged_cover_preview = None
-    staged_cover = _read_staged(_staged_cover_path(session_dir))
-    staged_cover_source = staged_cover.get("cover_source") if staged_cover else None
-    if staged_cover_source:
-        try:
-            data = Path(staged_cover_source).read_bytes()
-            media_type = cover_module.sniff_image_media_type(data)
-            if media_type is not None:
-                staged_cover_preview = _cover_preview(data, media_type)
-        except OSError:
-            staged_cover_preview = None
-
-    # The EPUB's own current dc:language value, not merged.display_value
-    # -- this dropdown edits the EPUB directly (write_core_field targets
-    # the book, same as every other field here), so it should start on
-    # what the EPUB actually has, not a value resolved from Calibre's
-    # side of a comparison that was never a real disagreement to begin
-    # with. Falls back to whichever side has something when the EPUB's
-    # own field is simply blank.
-    current_language = (staged.get("language") if staged else None) or merged.language.epub_value or merged.language.display_value
-
-    return render_template(
-        "metadata.html",
-        active_tab="metadata",
-        session_id=session_id,
-        filename=filename,
-        fields=fields,
-        current_cover_preview=current_cover_preview,
-        calibre_cover_preview=calibre_cover_preview,
-        staged_cover_preview=staged_cover_preview,
-        has_staged_cover=staged_cover is not None,
-        language_value=current_language,
-        language_choices=language_options(current_language),
-        language_note=merged.language.note,
-        series_name=staged["series_name"] if staged else (series_info.name or ""),
-        series_index=staged["series_index"] if staged else series_info.index,
-        is_staged=staged is not None,
-        is_calibre_managed=calibre_ctx.is_calibre_managed,
-    )
-
 
 @app.route("/book/<session_id>/metadata", methods=["POST"])
 def save_metadata(session_id):
@@ -974,6 +864,9 @@ def save_review(session_id):
     )
 
 
+ THE MERGED book_repair HANDLER
+# This replaces lines 977-1054 in app.py
+
 @app.route("/book/<session_id>/repair")
 @_handle_missing_source
 def book_repair(session_id):
@@ -990,6 +883,93 @@ def book_repair(session_id):
     # person decides to check it on.
     book, analysis_report = _load_analysis(session_dir)
 
+    # --- METADATA SECTION (merged from book_metadata) ---
+    merged = analysis_report.merged_core_fields
+    staged_metadata = _read_staged(_staged_metadata_path(session_dir))
+
+    fields = []
+    for name in _EDITABLE_FIELDS:
+        mf = getattr(merged, name)
+        value = staged_metadata["fields"][name] if staged_metadata else mf.display_value
+        fields.append({
+            "name": name,
+            "label": name.replace("_", " ").title(),
+            "value": value,
+            "mismatch": mf.mismatch,
+            "epub_value": mf.epub_value,
+            "calibre_value": mf.calibre_value,
+            "note": mf.note,
+            "multiline": name == "description",
+        })
+
+    series_info = series_metadata.read(book)
+    calibre_ctx = analysis_report.calibre_context
+
+    # Current cover: read straight from the book's own zip archive
+    # (analyze_book_cover only ever returns which manifest item/path
+    # is the cover, never the bytes) rather than book.images, which --
+    # like every other Resource on Book -- only ever holds id/href/
+    # media-type, never binary content. None if the book has no usable
+    # cover at all rather than raising, same as everywhere else a
+    # missing cover gets treated as "nothing to show," not an error.
+    current_cover_preview = None
+    cover_summary = cover_module.analyze_book_cover(book)
+    if cover_summary.cover_item is not None and cover_summary.exists_in_archive:
+        try:
+            with zipfile.ZipFile(book.source, "r") as archive:
+                current_cover_preview = _cover_preview(
+                    archive.read(cover_summary.resolved_href),
+                    cover_summary.cover_item.media_type,
+                )
+        except (KeyError, OSError):
+            current_cover_preview = None
+
+    # A Calibre-managed book's own folder conventionally has its own
+    # cover.jpg alongside the EPUB -- offered as a one-click "use this
+    # instead" option distinct from uploading a file by hand. Only
+    # ever read for a preview here; nothing about this book's actual
+    # cover changes until a person explicitly picks it AND applies the
+    # repair pass (see save_cover/apply_repair).
+    calibre_cover_preview = None
+    if calibre_ctx.is_calibre_managed and calibre_ctx.book_folder is not None:
+        calibre_cover_path = calibre_ctx.book_folder / "cover.jpg"
+        if calibre_cover_path.is_file():
+            try:
+                data = calibre_cover_path.read_bytes()
+                media_type = cover_module.sniff_image_media_type(data)
+                if media_type is not None:
+                    calibre_cover_preview = _cover_preview(data, media_type)
+                    calibre_cover_preview["source_path"] = str(calibre_cover_path)
+            except OSError:
+                calibre_cover_preview = None
+
+    # A staged replacement (uploaded file, or "use Calibre's cover"
+    # picked on an earlier visit to this tab) previews as "pending"
+    # rather than replacing current_cover_preview above -- the actual
+    # book on disk hasn't changed yet, so showing both side by side is
+    # more honest than swapping the "current" one out early.
+    staged_cover_preview = None
+    staged_cover = _read_staged(_staged_cover_path(session_dir))
+    staged_cover_source = staged_cover.get("cover_source") if staged_cover else None
+    if staged_cover_source:
+        try:
+            data = Path(staged_cover_source).read_bytes()
+            media_type = cover_module.sniff_image_media_type(data)
+            if media_type is not None:
+                staged_cover_preview = _cover_preview(data, media_type)
+        except OSError:
+            staged_cover_preview = None
+
+    # The EPUB's own current dc:language value, not merged.display_value
+    # -- this dropdown edits the EPUB directly (write_core_field targets
+    # the book, same as every other field here), so it should start on
+    # what the EPUB actually has, not a value resolved from Calibre's
+    # side of a comparison that was never a real disagreement to begin
+    # with. Falls back to whichever side has something when the EPUB's
+    # own field is simply blank.
+    current_language = (staged_metadata.get("language") if staged_metadata else None) or merged.language.epub_value or merged.language.display_value
+
+    # --- REPAIR MODULES SECTION (original code from book_repair) ---
     modules = []
     for attr, label in _REPAIR_MODULES:
         module_config = getattr(config, attr)
@@ -1020,9 +1000,7 @@ def book_repair(session_id):
             "checked": module_config.enabled and report.count > 0,
         })
 
-    staged_metadata = _read_staged(_staged_metadata_path(session_dir))
     staged_review = _read_staged(_staged_review_path(session_dir))
-    staged_cover = _read_staged(_staged_cover_path(session_dir))
     staged_field_count = len(staged_metadata["fields"]) if staged_metadata else 0
     staged_boundary_count = len(staged_review["accepted_ids"]) if staged_review else 0
     staged_possessive_count = len(staged_review.get("possessive_resolutions", {})) if staged_review else 0
@@ -1038,6 +1016,7 @@ def book_repair(session_id):
         active_tab="repair",
         session_id=session_id,
         filename=filename,
+        # Repair module variables (original)
         modules=modules,
         has_staged_metadata=staged_metadata is not None,
         has_staged_review=staged_review is not None,
@@ -1051,7 +1030,19 @@ def book_repair(session_id):
         has_fixed=_fixed_output_path(session_dir).exists(),
         already_replaced=already_replaced,
         replaced_backup=replaced_flag.read_text(encoding="utf-8") if already_replaced else None,
+        # Metadata variables (merged from book_metadata)
+        fields=fields,
+        current_cover_preview=current_cover_preview,
+        calibre_cover_preview=calibre_cover_preview,
+        staged_cover_preview=staged_cover_preview,
+        language_value=current_language,
+        language_choices=language_options(current_language),
+        language_note=merged.language.note,
+        series_name=staged_metadata.get("series_name") if staged_metadata else (series_info.name or ""),
+        series_index=staged_metadata.get("series_index") if staged_metadata else series_info.index,
+        is_calibre_managed=calibre_ctx.is_calibre_managed,
     )
+
 
 
 @app.route("/book/<session_id>/repair", methods=["POST"])
