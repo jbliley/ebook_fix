@@ -653,7 +653,7 @@ def save_metadata(session_id):
     }
     _staged_metadata_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
 
-    return redirect(url_for("book_metadata", session_id=session_id))
+    return redirect(url_for("book_repair", session_id=session_id))
 
 
 @app.route("/book/<session_id>/metadata/cover", methods=["POST"])
@@ -677,7 +677,7 @@ def save_cover(session_id):
             if calibre_cover_path.is_file():
                 staged = {"cover_source": str(calibre_cover_path)}
                 _staged_cover_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
-        return redirect(url_for("book_metadata", session_id=session_id))
+        return redirect(url_for("book_repair", session_id=session_id))
 
     if upload is not None and upload.filename:
         data = upload.read()
@@ -697,7 +697,7 @@ def save_cover(session_id):
             staged = {"cover_source": str(saved_path)}
             _staged_cover_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
 
-    return redirect(url_for("book_metadata", session_id=session_id))
+    return redirect(url_for("book_repair", session_id=session_id))
 
 
 @app.route("/book/<session_id>/metadata/cover/clear", methods=["POST"])
@@ -708,7 +708,7 @@ def clear_cover(session_id):
     _staged_cover_path(session_dir).unlink(missing_ok=True)
     for old in _staged_cover_dir(session_dir).glob("staged_cover.*"):
         old.unlink(missing_ok=True)
-    return redirect(url_for("book_metadata", session_id=session_id))
+    return redirect(url_for("book_repair", session_id=session_id))
 
 
 @app.route("/book/<session_id>/review")
@@ -887,7 +887,7 @@ def book_repair(session_id):
     fields = []
     for name in _EDITABLE_FIELDS:
         mf = getattr(merged, name)
-        value = staged_metadata["fields"][name] if staged_metadata else mf.display_value
+        value = staged_metadata.get("fields", {}).get(name, mf.display_value) if staged_metadata else mf.display_value
         fields.append({
             "name": name,
             "label": name.replace("_", " ").title(),
@@ -998,8 +998,8 @@ def book_repair(session_id):
         })
 
     staged_review = _read_staged(_staged_review_path(session_dir))
-    staged_field_count = len(staged_metadata["fields"]) if staged_metadata else 0
-    staged_boundary_count = len(staged_review["accepted_ids"]) if staged_review else 0
+    staged_field_count = len(staged_metadata.get("fields", {})) if staged_metadata else 0
+    staged_boundary_count = len(staged_review.get("accepted_ids", [])) if staged_review else 0
     staged_possessive_count = len(staged_review.get("possessive_resolutions", {})) if staged_review else 0
     staged_color_count = len(staged_review.get("accepted_color_ids", [])) if staged_review else 0
     staged_font_count = len(staged_review.get("accepted_font_ids", [])) if staged_review else 0
@@ -1074,7 +1074,7 @@ def apply_repair(session_id):
     # separate "_fixed.epub".
     staged_metadata = _read_staged(_staged_metadata_path(session_dir))
     if staged_metadata is not None:
-        for name, value in staged_metadata["fields"].items():
+        for name, value in staged_metadata.get("fields", {}).items():
             write_core_field(book, name, value)
         # .get(), not [] -- a session staged before Phase 5 shipped
         # won't have a "language" key at all, and that should just mean
@@ -1082,9 +1082,10 @@ def apply_repair(session_id):
         language_value = staged_metadata.get("language")
         if language_value:
             write_core_field(book, "language", language_value)
-        series_name = staged_metadata["series_name"]
+        series_name = staged_metadata.get("series_name")
         if series_name:
-            series_metadata.write(book, series_name, staged_metadata["series_index"])
+            series_index = staged_metadata.get("series_index")
+            series_metadata.write(book, series_name, series_index)
 
     # Staged cover replacement, if any -- own staged file, not a key
     # inside staged_metadata (see _staged_cover_path), so it survives
@@ -1126,7 +1127,7 @@ def apply_repair(session_id):
     with _captured_output() as buf:
         staged_review = _read_staged(_staged_review_path(session_dir))
         if staged_review is not None:
-            accepted_ids = set(staged_review["accepted_ids"])
+            accepted_ids = set(staged_review.get("accepted_ids", []))
             groups = _split_candidate_groups(book)
             markers_by_href = {}
             for group in groups:
