@@ -3,11 +3,16 @@
 **Status:** Active. Front/back matter classification, NCX/nav label
 parsing + reuse + link validation, split-title TOC entry merging,
 cover image detection, span soup detection, Project Gutenberg
-boilerplate detection + removal, orphaned zip files, and font
-embedding gaps are done (see below). TOC generation when a book has
-none is the next item picked up from here.
-**Started:** session that closed out the analysis-first migration
-(see "Carried over" below).
+boilerplate detection + removal, orphaned zip files, font
+embedding gaps, font stripping repair module, contents page false-positive filtering, and part node (prologue/epilogue) splitting are done (see below). ISBN-based metadata lookup is next -- planning phase complete, awaiting Jacob's UX decisions on auto-fill vs. review-first and offline handling.
+
+**Most recently completed (2026-09-18 session):**
+- GUI refactor: Metadata tab merged into Repair tab (single-pass workflow)
+- URL cover art input: validates URL reachability, fetches on "Apply Everything"
+- Part nodes (prologues/epilogues): now appear in Review tab as splittable boundaries, marked with "PART" tag, split to separate XHTML files alongside chapters
+- Font strip wiring: verified complete (config, analyzer, engine pipeline, GUI review, app routes all working)
+- Critical bug fixes: 4 redirect route bugs + 3 KeyError bugs in app.py
+- Contents page false-positive filtering: integrated into chapter detection, tested with MM21.epub
 
 ## The idea
 
