@@ -864,9 +864,6 @@ def save_review(session_id):
     )
 
 
- THE MERGED book_repair HANDLER
-# This replaces lines 977-1054 in app.py
-
 @app.route("/book/<session_id>/repair")
 @_handle_missing_source
 def book_repair(session_id):
