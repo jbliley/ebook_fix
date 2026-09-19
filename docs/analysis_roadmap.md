@@ -1916,6 +1916,70 @@ none of this project's current example books ships a real
 IDPF-obfuscated font. Treat it as unverified against a real sample
 until one turns up.
 
+## Done: CSS class analysis and consolidation suggestions (2026-09-19)
+
+Prompted by a real book (a user-supplied "Complete Sherlock Holmes"
+EPUB) that turned out to have ~140 CSS classes across 3 stylesheets --
+this is read-only tooling to answer "is that bloat, or is it
+intentional?" before anyone runs `map-css`/`class-standardize` and
+risks flattening a book's actual design.
+
+**New module, `ebook_fix.modules.css_analyzer`:** parses every
+external stylesheet and embedded `<style>` block, then cross-references
+against every class actually used in the book's XHTML. Reports four
+things: classes whose CSS rules are byte-for-byte identical (safe to
+merge); classes that differ in only 1-2 properties (grouped together,
+but flagged for human review rather than auto-merged, since a single
+`margin` or `text-indent` difference is very often the entire point of
+having two classes -- first-paragraph vs. regular, centered vs.
+justified, etc.); every color value in use and which classes carry it
+(explicitly surfaced rather than silently dropped, since a repeated
+color like a chapter-number red is almost always deliberate branding,
+not an accident to standardize away); and classes defined in CSS but
+never applied anywhere in the XHTML.
+
+**New module, `ebook_fix.modules.css_consolidator`:** takes the
+analyzer's output and turns it into scored suggestions rather than a
+flat list -- identical-rule groups score 0.95 and are written active;
+near-identical groups score 0.5 and are written as commented-out TOML
+entries with the reasoning inline, *unless* the classes differ in
+`color` or in `font-size` by more than 20%, in which case they're
+dropped from suggestions entirely (this is deliberately conservative:
+a color or size difference of that magnitude is being treated as
+intentional design, not something the tool should ever offer to
+merge); unused classes score 0.8 and land in their own section as
+candidates to delete outright.
+
+**CLI:** two new read-only commands, `analyze-css` (prints the report,
+`-o` to save it) and `consolidate-css` (prints the suggestions, `-o`
+writes the TOML mapping). Neither touches the book -- `consolidate-css`
+produces a mapping file meant to be hand-reviewed and then fed to a
+future mapping-aware repair pass, the same review-before-apply shape
+already used by `map-css --write-mapping`.
+
+**Verified:** ran both new commands against all 18 real EPUBs in
+`examples/` plus the two zero-CSS synthetic fixtures
+(`CrossReferences-Synthetic.epub`, `PartiallySplit-Synthetic.epub`) --
+no exceptions, including the zero-class case and the largest real case
+(`OmnibusExample.epub`, 324 classes, 291 of them unused). Also
+confirmed the three non-ZIP sample formats (`.azw3`, `.mobi`, `.fb2`)
+fail the same pre-existing file-integrity check any other command
+would, rather than crashing inside the new code. That Omnibus run
+caught a real bug before delivery: unused-class suggestions carry
+confidence 0.8, which also satisfied the medium-confidence filter
+(`0.4 < c <= 0.8`), so every unused class was printing twice, once as
+a nonsensical `classname -> None` under "medium confidence." Fixed by
+requiring a `canonical_name` for the high/medium buckets; unused
+classes now only appear once, under their own section.
+
+**Known gap:** the analyzer and consolidator are read-only reporting
+tools only -- there is no mapping-aware repair pass yet that consumes
+the TOML `consolidate-css` produces. `map-css --write-mapping` already
+has its own narrower mapping format for chapter-heading/body-text
+classes specifically; the two mapping shapes are not yet reconciled
+into one repair-time consumer, and picking that up is the natural next
+step if this direction is worth continuing.
+
 
 This file is the source of truth for "what's next" on the analysis
 side, more reliable than relying on conversation memory across

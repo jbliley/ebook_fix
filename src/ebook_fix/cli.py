@@ -165,6 +165,48 @@ def build_parser():
         help="If the file fails validation, also try to repair its ZIP/EPUB container and report the result."
     )
 
+    # Analyze CSS
+    analyze_css = sub.add_parser(
+        "analyze-css",
+        help="Analyze CSS for redundancy patterns, color usage, and unused classes."
+    )
+    analyze_css.add_argument(
+        "input",
+        help="Input EPUB"
+    )
+    analyze_css.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        help="Write report to file instead of stdout"
+    )
+    analyze_css.add_argument(
+        "--no-container-repair",
+        action="store_true",
+        help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
+    )
+
+    # Consolidate CSS classes (suggest consolidation)
+    consolidate_css = sub.add_parser(
+        "consolidate-css",
+        help="Suggest CSS class consolidations based on analysis (generates TOML mapping file)."
+    )
+    consolidate_css.add_argument(
+        "input",
+        help="Input EPUB"
+    )
+    consolidate_css.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        help="Write TOML mapping file for class consolidation"
+    )
+    consolidate_css.add_argument(
+        "--no-container-repair",
+        action="store_true",
+        help="Don't attempt to automatically repair a corrupted ZIP/EPUB container; just report the problem."
+    )
+
     # Map CSS classes
     map_css = sub.add_parser(
         "map-css",
@@ -376,6 +418,10 @@ def main():
     )
     if args.command == "analyze":
         engine.analyze(epub, details=args.details)
+    elif args.command == "analyze-css":
+        engine.analyze_css(epub, output=getattr(args, "output", None))
+    elif args.command == "consolidate-css":
+        engine.consolidate_css(epub, output=getattr(args, "output", None))
     elif args.command == "map-css":
         engine.map_css(epub, write_mapping=getattr(args, "write_mapping", None))
     elif args.command == "map-structure":

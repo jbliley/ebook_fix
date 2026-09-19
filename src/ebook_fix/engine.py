@@ -1200,6 +1200,77 @@ class Engine:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
+    def analyze_css(self, epub, output=None):
+        """Analyze CSS for redundancy patterns, color usage, and unused classes.
+        
+        Reports identical classes, near-identical classes, color patterns,
+        and unused classes to help identify safe consolidation opportunities.
+        """
+        source, temp_path = self._resolve_source(epub)
+        if source is None:
+            return
+        try:
+            self.log("Opening EPUB...")
+            parser = EPUBParser()
+            book = parser.load(source)
+            self.log("")
+
+            self.header("[CSS Analysis]")
+            
+            from ebook_fix.modules.css_analyzer import analyze_epub_css
+            
+            report_data = analyze_epub_css(book)
+            report_text = report_data.to_text()
+            self.log(report_text)
+            
+            if output:
+                from pathlib import Path
+                Path(output).write_text(report_text)
+                self.log(f"\nReport written to: {output}")
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+    def consolidate_css(self, epub, output=None):
+        """Generate consolidation suggestions and TOML mapping file.
+        
+        Uses CSS analyzer to suggest safe class consolidations.
+        Generates a TOML file with high/medium confidence suggestions.
+        """
+        source, temp_path = self._resolve_source(epub)
+        if source is None:
+            return
+        try:
+            self.log("Opening EPUB...")
+            parser = EPUBParser()
+            book = parser.load(source)
+            self.log("")
+
+            self.header("[CSS Consolidation Suggestions]")
+            
+            from ebook_fix.modules.css_analyzer import analyze_epub_css
+            from ebook_fix.modules.css_consolidator import CSSConsolidator
+            
+            report_data = analyze_epub_css(book)
+            consolidator = CSSConsolidator(report_data)
+            suggestions = consolidator.generate_suggestions()
+            
+            consolidator.print_summary()
+            
+            if output:
+                from pathlib import Path
+                toml_content = consolidator.to_toml()
+                Path(output).write_text(toml_content)
+                self.log(f"\nTOML mapping written to: {output}")
+                self.log("Review the mapping, uncomment high-confidence suggestions,")
+                self.log("and use with: ebook-fix repair --apply-mapping <mapping-file>")
+            else:
+                self.log("\nUse -o flag to write TOML mapping file:")
+                self.log("  ebook-fix consolidate-css book.epub -o mapping.toml")
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
     def map_css(self, epub, write_mapping=None):
         source, temp_path = self._resolve_source(epub)
         if source is None:
