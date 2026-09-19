@@ -129,6 +129,35 @@
   <label for="field-series-index">Series Position</label>
   <input type="text" id="field-series-index" name="series_index" value="{{ series_index if series_index is not none else '' }}" placeholder="e.g. 3 or 3.5">
 
+  <!-- ISBN LOOKUP SECTION -->
+  <div style="border:1px solid #e2e8f0; border-radius:6px; padding:1rem; margin:1.5rem 0; background:#f7fafc;">
+    <label style="display:block; margin-bottom:0.5rem; font-weight:bold;">Look Up Metadata Online</label>
+    <p style="font-size:0.85rem; color:#666; margin:0 0 0.8rem 0;">
+      This will fetch book metadata online from Open Library. Requires internet connection.
+    </p>
+    
+    <div style="display:flex; gap:0.5rem; margin-bottom:0.8rem;">
+      <button type="button" class="button secondary" onclick="initiateIsbnLookup()" style="padding:0.4rem 0.8rem;">Look Up by ISBN</button>
+      <button type="button" class="button secondary" onclick="initiateTitleAuthorLookup()" style="padding:0.4rem 0.8rem;">Look Up by Title/Author</button>
+    </div>
+    
+    <div id="lookup-status" style="font-size:0.85rem; color:#666; margin-bottom:0.8rem; display:none;"></div>
+    
+    <!-- Lookup Results Preview Panel -->
+    <div id="lookup-results" style="display:none; border-top:1px solid #e2e8f0; padding-top:1rem; margin-top:1rem;">
+      <div style="font-size:0.9rem; font-weight:bold; margin-bottom:0.8rem;">Lookup Results</div>
+      
+      <div id="lookup-comparison" style="display:grid; grid-template-columns: 1fr auto 1fr; gap:1rem; margin-bottom:1rem;">
+        <!-- Filled by JavaScript -->
+      </div>
+      
+      <div id="lookup-actions" style="display:flex; gap:0.5rem; margin-top:0.8rem;">
+        <button type="button" class="button secondary" onclick="dismissLookupResults()" style="padding:0.3rem 0.6rem; font-size:0.8rem;">Dismiss</button>
+        <button type="button" class="button" id="apply-lookup-btn" onclick="applyLookupResults()" style="padding:0.3rem 0.6rem; font-size:0.8rem; display:none;">Apply Selected</button>
+      </div>
+    </div>
+  </div>
+
   <button type="submit" class="button">Save Metadata</button>
 </form>
 
@@ -323,6 +352,165 @@
       });
   };
 })();
+
+// ISBN Lookup Functions
+function initiateIsbnLookup() {
+  var isbn = extractIsbnFromFields();
+  if (!isbn) {
+    showLookupStatus("No ISBN found in metadata. Try Title/Author search instead.", "error");
+    return;
+  }
+  performLookup('isbn', { isbn: isbn });
+}
+
+function initiateTitleAuthorLookup() {
+  var title = document.getElementById("field-title").value.trim();
+  var author = document.getElementById("field-author").value.trim();
+  
+  if (!title) {
+    showLookupStatus("Please enter a title to search.", "error");
+    return;
+  }
+  
+  performLookup('title_author', { title: title, author: author || undefined });
+}
+
+function extractIsbnFromFields() {
+  // Try to extract ISBN from a field if it exists
+  // For now, return null as EPUB metadata doesn't expose ISBN in template
+  // The server will extract it from the actual EPUB
+  return null;
+}
+
+function performLookup(searchType, params) {
+  var statusDiv = document.getElementById("lookup-status");
+  statusDiv.textContent = "Searching...";
+  statusDiv.style.color = "#666";
+  statusDiv.style.display = "block";
+  
+  var requestData = { search_type: searchType };
+  Object.assign(requestData, params);
+  
+  fetch("{{ url_for('book_lookup', session_id=session_id) }}", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestData)
+  })
+  .then(function(response) { return response.json(); })
+  .then(function(data) {
+    if (data.status === "success") {
+      displayLookupResults(data.result, data.comparison);
+      statusDiv.style.display = "none";
+    } else if (data.status === "not_found") {
+      showLookupStatus("No metadata found. Try a different search.", "warning");
+    } else if (data.status === "offline") {
+      showLookupStatus("Cannot connect to Open Library. Check your internet connection.", "error");
+    } else {
+      showLookupStatus(data.message || "Lookup failed.", "error");
+    }
+  })
+  .catch(function(error) {
+    showLookupStatus("Error: " + error.message, "error");
+  });
+}
+
+function displayLookupResults(result, comparison) {
+  var resultsDiv = document.getElementById("lookup-results");
+  var comparisonDiv = document.getElementById("lookup-comparison");
+  var applyBtn = document.getElementById("apply-lookup-btn");
+  
+  // Build comparison display
+  var html = "";
+  
+  // Status indicator
+  var statusColor = comparison.status === "exact_match" ? "#2f855a" : 
+                   comparison.status === "partial_match" ? "#ed8936" : "#e53e3e";
+  var statusText = comparison.status === "exact_match" ? "✓ Match" :
+                  comparison.status === "partial_match" ? "⚠ Differs" : "✗ No Match";
+  var statusHtml = '<div style="text-align:center; font-weight:bold; font-size:0.9rem; color:' + statusColor + ';">' + statusText + '</div>';
+  
+  // Field comparison
+  for (var field of ["title", "author", "publisher"]) {
+    var data = comparison.all_fields[field];
+    html += '<div style="border:1px solid #e2e8f0; padding:0.8rem; border-radius:4px;">';
+    html += '<div style="font-weight:bold; font-size:0.8rem; text-transform:uppercase; margin-bottom:0.5rem;">' + field + '</div>';
+    
+    if (data.current) {
+      html += '<div style="margin-bottom:0.3rem;"><span style="font-size:0.75rem; color:#666;">Current:</span> ' + escapeHtml(data.current) + '</div>';
+    }
+    if (data.lookup) {
+      html += '<div style="margin-bottom:0.3rem;"><span style="font-size:0.75rem; color:#666;">Lookup:</span> ' + escapeHtml(data.lookup) + '</div>';
+    }
+    if (!data.current && !data.lookup) {
+      html += '<div style="color:#999; font-style:italic;">Not available</div>';
+    }
+    
+    // Checkbox for partial match
+    if (comparison.status === "partial_match" && (data.current || data.lookup)) {
+      html += '<label style="margin-top:0.5rem; display:flex; align-items:center; font-size:0.85rem;"><input type="checkbox" class="field-accept" data-field="' + field + '" style="margin-right:0.4rem;"> Accept lookup value</label>';
+    }
+    
+    html += '</div>';
+  }
+  
+  comparisonDiv.innerHTML = statusHtml + html;
+  
+  // Show/hide apply button based on status
+  if (comparison.status === "exact_match") {
+    applyBtn.style.display = "none";
+    showLookupStatus("Metadata verified — matches current book", "success");
+  } else {
+    applyBtn.style.display = "inline-block";
+  }
+  
+  resultsDiv.style.display = "block";
+}
+
+function dismissLookupResults() {
+  document.getElementById("lookup-results").style.display = "none";
+  document.getElementById("lookup-status").style.display = "none";
+}
+
+function applyLookupResults() {
+  var checkboxes = document.querySelectorAll(".field-accept:checked");
+  if (checkboxes.length === 0) {
+    showLookupStatus("Please select fields to apply.", "warning");
+    return;
+  }
+  
+  checkboxes.forEach(function(checkbox) {
+    var field = checkbox.getAttribute("data-field");
+    var fieldEl = document.getElementById("field-" + field);
+    var comparisonDiv = document.getElementById("lookup-comparison");
+    
+    // Find the lookup value from the display
+    var lookupValue = comparisonDiv.querySelector('[data-field="' + field + '"]')
+      ?.parentElement?.textContent?.match(/Lookup: (.+)/)?.[1];
+    
+    if (lookupValue && fieldEl) {
+      fieldEl.value = lookupValue;
+      fieldEl.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+  
+  dismissLookupResults();
+  showLookupStatus("Fields updated. Click Save Metadata to apply.", "success");
+}
+
+function showLookupStatus(message, type) {
+  var statusDiv = document.getElementById("lookup-status");
+  statusDiv.textContent = message;
+  statusDiv.style.color = type === "error" ? "#e53e3e" : 
+                         type === "warning" ? "#ed8936" :
+                         type === "success" ? "#2f855a" : "#666";
+  statusDiv.style.display = "block";
+}
+
+function escapeHtml(text) {
+  var div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
 
 function setAllRepairModules(checked) {
   document.querySelectorAll('input[name="modules"]').forEach(function (box) {

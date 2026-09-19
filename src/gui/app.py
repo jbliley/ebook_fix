@@ -53,7 +53,7 @@ from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path, PurePosixPath
 
-from flask import Flask, Response, abort, redirect, render_template, request, url_for
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request, url_for
 
 from ebook_fix import series as series_metadata
 from ebook_fix.analyzer import EPUBAnalyzer
@@ -68,6 +68,7 @@ from ebook_fix.color import analyze_book_color
 from ebook_fix.fonts import analyze_book_font_usage
 from ebook_fix.frontmatter import analyze_book_frontmatter, MatterLabel, FRONT_ZONE, BACK_ZONE
 from ebook_fix import cover as cover_module
+from ebook_fix import isbn_lookup
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -719,6 +720,70 @@ def clear_cover(session_id):
     for old in _staged_cover_dir(session_dir).glob("staged_cover.*"):
         old.unlink(missing_ok=True)
     return redirect(url_for("book_repair", session_id=session_id))
+
+
+@app.route("/book/<session_id>/lookup", methods=["POST"])
+def book_lookup(session_id):
+    """Handles ISBN/title+author metadata lookup from Open Library.
+    
+    Request body (JSON):
+    - search_type: 'isbn' or 'title_author'
+    - isbn: (if search_type='isbn')
+    - title: (if search_type='title_author')
+    - author: (if search_type='title_author', optional)
+    
+    Returns JSON:
+    - status: 'success', 'not_found', 'offline', 'error'
+    - result: lookup result dict (if success)
+    - comparison: comparison result (if success)
+    - message: error message (if not success)
+    """
+    session_dir = _session_dir(session_id)
+    book = EPUBParser(_source_path(session_dir)).parse()
+    
+    try:
+        data = request.get_json() or {}
+    except Exception:
+        return jsonify({'status': 'error', 'message': 'Invalid request'}), 400
+    
+    search_type = data.get('search_type', 'isbn').strip().lower()
+    result = None
+    
+    if search_type == 'isbn':
+        isbn_input = data.get('isbn', '').strip()
+        if not isbn_input:
+            return jsonify({'status': 'error', 'message': 'No ISBN provided'}), 400
+        result = isbn_lookup.fetch_isbn_metadata(isbn_input)
+    
+    elif search_type == 'title_author':
+        title = data.get('title', '').strip()
+        author = data.get('author', '').strip() or None
+        if not title:
+            return jsonify({'status': 'error', 'message': 'No title provided'}), 400
+        result = isbn_lookup.fetch_title_author_metadata(title, author)
+    
+    else:
+        return jsonify({'status': 'error', 'message': 'Invalid search type'}), 400
+    
+    if result is None:
+        return jsonify({'status': 'not_found', 'message': 'No metadata found'}), 200
+    
+    # Compare with current metadata
+    current_metadata = {
+        'title': book.metadata.title or '',
+        'author': book.metadata.author or '',
+        'publisher': book.metadata.publisher or '',
+        'publish_date': book.metadata.published or '',
+        'description': book.metadata.description or '',
+    }
+    
+    comparison = isbn_lookup.compare_metadata(current_metadata, result)
+    
+    return jsonify({
+        'status': 'success',
+        'result': result,
+        'comparison': comparison,
+    }), 200
 
 
 @app.route("/book/<session_id>/review")
