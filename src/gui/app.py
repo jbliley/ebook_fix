@@ -771,9 +771,9 @@ def book_lookup(session_id):
     # Compare with current metadata
     current_metadata = {
         'title': book.metadata.title or '',
-        'author': book.metadata.author or '',
+        'author': book.metadata.creator or '',
         'publisher': book.metadata.publisher or '',
-        'publish_date': book.metadata.published or '',
+        'publish_date': book.metadata.date or '',
         'description': book.metadata.description or '',
     }
     

@@ -14,35 +14,38 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Optional
-from ebook_fix.ebook import Ebook
+from ebook_fix.models import Book
 
 
 # ISBN validation: basic check for 10 or 13 digits (ignoring hyphens/spaces)
 _ISBN_PATTERN = re.compile(r'^[\d\-\s]+$')
 
 
-def extract_isbn_from_epub(book: Ebook) -> Optional[str]:
+def extract_isbn_from_epub(book: Book) -> Optional[str]:
     """Extract ISBN from EPUB's dc:identifier metadata.
     
     Looks for standard ISBN-10 or ISBN-13 format in the book's metadata.
-    Returns the first valid ISBN found, or None if not present.
+    Returns the ISBN if found and valid, or None otherwise.
     
     Args:
-        book: Ebook object with metadata
+        book: Book object with metadata
         
     Returns:
         ISBN string (digits only, no formatting) or None
     """
-    if not book.metadata or not book.metadata.identifiers:
+    if not book.metadata or not book.metadata.identifier:
         return None
     
-    for identifier in book.metadata.identifiers:
-        if not identifier:
-            continue
-        # Look for ISBN in the identifier (might be "isbn:1234..." or just "1234...")
-        isbn_str = identifier.replace('-', '').replace(' ', '')
-        if _ISBN_PATTERN.match(isbn_str) and len(isbn_str) in (10, 13):
-            return isbn_str
+    identifier_str = book.metadata.identifier.strip()
+    if not identifier_str:
+        return None
+    
+    # Clean the identifier (remove hyphens/spaces)
+    clean_isbn = identifier_str.replace('-', '').replace(' ', '')
+    
+    # Check if it's a valid ISBN (10 or 13 digits)
+    if _ISBN_PATTERN.match(clean_isbn) and len(clean_isbn) in (10, 13):
+        return clean_isbn
     
     return None
 
