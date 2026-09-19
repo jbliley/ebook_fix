@@ -738,8 +738,13 @@ def book_lookup(session_id):
     - comparison: comparison result (if success)
     - message: error message (if not success)
     """
-    session_dir = _session_dir(session_id)
-    book = EPUBParser(_source_path(session_dir)).parse()
+    try:
+        session_dir = _session_dir(session_id)
+        book = EPUBParser().load(_source_path(session_dir))
+    except FileNotFoundError:
+        return jsonify({'status': 'error', 'message': 'Book file not found. Session may have expired.'}), 404
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Failed to load book: {str(e)}'}), 500
     
     try:
         data = request.get_json() or {}
@@ -750,14 +755,14 @@ def book_lookup(session_id):
     result = None
     
     if search_type == 'isbn':
-        isbn_input = data.get('isbn', '').strip()
+        isbn_input = (data.get('isbn') or '').strip()
         if not isbn_input:
             return jsonify({'status': 'error', 'message': 'No ISBN provided'}), 400
         result = isbn_lookup.fetch_isbn_metadata(isbn_input)
     
     elif search_type == 'title_author':
-        title = data.get('title', '').strip()
-        author = data.get('author', '').strip() or None
+        title = (data.get('title') or '').strip()
+        author = (data.get('author') or '').strip() or None
         if not title:
             return jsonify({'status': 'error', 'message': 'No title provided'}), 400
         result = isbn_lookup.fetch_title_author_metadata(title, author)
