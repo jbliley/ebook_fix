@@ -100,6 +100,7 @@ def fetch_isbn_metadata(isbn: str) -> Optional[dict]:
         'publish_date': None,
         'description': None,
         'isbn': clean_isbn,
+        'series_name': None,  # Not reliably available from Open Library
     }
     
     # Extract author (first author if multiple)
@@ -175,6 +176,7 @@ def fetch_title_author_metadata(title: str, author: Optional[str] = None) -> Opt
         'publish_date': None,
         'description': None,
         'isbn': isbn,
+        'series_name': None,  # Open Library search API doesn't reliably provide series info
     }
     
     # Extract first author
@@ -196,8 +198,8 @@ def compare_metadata(current: dict, lookup: dict) -> dict:
     """Compare current EPUB metadata with lookup result.
     
     Args:
-        current: Current EPUB metadata dict with keys: title, author, publisher, publish_date, description
-        lookup: Lookup result dict (same keys)
+        current: Current EPUB metadata dict with keys: title, author, publisher, publish_date, description, series_name
+        lookup: Lookup result dict (same keys, plus isbn)
         
     Returns:
         Dict with:
@@ -207,7 +209,9 @@ def compare_metadata(current: dict, lookup: dict) -> dict:
         - 'all_fields': dict of field -> {current, lookup, match}
     """
     # Fields to compare (non-empty, non-None)
-    compare_fields = ['title', 'author', 'publisher']
+    # Title, author, publisher are critical for matching
+    # Description, date, series are nice-to-have
+    compare_fields = ['title', 'author', 'publisher', 'description', 'publish_date', 'series_name']
     
     matches = {}
     differences = {}
@@ -232,10 +236,11 @@ def compare_metadata(current: dict, lookup: dict) -> dict:
         if not is_match and (current_val or lookup_val):
             differences[field] = (current_val, lookup_val)
     
-    # Determine overall status
-    if all(matches.values()):
+    # Determine overall status based on critical fields (title, author, publisher)
+    critical_matches = [matches.get(f) for f in ['title', 'author', 'publisher']]
+    if all(critical_matches):
         status = 'exact_match'
-    elif any(matches.values()) or differences:
+    elif any(critical_matches) or differences:
         status = 'partial_match'
     else:
         status = 'no_match'

@@ -429,17 +429,32 @@ function displayLookupResults(result, comparison) {
                   comparison.status === "partial_match" ? "⚠ Differs" : "✗ No Match";
   var statusHtml = '<div style="text-align:center; font-weight:bold; font-size:0.9rem; color:' + statusColor + ';">' + statusText + '</div>';
   
-  // Field comparison
-  for (var field of ["title", "author", "publisher"]) {
+  // Field labels for display
+  var fieldLabels = {
+    'title': 'Title',
+    'author': 'Author',
+    'publisher': 'Publisher',
+    'description': 'Description',
+    'publish_date': 'Published Date',
+    'series_name': 'Series'
+  };
+  
+  // Field comparison - show all fields
+  for (var field of ["title", "author", "publisher", "description", "publish_date", "series_name"]) {
     var data = comparison.all_fields[field];
-    html += '<div style="border:1px solid #e2e8f0; padding:0.8rem; border-radius:4px;">';
-    html += '<div style="font-weight:bold; font-size:0.8rem; text-transform:uppercase; margin-bottom:0.5rem;">' + field + '</div>';
+    if (!data) continue;
+    
+    var fieldLabel = fieldLabels[field] || field;
+    html += '<div style="border:1px solid #e2e8f0; padding:0.8rem; border-radius:4px; margin-bottom:0.5rem;">';
+    html += '<div style="font-weight:bold; font-size:0.8rem; text-transform:uppercase; margin-bottom:0.5rem;">' + fieldLabel + '</div>';
     
     if (data.current) {
-      html += '<div style="margin-bottom:0.3rem;"><span style="font-size:0.75rem; color:#666;">Current:</span> ' + escapeHtml(data.current) + '</div>';
+      var preview = data.current.length > 80 ? data.current.substring(0, 80) + "..." : data.current;
+      html += '<div style="margin-bottom:0.3rem;"><span style="font-size:0.75rem; color:#666;">Current:</span> ' + escapeHtml(preview) + '</div>';
     }
     if (data.lookup) {
-      html += '<div style="margin-bottom:0.3rem;"><span style="font-size:0.75rem; color:#666;">Lookup:</span> ' + escapeHtml(data.lookup) + '</div>';
+      var preview = data.lookup.length > 80 ? data.lookup.substring(0, 80) + "..." : data.lookup;
+      html += '<div style="margin-bottom:0.3rem;"><span style="font-size:0.75rem; color:#666;">Lookup:</span> ' + escapeHtml(preview) + '</div>';
     }
     if (!data.current && !data.lookup) {
       html += '<div style="color:#999; font-style:italic;">Not available</div>';
@@ -480,12 +495,28 @@ function applyLookupResults() {
   
   checkboxes.forEach(function(checkbox) {
     var field = checkbox.getAttribute("data-field");
-    var fieldEl = document.getElementById("field-" + field);
     var comparisonDiv = document.getElementById("lookup-comparison");
     
-    // Find the lookup value from the display
-    var lookupValue = comparisonDiv.querySelector('[data-field="' + field + '"]')
-      ?.parentElement?.textContent?.match(/Lookup: (.+)/)?.[1];
+    // Map comparison fields to form field IDs
+    var fieldMap = {
+      'title': 'field-title',
+      'author': 'field-author',
+      'publisher': 'field-publisher',
+      'description': 'field-description',
+      'publish_date': 'field-publish_date',
+      'series_name': 'field-series-name'
+    };
+    
+    var fieldId = fieldMap[field] || 'field-' + field;
+    var fieldEl = document.getElementById(fieldId);
+    
+    // Find the lookup value from the comparison display
+    var fieldDiv = comparisonDiv.querySelector('[data-field="' + field + '"]')?.parentElement;
+    if (!fieldDiv) return;
+    
+    var lookupText = fieldDiv.textContent;
+    var match = lookupText.match(/Lookup:\s*(.+?)(?=Accept|Not available|$)/);
+    var lookupValue = match ? match[1].trim() : null;
     
     if (lookupValue && fieldEl) {
       fieldEl.value = lookupValue;

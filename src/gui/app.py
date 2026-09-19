@@ -774,12 +774,16 @@ def book_lookup(session_id):
         return jsonify({'status': 'not_found', 'message': 'No metadata found'}), 200
     
     # Compare with current metadata
+    # Read staged metadata if available to compare against edited values
+    staged = _read_staged(_staged_metadata_path(session_dir))
+    
     current_metadata = {
-        'title': book.metadata.title or '',
-        'author': book.metadata.creator or '',
-        'publisher': book.metadata.publisher or '',
-        'publish_date': book.metadata.date or '',
-        'description': book.metadata.description or '',
+        'title': staged.get('fields', {}).get('title') or book.metadata.title or '',
+        'author': staged.get('fields', {}).get('author') or book.metadata.creator or '',
+        'publisher': staged.get('fields', {}).get('publisher') or book.metadata.publisher or '',
+        'publish_date': staged.get('fields', {}).get('publish_date') or book.metadata.date or '',
+        'description': staged.get('fields', {}).get('description') or book.metadata.description or '',
+        'series_name': staged.get('series_name') or '',
     }
     
     comparison = isbn_lookup.compare_metadata(current_metadata, result)
