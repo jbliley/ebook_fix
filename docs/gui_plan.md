@@ -1480,3 +1480,45 @@ books confirms the Repair tab still renders and `apply_repair` still
 runs correctly; full CLI `analyze` regression across all 14, untouched
 since this is a GUI-only, read-only display change.
 
+## Done -- Open a MOBI/AZW/PRC book directly (2026-09-20)
+
+Jacob's report: picking a MOBI in the GUI failed with "That doesn't
+look like an EPUB file (expected a .epub)." The GUI only ever knew how
+to open an EPUB; the converter (`docs/mobi_conversion_plan.md`) only
+existed on the command line.
+
+**Behavior:** the Browse dialog now lists `.epub`, `.mobi`, `.azw`,
+`.azw3`, and `.prc` files. Choosing a MOBI-family book converts it with
+the same `convert_mobi_to_epub()` the CLI's `convert` command uses,
+saves the EPUB next to the original, and opens that EPUB -- every tab
+after that is exactly what any EPUB gets, since the rest of the GUI
+never needed to change. The original MOBI is never touched.
+
+**Where the converted EPUB goes (a call made without waiting on
+Jacob, easy to change):** next to the original, same name with `.epub`.
+An existing file is never replaced (it could be a different edition, or
+an earlier conversion that has since been repaired in place); the new
+one is named `<name> (converted).epub`, then `(converted 2)`, and so on.
+Opening the same MOBI twice therefore makes two copies -- the price of
+never overwriting anything.
+
+**Errors** show on the start page in plain language instead of a
+crash: DRM-protected, AZW3/KF8 (not converted yet), damaged or cut-off
+files, or anything unexpected (the full error is also printed in the
+command window).
+
+**Verified** with Flask's test client: `MOBI-Example.mobi` converts,
+opens, and renders the Analysis, Repair, Review, and Before/After tabs;
+a second and third open of the same file make `(converted)` and
+`(converted 2)` copies without touching the first; the AZW3 sample
+shows the KF8 message and leaves no stray EPUB behind; an unsupported
+extension shows the new message; an ordinary EPUB still opens exactly as
+before; the Browse dialog's embedded script compiles.
+
+**Known gap:** a MOBI that sits inside a Calibre library folder gets its
+converted EPUB written into that Calibre book folder, which Calibre
+doesn't know about (it isn't registered as a format), and the GUI will
+treat that EPUB as Calibre-managed for metadata write-back. Not tested
+against a real library. Pointing the output somewhere else for
+Calibre-managed books is the obvious fix if it turns out to matter.
+

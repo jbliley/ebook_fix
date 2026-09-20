@@ -2134,7 +2134,9 @@ than emit a damaged book if the length doesn't match the header).
 Hybrid MOBI7+KF8 files are read through their MOBI7 half, untested for
 lack of a sample. BMP images are skipped. The GUI still opens EPUBs
 only; where a converted EPUB should be saved (especially for a MOBI
-inside a Calibre folder) needs a decision first.
+inside a Calibre folder) needs a decision first. (Update
+2026-09-20: the GUI now opens a MOBI by converting it first; see
+`docs/gui_plan.md`.)
 
 This file is the source of truth for "what's next" on the analysis
 side, more reliable than relying on conversation memory across

@@ -64,7 +64,7 @@ A faithful conversion, not a cleanup. Text, images, cover, metadata, links and t
 - **Hybrid files** (a MOBI7 and a KF8 book in one file) are read through their MOBI7 half. Untested for lack of a sample; the report says so when it happens.
 - **BMP images** are skipped (not an EPUB image format, and converting them would need an imaging library). The report counts them.
 - **Index-label encodings** other than UTF-8/Windows-1252 in the table of contents (the rare "ORDT" scheme) aren't handled.
-- **GUI:** the GUI still opens EPUBs only. Opening a MOBI there would mean writing the converted EPUB somewhere, and where it goes needs a decision, especially for a MOBI that lives inside a Calibre library folder (the new EPUB would sit next to a Calibre-managed file that Calibre doesn't know about).
+- **GUI:** opens a MOBI by converting it first (added 2026-09-20, see `docs/gui_plan.md`). The converted EPUB is saved next to the original and never replaces an existing file. For a MOBI inside a Calibre library folder that puts an unregistered EPUB in a Calibre book folder; untested against a real library.
 - The output is EPUB 3 only. No EPUB 2 option.
 - Not run through `epubcheck` (not available where this was built). Identifiers and authors use the same legacy `opf:scheme`/`opf:role` attributes the rest of the project already writes, so a strict EPUB 3 validator may flag those.
 
@@ -83,5 +83,4 @@ Suggested order: (1) skeleton/fragment/flow assembly into ordinary XHTML files, 
 
 ## Also on the list
 
-- GUI: open a MOBI directly (decision needed on where the converted EPUB is saved).
 - FB2 conversion, once MOBI/AZW3 are done. `convert` was named generically so it can take other formats later.

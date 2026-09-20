@@ -46,6 +46,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import uuid
 import webbrowser
 import zipfile
@@ -69,6 +70,9 @@ from ebook_fix.fonts import analyze_book_font_usage
 from ebook_fix.frontmatter import analyze_book_frontmatter, MatterLabel, FRONT_ZONE, BACK_ZONE
 from ebook_fix import cover as cover_module
 from ebook_fix import isbn_lookup
+from ebook_fix.mobi.analyzer import MOBI_EXTENSIONS
+from ebook_fix.mobi.convert import convert_mobi_to_epub
+from ebook_fix.mobi.reader import MobiError
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -538,8 +542,12 @@ def browse():
         "root.withdraw()\n"
         "root.attributes('-topmost', True)\n"
         "path = tkinter.filedialog.askopenfilename(\n"
-        "    title='Choose an EPUB file',\n"
-        "    filetypes=[('EPUB files', '*.epub'), ('All files', '*.*')],\n"
+        "    title='Choose a book',\n"
+        "    filetypes=[\n"
+        "        ('Books', ('*.epub', '*.mobi', '*.azw', '*.azw3', '*.prc')),\n"
+        "        ('EPUB files', '*.epub'),\n"
+        "        ('All files', '*.*'),\n"
+        "    ],\n"
         ")\n"
         "sys.stdout.write(path)\n"
     )
@@ -557,6 +565,21 @@ def browse():
     return {"path": result.stdout.strip()}
 
 
+def _converted_epub_path(source: Path) -> Path:
+    """Where a converted MOBI's EPUB goes: next to the original, named
+    the same. Never replaces a file that's already there (it could be a
+    different edition, or an earlier conversion Jacob has since repaired
+    in place) -- picks "<name> (converted).epub", then "<name> (converted
+    2).epub", and so on, instead."""
+    candidate = source.with_suffix(".epub")
+    n = 1
+    while candidate.exists():
+        label = "(converted)" if n == 1 else f"(converted {n})"
+        candidate = source.with_name(f"{source.stem} {label}.epub")
+        n += 1
+    return candidate
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     typed_path = request.form.get("path", "").strip().strip('"')
@@ -566,8 +589,25 @@ def upload():
     path_obj = Path(typed_path)
     if not path_obj.is_file():
         return render_template("index.html", error=f"Can't find that file: {typed_path}")
-    if path_obj.suffix.lower() != ".epub":
-        return render_template("index.html", error="That doesn't look like an EPUB file (expected a .epub).")
+    suffix = path_obj.suffix.lower()
+    if suffix in MOBI_EXTENSIONS:
+        # A MOBI/AZW/PRC book is converted to an EPUB first (see
+        # ebook_fix.mobi.convert), and that EPUB is what gets opened --
+        # everything else in the GUI only knows how to work on an EPUB.
+        target = _converted_epub_path(path_obj)
+        try:
+            convert_mobi_to_epub(path_obj, target)
+        except MobiError as exc:
+            return render_template("index.html", error=f"Couldn't convert that book to EPUB: {exc}")
+        except Exception as exc:
+            traceback.print_exc()
+            return render_template("index.html", error=f"Something went wrong converting that book to EPUB: {exc}")
+        path_obj = target
+    elif suffix != ".epub":
+        return render_template(
+            "index.html",
+            error="That doesn't look like a supported book file (expected a .epub, or a MOBI/AZW/PRC to convert to EPUB).",
+        )
 
     session_id = str(uuid.uuid4())
     session_dir = SESSIONS_ROOT / session_id

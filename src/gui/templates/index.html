@@ -17,9 +17,9 @@
 </head>
 <body>
   <h1>ebook_fix</h1>
-  <p class="subtitle">Analyze and repair a single EPUB file.</p>
+  <p class="subtitle">Analyze and repair a single EPUB file. A MOBI/AZW/PRC book is converted to EPUB first.</p>
   <div class="card">
-    <p>Browse for an EPUB file on your computer. This runs entirely on your own computer &mdash; nothing is uploaded anywhere outside this program, and opening a file this way (rather than dragging one in) is what lets it correctly detect Calibre and save fixes back to the right folder.</p>
+    <p>Browse for a book on your computer. A MOBI is converted to a new EPUB saved next to the original (the original isn't touched), and that EPUB is what opens here. This runs entirely on your own computer &mdash; nothing is uploaded anywhere outside this program, and opening a file this way (rather than dragging one in) is what lets it correctly detect Calibre and save fixes back to the right folder.</p>
     <button type="button" id="browse-btn" onclick="browseForFile()">Browse for a Book&hellip;</button>
     <p class="status" id="browse-status"></p>
     {% if error %}<p class="error">{{ error }}</p>{% endif %}
