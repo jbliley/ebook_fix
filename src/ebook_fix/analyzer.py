@@ -35,6 +35,7 @@ from ebook_fix.gutenberg import BookGutenbergSummary, analyze_book_gutenberg
 from ebook_fix.cover import BookCoverSummary, analyze_book_cover
 from ebook_fix.span_soup import BookSpanSoupSummary, analyze_book_span_soup
 from ebook_fix.running_title import BookRunningTitleSummary, analyze_book_running_titles
+from ebook_fix.layout import BookLayoutSummary, analyze_book_layout
 from ebook_fix import epub_version
 from metadata.calibre_backend import read_metadata_opf
 from metadata.calibre_detect import CalibreContext, detect as detect_calibre
@@ -144,6 +145,13 @@ class AnalysisReport:
     cover:BookCoverSummary=field(default_factory=BookCoverSummary)
     span_soup:BookSpanSoupSummary=field(default_factory=BookSpanSoupSummary)
     running_titles:BookRunningTitleSummary=field(default_factory=BookRunningTitleSummary)
+    # Fixed-layout (pre-paginated) detection -- see ebook_fix.layout's
+    # module docstring for the confirmed/possible split. Computed
+    # independently of chapter_reports above (it needs its own view of
+    # each chapter's viewport meta / positioned elements, not the
+    # heading/paragraph-oriented ChapterAnalysis), same "recompute
+    # fresh" approach ebook_fix.color/fonts already use.
+    layout:BookLayoutSummary=field(default_factory=BookLayoutSummary)
     core_fields:BookCoreFieldsSummary=field(default_factory=BookCoreFieldsSummary)
     identifiers:BookIdentifierSummary=field(default_factory=BookIdentifierSummary)
     calibre_context:CalibreContext=field(default_factory=CalibreContext)
@@ -313,4 +321,5 @@ class EPUBAnalyzer:
         r.cover=analyze_book_cover(book)
         r.span_soup=analyze_book_span_soup(book)
         r.running_titles=analyze_book_running_titles(book,chapter_summary=r.chapters)
+        r.layout=analyze_book_layout(book)
         return r

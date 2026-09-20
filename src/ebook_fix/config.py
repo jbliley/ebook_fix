@@ -188,6 +188,29 @@ class FontRepairConfig:
 
 
 @dataclass(slots=True)
+class FixedLayoutGuardConfig:
+    # When ebook_fix.layout's analysis confirms a book (or an
+    # individual page) is fixed-layout/pre-paginated -- via the
+    # standard rendition:layout metadata, never a heuristic guess --
+    # repair()/auto_fix() automatically drop Color Strip, Font Strip,
+    # Paragraph Repair, Chapter Markup, TOC Generation, Scene Break
+    # Repair, and Running Title Repair from the module list for that
+    # run, and auto_fix() also skips its own automatic CSS class
+    # consolidation. All of those assume ordinary reflowable prose and
+    # would very likely damage a page where content is deliberately,
+    # absolutely positioned over a background image -- see
+    # ebook_fix.layout's module docstring. Metadata, identifier, cover,
+    # image, and EPUB3-upgrade repairs are unaffected; none of them
+    # touch chapter content/styling. On by default for the same reason
+    # every other confidence-gated protection here is: it only ever
+    # fires on an unambiguous, spec-level declaration, never a guess --
+    # a heuristic-only "possible fixed-layout" page is reported in the
+    # analyze output instead (see "[Possible Fixed-Layout]") and never
+    # auto-gated unless --treat-as-fixed-layout is passed explicitly.
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class MetadataRepairConfig:
     enabled: bool = True
     # Also write the same confidently-resolved values back into the
@@ -226,6 +249,7 @@ class Config:
     author_initials: AuthorInitialsConfig = field(default_factory=AuthorInitialsConfig)
     color_repair: ColorRepairConfig = field(default_factory=ColorRepairConfig)
     font_repair: FontRepairConfig = field(default_factory=FontRepairConfig)
+    fixed_layout_guard: FixedLayoutGuardConfig = field(default_factory=FixedLayoutGuardConfig)
 
 
 # ---------------------------------------------------------------------
@@ -277,6 +301,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.identifier_repair, modules, "identifier_repair")
     _apply_module_toggle(config.color_repair, modules, "color_repair")
     _apply_module_toggle(config.font_repair, modules, "font_repair")
+    _apply_module_toggle(config.fixed_layout_guard, modules, "fixed_layout_guard")
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
@@ -364,6 +389,7 @@ metadata_repair = true
 identifier_repair = true
 color_repair = true
 font_repair = true
+fixed_layout_guard = true
 
 # ---------------------------------------------------------------------
 # EPUB 3 Upgrade
@@ -679,6 +705,25 @@ enabled = true
 # rule even while its confident usages get stripped. Everything
 # review-bucket is left alone and reported instead under "[Possible
 # Decorative Font]" in the analyze output, never auto-repaired.
+enabled = true
+
+# ---------------------------------------------------------------------
+# Fixed-Layout Guard
+# ---------------------------------------------------------------------
+[fixed_layout_guard]
+
+# When a book (or an individual page) declares itself fixed-layout/
+# pre-paginated via the standard EPUB3 rendition:layout metadata --
+# never a heuristic guess -- repair/auto-fix automatically drop Color
+# Strip, Font Strip, Paragraph Repair, Chapter Markup, TOC Generation,
+# Scene Break Repair, and Running Title Repair for that run (auto-fix
+# also skips its own automatic CSS class consolidation). All of those
+# assume ordinary reflowable prose and would very likely damage a page
+# where content is deliberately, pixel-positioned over a background
+# image. Metadata, identifier, cover, image, and EPUB3-upgrade repairs
+# are unaffected. A heuristic-only "possible fixed-layout" page (no
+# metadata declaring it either way) is reported in the analyze output
+# instead of being auto-gated -- see "[Possible Fixed-Layout]".
 enabled = true
 """
 

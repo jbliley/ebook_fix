@@ -54,6 +54,29 @@ from ebook_fix.apostrophes import normalize_apostrophes_text
 from ebook_fix import series as series_metadata
 from ebook_fix import cover as cover_module
 
+# Repair modules that assume ordinary reflowable prose -- chapters,
+# paragraphs, running titles, scene breaks, hardcoded color,
+# embedded body-text fonts. All of those are either meaningless or
+# actively dangerous against a fixed-layout (pre-paginated) page:
+# there's no "chapter" for Chapter Markup/TOC Generation to find,
+# Paragraph Repair's span cleanup is exactly how you'd break a page
+# where every span is a deliberately, absolutely positioned text box,
+# and a comic/picture-book's exact color and embedded font are almost
+# always the deliberate point rather than a conversion-tool artifact.
+# See ebook_fix.layout's module docstring and
+# Engine._apply_fixed_layout_guard() below for where this is used --
+# only ever on a confirmed (spec-declared), never a heuristic-only,
+# finding.
+FIXED_LAYOUT_RISKY_MODULE_TYPES = (
+    ColorStripRepair,
+    FontStripRepair,
+    ParagraphRepair,
+    ChapterMarkupRepair,
+    TocGenerationRepair,
+    SceneBreakRepair,
+    RunningTitleRepair,
+)
+
 console = Console()
 
 
@@ -195,6 +218,50 @@ class Engine:
         if getattr(self.config, "author_initials", None) and getattr(self.config.author_initials, "enabled", True):
             modules.append(AuthorInitialsRepair(self.config.author_initials))
         return modules
+
+    def _apply_fixed_layout_guard(self, modules, analysis_report, treat_as_fixed_layout=False):
+        """Drop the FIXED_LAYOUT_RISKY_MODULE_TYPES modules from
+        `modules` if analysis_report.layout confirms this book (or an
+        individual page in it) is fixed-layout -- see
+        ebook_fix.layout's module docstring. Never mutates `modules`
+        in place; returns (filtered_modules, skipped_names).
+
+        Only ever fires on layout.confirmed_fixed_layout (an
+        unambiguous, spec-level rendition:layout declaration) unless
+        the caller explicitly passes treat_as_fixed_layout=True, which
+        also promotes any heuristic-only layout.possible_chapters
+        finding to a gating trigger for this run -- the
+        --treat-as-fixed-layout CLI flag on repair/auto-fix, for a
+        person who's looked at the "[Possible Fixed-Layout]" section
+        of analyze output and confirmed by eye that it really is one.
+
+        Returns the original `modules` list, and an empty skip list,
+        untouched if fixed_layout_guard.enabled is False, if nothing
+        triggered, or if this analysis has no .layout at all (a very
+        old cached analysis, for instance)."""
+        guard_cfg = getattr(self.config, "fixed_layout_guard", None)
+        if guard_cfg is not None and not getattr(guard_cfg, "enabled", True):
+            return modules, []
+
+        layout = getattr(analysis_report, "layout", None)
+        if layout is None:
+            return modules, []
+
+        triggered = bool(getattr(layout, "confirmed_fixed_layout", False))
+        if treat_as_fixed_layout and getattr(layout, "possible_chapters", None):
+            triggered = True
+
+        if not triggered:
+            return modules, []
+
+        kept = []
+        skipped = []
+        for m in modules:
+            if isinstance(m, FIXED_LAYOUT_RISKY_MODULE_TYPES):
+                skipped.append(type(m).__name__)
+            else:
+                kept.append(m)
+        return kept, skipped
 
     def _cover_status_line(self, cover):
         """One-line summary of ebook_fix.cover's findings for the
@@ -1038,6 +1105,58 @@ class Engine:
                     for finding in fonts.review:
                         self.log(f"    {finding.href}: {finding.context!r} ({finding.reason})")
 
+            # Fixed-Layout (pre-paginated) detection. Confirmed is an
+            # outright spec-level declaration (rendition:layout
+            # metadata, book-level or per spine item) -- unambiguous,
+            # and this is exactly what _apply_fixed_layout_guard()
+            # uses to actually gate the repair pipeline in
+            # repair()/auto_fix() below. Possible is a heuristic-only
+            # guess (viewport meta + absolutely-positioned elements,
+            # with no metadata declaring it either way) -- flagged for
+            # a person to look at, never auto-gated on its own, since
+            # a heuristic can be wrong (verified against a real,
+            # genuinely reflowable but image-heavy cookbook that
+            # correctly doesn't trip this -- see
+            # docs/analysis_roadmap.md's dated entry). See
+            # ebook_fix.layout's module docstring for the full
+            # reasoning.
+            layout = analysis_report.layout
+            if layout.confirmed_fixed_layout:
+                self.log("\n[Fixed-Layout EPUB Detected]")
+                self.log(
+                    f"  • This book declares itself pre-paginated (fixed-layout) on "
+                    f"{len(layout.confirmed_chapters)} of {len(book.chapters)} page(s) -- "
+                    f"repairs that assume reflowable prose (Color Strip, Font Strip, "
+                    f"Paragraph Repair, Chapter Markup, TOC Generation, Scene Break "
+                    f"Repair, Running Title Repair) are skipped automatically for this "
+                    f"book; see [Module Checks] below"
+                )
+                if details:
+                    for href in layout.confirmed_chapters:
+                        self.log(f"    {href}")
+
+            if layout.possible_chapters:
+                self.log("\n[Possible Fixed-Layout -- Manual Review]")
+                self.log(
+                    f"  • Page(s) with a fixed-size viewport and absolutely-positioned "
+                    f"content, but no rendition:layout metadata declaring it either way: "
+                    f"{len(layout.possible_chapters)} -- not auto-detected as fixed-layout, "
+                    f"review and pass --treat-as-fixed-layout on repair/auto-fix if this "
+                    f"really is a comic/picture-book page"
+                )
+                if details:
+                    for finding in layout.possible_chapters:
+                        dims = (
+                            f"{finding.viewport_width}x{finding.viewport_height}"
+                            if finding.viewport_width and finding.viewport_height
+                            else "no viewport meta"
+                        )
+                        self.log(
+                            f"    {finding.href}: {dims}, "
+                            f"{finding.positioned_element_count} positioned element(s), "
+                            f"{finding.word_count} word(s)"
+                        )
+
             # Module Diagnostics Execution
             self.log("\n[Module Checks]")
             if not self.modules:
@@ -1843,7 +1962,7 @@ class Engine:
             for p in mappable
         ]
 
-    def auto_fix(self, epub, output, overwrite=False, details=False, max_passes=5):
+    def auto_fix(self, epub, output, overwrite=False, details=False, max_passes=5, treat_as_fixed_layout=False):
         """One-command, hands-off mode: runs the normal repair module
         list (including Color Strip -- see ebook_fix.modules.
         color_strip and its config.color_repair toggle, same as every
@@ -1880,23 +1999,57 @@ class Engine:
 
             modules = list(self.modules)
 
-            profiles = build_class_profiles(
-                book,
-                chapter_summary=analysis_report.chapters,
-                frontmatter_summary=analysis_report.frontmatter,
+            layout = analysis_report.layout
+            fixed_layout_triggered = bool(layout.confirmed_fixed_layout) or (
+                treat_as_fixed_layout and bool(layout.possible_chapters)
             )
-            auto_entries = self._build_auto_class_mapping(profiles)
-            if auto_entries:
-                names = ", ".join(f".{e.old_name}" for e in auto_entries)
-                self.log(f"Auto class mapping (high confidence only): {names}")
-                modules.append(ClassStandardizeRepair(auto_entries))
+            guard_cfg = getattr(self.config, "fixed_layout_guard", None)
+            guard_enabled = guard_cfg is None or getattr(guard_cfg, "enabled", True)
+
+            if fixed_layout_triggered and guard_enabled:
+                # Same reasoning as ebook_fix.modules.class_standardize's
+                # near-identical-class caution, sharpened further: on a
+                # fixed-layout page, a class is very often one specific
+                # text box's exact position, not a reusable style. Auto
+                # class mapping here has no reviewer in the loop at all
+                # (that's the whole point of auto-fix), so it's skipped
+                # outright rather than just flagged, unlike everything
+                # else this method reports -- see
+                # ebook_fix.layout's module docstring.
+                self.log(
+                    "Fixed-layout book detected -- skipping automatic CSS class "
+                    "mapping (see [Fixed-Layout EPUB Detected] above). Use `repair "
+                    "--class-mapping` if you want to hand-review consolidation "
+                    "candidates for this book instead."
+                )
             else:
-                self.log("Auto class mapping: no high-confidence chapter-heading/body-text classes found -- skipped.")
+                profiles = build_class_profiles(
+                    book,
+                    chapter_summary=analysis_report.chapters,
+                    frontmatter_summary=analysis_report.frontmatter,
+                )
+                auto_entries = self._build_auto_class_mapping(profiles)
+                if auto_entries:
+                    names = ", ".join(f".{e.old_name}" for e in auto_entries)
+                    self.log(f"Auto class mapping (high confidence only): {names}")
+                    modules.append(ClassStandardizeRepair(auto_entries))
+                else:
+                    self.log("Auto class mapping: no high-confidence chapter-heading/body-text classes found -- skipped.")
 
             self.log("")
 
             if not self._check_output_path(output, overwrite):
                 return
+
+            modules, skipped_for_layout = self._apply_fixed_layout_guard(
+                modules, analysis_report, treat_as_fixed_layout=treat_as_fixed_layout
+            )
+            if skipped_for_layout:
+                self.log(
+                    f"Fixed-layout book detected -- skipping: {', '.join(skipped_for_layout)} "
+                    f"(see [Fixed-Layout EPUB Detected] above)"
+                )
+                self.log("")
 
             if not modules:
                 self.log("No repair modules are enabled in the config. Nothing to do.")
@@ -2018,7 +2171,7 @@ class Engine:
         self.log("")
         return True
 
-    def repair(self, epub, output, dry_run=False, class_mapping=None, case3_boundaries=None, overwrite=False, details=False, max_passes=5):
+    def repair(self, epub, output, dry_run=False, class_mapping=None, case3_boundaries=None, overwrite=False, details=False, max_passes=5, treat_as_fixed_layout=False):
         source, temp_path = self._resolve_source(epub)
         if source is None:
             return
@@ -2079,6 +2232,16 @@ class Engine:
 
             if not dry_run and not self._check_output_path(output, overwrite):
                 return
+
+            modules, skipped_for_layout = self._apply_fixed_layout_guard(
+                modules, analysis_report, treat_as_fixed_layout=treat_as_fixed_layout
+            )
+            if skipped_for_layout:
+                self.log(
+                    f"Fixed-layout book detected -- skipping: {', '.join(skipped_for_layout)} "
+                    f"(see [Fixed-Layout EPUB Detected] above)"
+                )
+                self.log("")
 
             if not modules:
                 self.log("No repair modules are enabled in the config. Nothing to do.")

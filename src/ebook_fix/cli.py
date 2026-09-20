@@ -84,6 +84,11 @@ def build_parser():
         help="Review and apply Case 3 chapter boundaries (books with no chapter-heading words and no existing TOC -- see docs/xhtml_recoder_plan.md). If FILE doesn't exist yet, detects and writes every candidate boundary to it for review and stops without touching the book. Re-run with the same FILE, after editing it, to physically split on whatever boundaries are still listed."
     )
     repair.add_argument(
+        "--treat-as-fixed-layout",
+        action="store_true",
+        help="Also gate the fixed-layout-risky repairs (Color Strip, Font Strip, Paragraph Repair, Chapter Markup, TOC Generation, Scene Break Repair, Running Title Repair) on a heuristic-only \"[Possible Fixed-Layout]\" finding, not just a confirmed rendition:layout declaration. Use this after reviewing that section of `analyze` output and confirming by eye that the book really is fixed-layout."
+    )
+    repair.add_argument(
         "--verbose",
         action="store_true",
         help="Verbose output."
@@ -125,6 +130,11 @@ def build_parser():
         "--details",
         action="store_true",
         help="Show the full before/after list of every change instead of the category summary."
+    )
+    auto_fix.add_argument(
+        "--treat-as-fixed-layout",
+        action="store_true",
+        help="Also gate the fixed-layout-risky repairs and the automatic CSS class mapping on a heuristic-only \"[Possible Fixed-Layout]\" finding, not just a confirmed rendition:layout declaration. Use this after reviewing that section of `analyze` output and confirming by eye that the book really is fixed-layout."
     )
     auto_fix.add_argument(
         "--verbose",
@@ -461,6 +471,7 @@ def main():
             case3_boundaries=getattr(args, "case3_boundaries", None),
             overwrite=args.overwrite,
             details=args.details,
+            treat_as_fixed_layout=getattr(args, "treat_as_fixed_layout", False),
         )
     elif args.command == "series":
         name = args.name
@@ -527,6 +538,7 @@ def main():
             Path(output),
             overwrite=args.overwrite,
             details=args.details,
+            treat_as_fixed_layout=getattr(args, "treat_as_fixed_layout", False),
         )
 
 if __name__ == "__main__":

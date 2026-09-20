@@ -1980,6 +1980,95 @@ classes specifically; the two mapping shapes are not yet reconciled
 into one repair-time consumer, and picking that up is the natural next
 step if this direction is worth continuing.
 
+## Done: Fixed-layout (pre-paginated) EPUB detection and guard (2026-09-19)
+
+Raised by Jacob directly: several repair modules here assume ordinary
+reflowable prose and would very likely damage a comic, picture book,
+or other fixed-layout title if run against it unattended -- Color
+Strip/Font Strip would treat a deliberate, exact color/font as a
+conversion-tool artifact; Chapter Markup/TOC Generation/Running Title
+Repair/Scene Break Repair all reason about "chapters" a one-page-per-
+image book doesn't have; and Paragraph Repair's span cleanup is
+exactly how you'd break a page where every span is a deliberately,
+absolutely positioned text box.
+
+**New module, `ebook_fix.layout`:** same confident/review split
+`ebook_fix.color`/`ebook_fix.fonts` already use. Confirmed is an
+outright spec-level declaration -- the EPUB3
+`<meta property="rendition:layout">pre-paginated</meta>` at the book
+level, or a per-page `<itemref properties="rendition:layout-
+pre-paginated">` override in the spine (which also means the reverse
+override, `rendition:layout-reflowable` on one page of an otherwise
+pre-paginated book, is read too -- a mixed book is handled correctly,
+not just a whole-book yes/no). Possible is heuristic-only: a
+`<meta name="viewport">` with pixel dimensions together with at least
+one absolutely/fixed-positioned element, or three or more positioned
+elements even without a viewport tag -- two conditions, not one, in
+the weaker no-viewport case specifically to avoid a false positive on
+an image-heavy but genuinely reflowable book.
+
+**That false-positive risk wasn't theoretical.** Jacob supplied two
+real candidates he suspected might be fixed-layout -- both heavily
+illustrated cookbooks. Neither had any rendition metadata, viewport
+meta, or positioned CSS anywhere; both turned out to be perfectly
+ordinary reflowable text with `<img>` tags sitting in normal flowing
+paragraphs. Confirmed the "possible" heuristic correctly stays silent
+on both, which is exactly the case it exists to get right -- "lots of
+images" and "fixed-layout" are not the same signal, and a naive
+image-to-text-ratio heuristic would have false-positived on both of
+these.
+
+**Engine gating (`engine.py`):** `_apply_fixed_layout_guard()` drops
+Color Strip, Font Strip, Paragraph Repair, Chapter Markup, TOC
+Generation, Scene Break Repair, and Running Title Repair from the
+module list for `repair()`/`auto_fix()` -- but only ever on a
+*confirmed* finding, never a heuristic-only one, unless the caller
+passes `--treat-as-fixed-layout` (new flag on both `repair` and
+`auto-fix`) after reviewing the analyze output's "[Possible
+Fixed-Layout]" section by eye. `auto_fix()` additionally skips its own
+automatic CSS class consolidation outright rather than flagging it,
+since that mode has no reviewer in the loop at all -- on a
+fixed-layout page a class is very often one specific text box's exact
+position, not a reusable style, and there's no one there to catch a
+bad merge. New `[fixed_layout_guard]` config section (on by default),
+matching every other confidence-gated protection's config shape.
+Metadata, identifier, cover, image, and EPUB3-upgrade repairs are
+unaffected -- none of them touch chapter content/styling.
+
+**New fixtures, added to `examples/` (no real fixed-layout sample
+existed to test against -- same "build synthetic, flag as such" call
+as the font session's `encryption.xml` work):**
+- `FixedLayout-Synthetic.epub` -- book-level `rendition:layout:
+  pre-paginated`, two pages inheriting it (viewport meta, absolutely-
+  positioned captions over a full-page image), and a third page
+  explicitly overridden back to `reflowable` (ordinary prose, no
+  viewport, no positioning) to exercise the per-page-override and
+  mixed-book paths in the same file, not just the easy whole-book case.
+- `PossibleFixedLayout-Synthetic.epub` -- no rendition metadata
+  anywhere, one page with viewport meta + positioned captions (should
+  trip the heuristic), one ordinary reflowable page (should not).
+
+**Verified:** both fixtures produce exactly the intended
+confirmed/possible split; `repair` on the confirmed fixture skips all
+seven risky modules and leaves the fixed-layout pages' CSS
+byte-identical and their XHTML attributes (position, color, viewport,
+caption text) unchanged after re-serialization; a second repair pass
+over the output is a no-op (idempotent, per this project's usual bar).
+`repair` on the possible fixture leaves everything running by default
+and correctly starts skipping only once `--treat-as-fixed-layout` is
+passed. Ran `analyze` and `repair --dry-run` across all 18 real EPUBs
+in `examples/` plus both new fixtures -- no exceptions, and none of
+the 18 real books (including the two image-heavy cookbooks above)
+false-positived on either tier.
+
+**Known gap:** gating is book-level per confirmed page, not
+integrated into the GUI yet (no visual "[Fixed-Layout Detected]"
+badge/button state the way the CSS-complexity detector already gates
+the Standardize/Map CSS buttons) -- CLI/engine only for now. Also
+unverified against a real fixed-layout EPUB in the wild; flagged
+honestly rather than assumed away, same as the encryption.xml
+situation -- swap in a real sample if/when one turns up.
+
 
 This file is the source of truth for "what's next" on the analysis
 side, more reliable than relying on conversation memory across
