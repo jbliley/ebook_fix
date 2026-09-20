@@ -4,7 +4,7 @@ An automated tool that can detect and fix both common and uncommon issues with t
 
 The ultimate goal of this project is to allow eBook files to be analyzed and fixed without needing to run them through AI, as they are often too large of a job for free usage. This idea stems from the many free eBook files available online that were poorly converted from early PDF files or printed directly from HTML files 20+ years ago.
 
-The project is still under development and currently supports analysis and repair of **EPUB** files.
+The project is still under development and currently supports analysis and repair of **EPUB** files, plus converting classic **MOBI** books to EPUB without needing any other software.
 
 ## Table of Contents
 
@@ -107,6 +107,6 @@ The browser should open automatically.
 
 ## Command-Line Interface
 
-`ebook_fix` also has a full command-line interface covering analysis, repair, auto-fix, cover replacement, series metadata, file-integrity checks, and configuration, useful for scripting or working through many books at once without the GUI.
+`ebook_fix` also has a full command-line interface covering analysis, repair, auto-fix, MOBI to EPUB conversion, cover replacement, series metadata, file-integrity checks, and configuration, useful for scripting or working through many books at once without the GUI.
 
 Full CLI documentation, including every command and its available options, now lives on the project's [GitHub Wiki](https://github.com/jbliley/ebook_fix/wiki/CLI-Usage) rather than in this README, to keep this page focused on getting the GUI running. The CLI itself hasn't gone anywhere and isn't being removed, it's simply documented elsewhere now.

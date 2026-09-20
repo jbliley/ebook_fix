@@ -1205,7 +1205,10 @@ XHTML Recoder was in, so it gets its own planning doc for the same
 reason: **see `docs/format_support_plan.md`**. That doc now carries
 the actual planning (background on the MOBI format, a rough phased
 sketch starting with analysis-only support, open questions); this
-entry stays here only as a pointer so it isn't lost.
+entry stays here only as a pointer so it isn't lost. (Update
+2026-09-20: that doc has since been removed from the repo; MOBI/AZW3
+planning now lives in `docs/mobi_conversion_plan.md` -- see the
+"Done: MOBI to EPUB conversion" entry at the end of this file.)
 
 ## Done: TOC generation when missing (2026-08-30)
 
@@ -2069,6 +2072,69 @@ unverified against a real fixed-layout EPUB in the wild; flagged
 honestly rather than assumed away, same as the encryption.xml
 situation -- swap in a real sample if/when one turns up.
 
+
+## Done: MOBI to EPUB conversion (2026-09-20)
+
+Jacob picked this as the next feature and set the direction: a
+built-in converter, fully independent of Calibre or any other
+conversion tool, because MOBI is deprecated and this project shouldn't
+need anything outside itself to open one. Everything is hand-written
+(no new dependency), and the design is "convert to EPUB first": once a
+MOBI is an ordinary EPUB, every existing analysis and repair module
+works on it unchanged, so nothing downstream needed to change. Full
+design and scope in `docs/mobi_conversion_plan.md`.
+
+**New modules under `mobi/`:** `decompress.py` (PalmDOC and HUFF/CDIC
+text decompression, plus removal of the trailing entries a text record
+can carry), `indx.py` (the table-of-contents index: INDX/TAGX/CTOC),
+`reader.py` (`read_mobi()`: markup, images, cover, metadata, TOC, with
+clear `MobiError` messages), `markup.py` (turns MOBI7's sloppy private
+HTML into well-formed XHTML pages), `epub_out.py` (assembles the EPUB
+3 zip), and `convert.py` (`convert_mobi_to_epub()` plus the report).
+`MobiHeader` in `mobi_header.py` gained the fields the converter needs.
+New CLI command: `ebook-fix convert book.mobi [-o out.epub]
+[--overwrite]`; it never replaces an existing file without
+`--overwrite`.
+
+**Key behaviors:** each `<mbp:pagebreak/>` becomes its own XHTML file.
+MOBI7 links point at raw byte offsets in the text, so every offset
+anything points at gets a real `id="fileposN"` anchor at exactly that
+spot and each link is rewritten to whichever output file ended up
+holding it. MOBI's private paragraph `height`/`width`/`align`
+attributes and `<font>`/`<center>` become a handful of shared CSS
+classes instead of an inline style on every paragraph. Sloppy markup
+(unclosed `<p>`, crossed tags, stray `</br>`, loose text outside any
+block) is repaired so every page parses as strict XML. Only the cover
+and images the text actually uses are written, and the cover gets the
+standardized `cover.jpg` name so Cover Repair has nothing to rename.
+A source with no table of contents produces no nav/NCX on purpose,
+which is exactly the state TOC Generation looks for.
+
+**Refused, with a clear message:** DRM-protected books, AZW3/KF8 (next
+step, different internal layout), and damaged or cut-off files.
+
+**Verified:** against the real `MOBI-Example.mobi` (MOBI7, PalmDOC,
+UTF-8, 35-entry TOC, 6 images): decompressed length matches the header
+exactly, all 35 TOC entries match a reference unpacker's output (used
+only as a test oracle, not a dependency), and the finished EPUB's
+visible text is identical to the reference's. All pages parse strict;
+every link, image, manifest entry, and TOC target resolves. Also
+tested against synthetic MOBI files (compressed/uncompressed,
+trailing-data flags, cp1252, multiple authors, images and cover, no
+TOC, DRM, KF8, truncated, not-a-MOBI) and a broad set of markup edge
+cases. `analyze` on the converted sample shows no Cover Repair
+finding, `repair` runs cleanly, and a second `repair` is a no-op; a
+converted book with no TOC gets a nav and NCX from TOC Generation, also
+idempotent.
+
+**Known gaps:** AZW3/KF8 not converted yet (a real sample exists in
+`examples/`). HUFF/CDIC decompression is written from the documented
+format but no real file has exercised it (the converter refuses rather
+than emit a damaged book if the length doesn't match the header).
+Hybrid MOBI7+KF8 files are read through their MOBI7 half, untested for
+lack of a sample. BMP images are skipped. The GUI still opens EPUBs
+only; where a converted EPUB should be saved (especially for a MOBI
+inside a Calibre folder) needs a decision first.
 
 This file is the source of truth for "what's next" on the analysis
 side, more reliable than relying on conversation memory across

@@ -12,7 +12,7 @@ Field offsets confirmed against a real MOBI7 sample
 publisher, ISBN, ASIN, description, and a cover image reference).
 The generation-detection logic for AZW3/KF8 hybrid files below is
 written from documented field layouts but NOT yet confirmed against a
-real AZW3 sample -- see docs/format_support_plan.md.
+real AZW3 sample -- see docs/mobi_conversion_plan.md.
 """
 from __future__ import annotations
 import struct
@@ -94,6 +94,15 @@ class MobiHeader:
     text_length: int = 0
     text_record_count: int = 0
     encryption_type: int = 0
+    # Fields the converter (convert.py) needs on top of what `analyze`
+    # reports. All confirmed against the real MOBI7 and AZW3 samples in
+    # examples/ except the HUFF/CDIC pair, which no sample exercises.
+    record_size: int = 4096         # uncompressed size of each text record
+    extra_data_flags: int = 0       # trailing-entry bits, see decompress.py
+    ncx_index_record: int = 0xFFFFFFFF  # first INDX record of the NCX (TOC), or 0xFFFFFFFF
+    huff_record_index: int = 0      # first HUFF record (HUFF/CDIC books only)
+    huff_record_count: int = 0      # HUFF + CDIC records (HUFF/CDIC books only)
+    mobi_offset: int = 0            # absolute file offset of the "MOBI" tag itself
 
 
 @dataclass
@@ -161,6 +170,12 @@ def read_mobi_header(data: bytes, record0_offset: int) -> MobiHeader:
     first_image_record = _u32(data, mobi_offset + 92)
     exth_flags = _u32(data, mobi_offset + 112) if header_length >= 116 else 0
 
+    record_size = _u16(data, record0_offset + 10)
+    huff_record_index = _u32(data, mobi_offset + 96) if header_length >= 104 else 0
+    huff_record_count = _u32(data, mobi_offset + 100) if header_length >= 104 else 0
+    extra_data_flags = _u16(data, mobi_offset + 226) if header_length >= 228 else 0
+    ncx_index_record = _u32(data, mobi_offset + 228) if header_length >= 232 else 0xFFFFFFFF
+
     name_start = record0_offset + full_name_offset
     full_name = _decode(data[name_start : name_start + full_name_length])
 
@@ -180,6 +195,12 @@ def read_mobi_header(data: bytes, record0_offset: int) -> MobiHeader:
         text_length=text_length,
         text_record_count=text_record_count,
         encryption_type=encryption_type,
+        record_size=record_size,
+        extra_data_flags=extra_data_flags,
+        ncx_index_record=ncx_index_record,
+        huff_record_index=huff_record_index,
+        huff_record_count=huff_record_count,
+        mobi_offset=mobi_offset,
     )
 
 

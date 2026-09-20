@@ -11,6 +11,8 @@ from ebook_fix.config import (
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.mobi.analyzer import MOBI_EXTENSIONS, analyze_mobi, print_mobi_report
+from ebook_fix.mobi.convert import convert_mobi_to_epub, print_convert_report
+from ebook_fix.mobi.reader import MobiError
 from ebook_fix.fb2 import FB2_EXTENSIONS, analyze_fb2, print_fb2_report
 
 def build_parser():
@@ -345,6 +347,26 @@ def build_parser():
         help="Replace the output file if it already exists. Without -o/--output, this replaces the original file itself instead of writing <input>_cover.epub -- you'll be asked to confirm before that happens."
     )
 
+    # Convert
+    convert = sub.add_parser(
+        "convert",
+        help="Convert a MOBI/AZW/PRC book to EPUB. Built in, so Calibre isn't needed. Classic MOBI only for now; AZW3/KF8 is planned."
+    )
+    convert.add_argument(
+        "input",
+        help="Input MOBI/AZW/PRC file"
+    )
+    convert.add_argument(
+        "-o",
+        "--output",
+        help="Output EPUB (default: the same name with .epub, next to the input file)"
+    )
+    convert.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the output file if it already exists."
+    )
+
     # Init-config
     init_config = sub.add_parser(
         "init-config",
@@ -388,6 +410,15 @@ def main():
     if not epub.exists():
         print(f"ERROR: '{epub}' does not exist.")
         sys.exit(1)
+
+    if args.command == "convert":
+        try:
+            result = convert_mobi_to_epub(epub, args.output, overwrite=args.overwrite)
+        except MobiError as e:
+            print(f"ERROR: {e}")
+            sys.exit(1)
+        print_convert_report(result)
+        return
 
     if args.command == "analyze" and epub.suffix.lower() in MOBI_EXTENSIONS:
         report = analyze_mobi(epub)
