@@ -73,6 +73,9 @@ from ebook_fix import isbn_lookup
 from ebook_fix.mobi.analyzer import MOBI_EXTENSIONS
 from ebook_fix.mobi.convert import convert_mobi_to_epub
 from ebook_fix.mobi.reader import MobiError
+from ebook_fix.fb2.analyzer import FB2_EXTENSIONS
+from ebook_fix.fb2.convert import convert_fb2_to_epub
+from ebook_fix.fb2.reader import Fb2Error
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
@@ -544,7 +547,7 @@ def browse():
         "path = tkinter.filedialog.askopenfilename(\n"
         "    title='Choose a book',\n"
         "    filetypes=[\n"
-        "        ('Books', ('*.epub', '*.mobi', '*.azw', '*.azw3', '*.prc')),\n"
+        "        ('Books', ('*.epub', '*.mobi', '*.azw', '*.azw3', '*.prc', '*.fb2')),\n"
         "        ('EPUB files', '*.epub'),\n"
         "        ('All files', '*.*'),\n"
         "    ],\n"
@@ -566,11 +569,11 @@ def browse():
 
 
 def _converted_epub_path(source: Path) -> Path:
-    """Where a converted MOBI's EPUB goes: next to the original, named
-    the same. Never replaces a file that's already there (it could be a
-    different edition, or an earlier conversion Jacob has since repaired
-    in place) -- picks "<name> (converted).epub", then "<name> (converted
-    2).epub", and so on, instead."""
+    """Where a converted MOBI's or FB2's EPUB goes: next to the
+    original, named the same. Never replaces a file that's already
+    there (it could be a different edition, or an earlier conversion
+    Jacob has since repaired in place) -- picks "<name> (converted).epub",
+    then "<name> (converted 2).epub", and so on, instead."""
     candidate = source.with_suffix(".epub")
     n = 1
     while candidate.exists():
@@ -590,14 +593,18 @@ def upload():
     if not path_obj.is_file():
         return render_template("index.html", error=f"Can't find that file: {typed_path}")
     suffix = path_obj.suffix.lower()
-    if suffix in MOBI_EXTENSIONS:
-        # A MOBI/AZW/PRC book is converted to an EPUB first (see
-        # ebook_fix.mobi.convert), and that EPUB is what gets opened --
-        # everything else in the GUI only knows how to work on an EPUB.
+    if suffix in MOBI_EXTENSIONS or suffix in FB2_EXTENSIONS:
+        # A MOBI/AZW/PRC or FB2 book is converted to an EPUB first (see
+        # ebook_fix.mobi.convert / ebook_fix.fb2.convert), and that EPUB
+        # is what gets opened -- everything else in the GUI only knows
+        # how to work on an EPUB.
         target = _converted_epub_path(path_obj)
         try:
-            convert_mobi_to_epub(path_obj, target)
-        except MobiError as exc:
+            if suffix in FB2_EXTENSIONS:
+                convert_fb2_to_epub(path_obj, target)
+            else:
+                convert_mobi_to_epub(path_obj, target)
+        except (MobiError, Fb2Error) as exc:
             return render_template("index.html", error=f"Couldn't convert that book to EPUB: {exc}")
         except Exception as exc:
             traceback.print_exc()
@@ -606,7 +613,7 @@ def upload():
     elif suffix != ".epub":
         return render_template(
             "index.html",
-            error="That doesn't look like a supported book file (expected a .epub, or a MOBI/AZW/PRC to convert to EPUB).",
+            error="That doesn't look like a supported book file (expected a .epub, or a MOBI/AZW/PRC/FB2 to convert to EPUB).",
         )
 
     session_id = str(uuid.uuid4())

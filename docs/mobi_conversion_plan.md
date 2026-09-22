@@ -128,10 +128,11 @@ KF8 keeps the same PalmDB container, header, EXTH, images and PalmDOC text recor
 - The table of contents index points at fragment/offset pairs rather than plain byte offsets.
 - Embedded fonts and mixed-in SVG can appear.
 
-`indx.py` will need generalizing (the same TAGX/entry decoding, more tag types). `markup.py`'s job (repairing markup) shrinks, since KF8 content is already close to valid XHTML, but link and anchor rewriting stays. `epub_out.py` and `convert.py` are reused as they are.
+`indx.py` will need generalizing (the same TAGX/entry decoding, more tag types). `markup.py`'s job (repairing markup) shrinks, since KF8 content is already close to valid XHTML, but link and anchor rewriting stays. `epub_builder.py` (moved here from `epub_out.py` when the FB2 converter needed it too, see `docs/fb2_conversion_plan.md`) and `convert.py` are reused as they are.
 
 Suggested order: (1) skeleton/fragment/flow assembly into ordinary XHTML files, (2) link and image resolution, (3) table of contents, (4) CSS flows, fonts and SVG, (5) hybrid files (convert the KF8 half instead of the MOBI7 half when both exist).
 
 ## Also on the list
 
-- FB2 conversion, once MOBI/AZW3 are done. `convert` was named generically so it can take other formats later.
+- FB2 conversion is done -- see `docs/fb2_conversion_plan.md`. `convert` was named generically specifically so it could take another format without a new command, and that paid off.
+- GUI: open a MOBI directly is also done -- see `docs/gui_plan.md`.

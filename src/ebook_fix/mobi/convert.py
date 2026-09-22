@@ -23,10 +23,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ebook_fix.cover import standard_cover_filename
-from ebook_fix.mobi.epub_out import (
+from ebook_fix.epub_builder import (
     EpubImage,
     EpubSpec,
     TocItem,
+    normalize_isbn,
     page_filename,
     write_epub,
 )
@@ -38,7 +39,6 @@ _IMAGE_EXTENSIONS = {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif"
 
 _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _ASIN_RE = re.compile(r"^[A-Z0-9]{10}$")
-_ISBN_RE = re.compile(r"^(97[89])?\d{9}[\dXx]$")
 
 # The MOBI guide's reference types, mapped to the EPUB 2 guide types and
 # the EPUB 3 landmark types they correspond to.
@@ -232,9 +232,7 @@ def convert_mobi_to_epub(source: Path, output: Path | None = None, overwrite: bo
     asin = book.asin.strip()
     asin_is_uuid = bool(_UUID_RE.match(asin))
     mobi_asin = asin.upper() if _ASIN_RE.match(asin.upper()) and not asin_is_uuid else ""
-    isbn = re.sub(r"[\s-]", "", book.isbn)
-    if not _ISBN_RE.match(isbn):
-        isbn = ""
+    isbn = normalize_isbn(book.isbn)
 
     css = _BASE_CSS
     for name, declarations in markup.css_rules:

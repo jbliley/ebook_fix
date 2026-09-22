@@ -2073,6 +2073,79 @@ honestly rather than assumed away, same as the encryption.xml
 situation -- swap in a real sample if/when one turns up.
 
 
+## Done: FB2 to EPUB conversion (2026-09-22)
+
+Jacob's chosen next feature after MOBI conversion, same direction:
+built in, no Calibre or other tool involved. Full design in
+`docs/fb2_conversion_plan.md`. Much easier format than MOBI -- FB2 is
+real, well-formed, fully-documented XML, so there's no reverse-
+engineered container/compression to work out, just mapping FB2's
+vocabulary onto sensible EPUB/XHTML.
+
+**New modules under `fb2/`:** `reader.py` (`read_fb2()`), `markup.py`
+(`Fb2Renderer`, a much simpler recursive XML-to-XHTML walker than
+MOBI's markup.py since there's no sloppy markup to repair), `genres.py`
++ `genres.json` (FB2 genre code -> readable subject, an editable data
+file matching `identifier_schemes.json`'s convention), and
+`convert.py` (`convert_fb2_to_epub()` plus the report). The project's
+existing FB2 *analysis* code moved from `ebook_fix/fb2.py` to
+`fb2/analyzer.py` to make room for the package -- see "a naming
+collision" in the plan doc for why that move mattered, not just tidying.
+New CLI/GUI wiring: the same `convert` command and upload flow MOBI
+uses now also handles `.fb2`, dispatching by extension.
+
+**Shared refactor:** the EPUB-assembly step moved from
+`ebook_fix/mobi/epub_out.py` to `ebook_fix/epub_builder.py`, since
+nothing in it was actually MOBI-specific and the FB2 converter needed
+the exact same thing. Gained series metadata support (both conventions
+`ebook_fix.series` already reads) and a shared `normalize_isbn()`
+helper; the MOBI converter was updated to use both instead of its own
+inlined versions.
+
+**Key behaviors:** one XHTML file per top-level section, nested
+subsections inline as headings with real depth-matched TOC entries
+(FB2's structure is fully known upfront, unlike MOBI's byte-stream
+text, so no heuristic detection is needed here); a body-level title/
+epigraph becomes its own leading page; a dedicated cover page is
+created (FB2 has no inline equivalent the way some MOBI books do);
+footnote bodies become one page of EPUB3 `<aside epub:type="footnote">`
+entries with `noteref` links rewired to point there; FB2's blank-line
+marker becomes a real `<hr/>` so the project's existing Scene Break
+Normalizer picks it up automatically.
+
+**Two real bugs found by running `repair` on the output, not by
+inspection:** footnote numbers rendered as their own paragraph were
+being misread as 37 book chapters by `chapters.py`'s bare-number
+marker detection (fixed by folding the number into the footnote's
+first paragraph instead); a blank-line marker rendered as an empty
+paragraph with a non-breaking space was being silently deleted by
+Paragraph Repair, since its emptiness check strips ` ` the same way
+Python's `str.strip()` does (fixed by using `<hr/>` instead, which is
+also the more correct representation). Full writeup in the plan doc.
+
+**Verified:** all three of Jacob's FB2 samples (a two-level-nesting
+novel with a dedication page and cover, a Russian book with 38
+chapters and a 37-entry footnote body including footnotes mid-poem,
+and a single-section book with images including one nested inside
+`<strong>`) convert cleanly, open in every GUI tab, and `repair`
+converges to zero changes on a second pass with only sensible changes
+on the first. Non-breaking-space counts confirmed byte-identical
+between source and converted EPUB (nothing introduced by conversion).
+A synthetic FB2 exercised `<table>`, `<cite>`, `<code>`,
+`<strikethrough>`, `<sub>`/`<sup>`, a translator, an unrecognized genre
+code (falls back to a readable label, never dropped), and `<sequence>`
+(series info, confirmed round-trips through `ebook_fix.series.read()`).
+Full example sweep and the MOBI converter's own test suite both still
+pass after the shared-module refactor.
+
+**Known gaps:** table/cite/code/sub-sup/sequence support is written
+from the FB2 spec and confirmed only against the synthetic file, not a
+real book (lower risk than MOBI's equivalent gaps since FB2 is a
+documented standard, not reverse-engineered). `<style name="...">`
+becomes a CSS class with no actual style. `src-lang` isn't carried
+into the EPUB. Not run through `epubcheck`.
+
+
 ## Fixed: MOBI conversion glued words across block boundaries (2026-09-20)
 
 Jacob caught this from the Review tab: an obvious dedication page in

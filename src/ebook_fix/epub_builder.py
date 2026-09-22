@@ -1,30 +1,42 @@
 """
-ebook_fix.mobi.epub_out
+ebook_fix.epub_builder
 
-Assembles a finished EPUB 3 file from what convert.py has prepared: the
-XHTML pages, stylesheet, images, metadata and table of contents.
+Assembles a finished EPUB 3 file from what a format converter (MOBI,
+FB2, ...) has prepared: XHTML pages, a stylesheet, images, metadata,
+series info, and a table of contents. Shared by every "convert some
+other ebook format to EPUB, then reuse the whole existing analysis and
+repair pipeline" converter under ebook_fix, rather than living inside
+any one of them -- it moved here (from ebook_fix.mobi.epub_out) when
+the FB2 converter needed the exact same assembly step. Nothing in this
+module is MOBI- or FB2-specific.
 
 Written to fit how the rest of ebook_fix already reads and writes EPUBs:
 Dublin Core identifiers carry an `opf:scheme` (uuid / ISBN / MOBI-ASIN,
-the names identifier_schemes.json already knows), both a nav document
-and an NCX are written when there is a table of contents (so EPUB 2
-readers keep working, same as the EPUB 3 Upgrade repair leaves things),
-and an OPF `<guide>` is written alongside the nav landmarks.
+the names identifier_schemes.json already knows), series info is
+written in both conventions ebook_fix.series already reads/writes
+(calibre: meta tags and the EPUB3 belongs-to-collection block), both a
+nav document and an NCX are written when there is a table of contents
+(so EPUB 2 readers keep working, same as the EPUB 3 Upgrade repair
+leaves things), and an OPF `<guide>` is written alongside the nav
+landmarks.
 
 A book with no table of contents at all gets neither a nav document nor
 an NCX on purpose: that is exactly the state ebook_fix's own "TOC
 generation when missing" repair looks for, and it can build a real
 structure-based one, which a placeholder here would only get in the way
-of. (See docs/mobi_conversion_plan.md.)
+of.
 """
 from __future__ import annotations
 
 import datetime
 import os
 import zipfile
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.sax.saxutils import escape
+
+from ebook_fix.series import COLLECTION_ID, format_index
 
 XHTML_NS = "http://www.w3.org/1999/xhtml"
 EPUB_NS = "http://www.idpf.org/2007/ops"
@@ -61,6 +73,8 @@ class EpubSpec:
     contributors: list = field(default_factory=list)
     isbn: str = ""
     mobi_asin: str = ""
+    series_name: str = ""
+    series_index: float | None = None
     pages: list = field(default_factory=list)        # [(title, body_html)] in reading order
     css: str = ""
     images: list = field(default_factory=list)       # list[EpubImage]
@@ -209,6 +223,16 @@ def _opf(spec: EpubSpec, has_toc: bool, modified: str) -> str:
         md.append(f'    <dc:identifier opf:scheme="MOBI-ASIN">{_e(spec.mobi_asin)}</dc:identifier>')
     if spec.cover_filename:
         md.append('    <meta name="cover" content="cover-image"/>')
+    if spec.series_name:
+        # Same two conventions, and the same tag shapes, ebook_fix.series
+        # itself reads and writes -- see that module for why both exist.
+        md.append(f'    <meta name="calibre:series" content="{_ea(spec.series_name)}"/>')
+        if spec.series_index is not None:
+            md.append(f'    <meta name="calibre:series_index" content="{_ea(format_index(spec.series_index))}"/>')
+        md.append(f'    <meta property="belongs-to-collection" id="{COLLECTION_ID}">{_e(spec.series_name)}</meta>')
+        md.append(f'    <meta refines="#{COLLECTION_ID}" property="collection-type">series</meta>')
+        if spec.series_index is not None:
+            md.append(f'    <meta refines="#{COLLECTION_ID}" property="group-position">{_ea(format_index(spec.series_index))}</meta>')
     md.append(f'    <meta property="dcterms:modified">{modified}</meta>')
 
     manifest = []
@@ -294,3 +318,20 @@ def write_epub(path: Path, spec: EpubSpec) -> None:
     finally:
         if temp.exists():
             temp.unlink()
+
+
+# ---------------------------------------------------------------------
+# Small shared helpers
+# ---------------------------------------------------------------------
+
+_ISBN_RE = re.compile(r"^(97[89])?\d{9}[\dXx]$")
+
+
+def normalize_isbn(raw: str) -> str:
+    """Strips spaces/hyphens and validates the result looks like a real
+    ISBN-10 or ISBN-13. Returns "" (never a malformed value) if it
+    doesn't -- a book's own metadata sometimes has a garbled or
+    placeholder ISBN, and a wrong-looking identifier is worse than a
+    missing one."""
+    cleaned = re.sub(r"[\s-]", "", raw or "")
+    return cleaned if _ISBN_RE.match(cleaned) else ""

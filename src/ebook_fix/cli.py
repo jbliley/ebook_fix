@@ -14,6 +14,9 @@ from ebook_fix.mobi.analyzer import MOBI_EXTENSIONS, analyze_mobi, print_mobi_re
 from ebook_fix.mobi.convert import convert_mobi_to_epub, print_convert_report
 from ebook_fix.mobi.reader import MobiError
 from ebook_fix.fb2 import FB2_EXTENSIONS, analyze_fb2, print_fb2_report
+from ebook_fix.fb2.convert import convert_fb2_to_epub
+from ebook_fix.fb2.convert import print_convert_report as print_fb2_convert_report
+from ebook_fix.fb2.reader import Fb2Error
 
 def build_parser():
 
@@ -350,11 +353,11 @@ def build_parser():
     # Convert
     convert = sub.add_parser(
         "convert",
-        help="Convert a MOBI/AZW/PRC book to EPUB. Built in, so Calibre isn't needed. Classic MOBI only for now; AZW3/KF8 is planned."
+        help="Convert a MOBI/AZW/PRC or FB2 book to EPUB. Built in, so Calibre isn't needed. Classic MOBI only for now; AZW3/KF8 is planned."
     )
     convert.add_argument(
         "input",
-        help="Input MOBI/AZW/PRC file"
+        help="Input MOBI/AZW/PRC or FB2 file"
     )
     convert.add_argument(
         "-o",
@@ -412,6 +415,14 @@ def main():
         sys.exit(1)
 
     if args.command == "convert":
+        if epub.suffix.lower() in FB2_EXTENSIONS:
+            try:
+                result = convert_fb2_to_epub(epub, args.output, overwrite=args.overwrite)
+            except Fb2Error as e:
+                print(f"ERROR: {e}")
+                sys.exit(1)
+            print_fb2_convert_report(result)
+            return
         try:
             result = convert_mobi_to_epub(epub, args.output, overwrite=args.overwrite)
         except MobiError as e:
