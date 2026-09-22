@@ -1,6 +1,6 @@
 # MOBI Conversion -- Planning Doc
 
-**Status:** MOBI7 to EPUB built and verified (2026-09-20). AZW3/KF8 scoped, not started.
+**Status:** MOBI7 to EPUB built and verified (2026-09-20), one bug fixed same day (see below). AZW3/KF8 scoped, not started.
 **Started:** 2026-09-20.
 
 ## The idea
@@ -67,6 +67,57 @@ A faithful conversion, not a cleanup. Text, images, cover, metadata, links and t
 - **GUI:** opens a MOBI by converting it first (added 2026-09-20, see `docs/gui_plan.md`). The converted EPUB is saved next to the original and never replaces an existing file. For a MOBI inside a Calibre library folder that puts an unregistered EPUB in a Calibre book folder; untested against a real library.
 - The output is EPUB 3 only. No EPUB 2 option.
 - Not run through `epubcheck` (not available where this was built). Identifiers and authors use the same legacy `opf:scheme`/`opf:role` attributes the rest of the project already writes, so a strict EPUB 3 validator may flag those.
+
+## Fixed: block-boundary word gluing (2026-09-20)
+
+Jacob noticed the Review tab was calling an obvious dedication page
+("Dedicated to Johnie and Molly Matthews") only "medium confidence:
+front matter medium" instead of the high-confidence "dedication"
+label. Root cause: `markup.py` dropped all whitespace between
+adjacent block elements, so a heading immediately followed by a
+paragraph came out as one glued word ("SchillerDedicated" instead of
+"Schiller Dedicated") when a repair module extracted plain text from
+the page. Every `\b` word-boundary pattern in `frontmatter.py`
+(dedication, publisher, and others) failed silently on text like that,
+since a word boundary needs a non-word character on one side.
+
+This wasn't just a Review tab cosmetic issue -- any module that reads a
+converted MOBI's plain text (word counts, pattern matching generally)
+was affected the same way, since the glued words are in the page text
+itself, not just in `frontmatter.py`'s copy of it.
+
+**Fix:** block-level closing tags in `markup.py` now emit a single
+trailing space (`_close_tag`), matching how ordinarily-formatted EPUB
+markup already has whitespace between blocks. A single space rather
+than a newline specifically: the Whitespace Normalizer repair module
+leaves an already-single-space whitespace-only text node alone, so
+this doesn't show up as a new finding on a freshly converted book (a
+newline would, since it isn't already normalized -- this is exactly
+why an earlier version of this same idea, during initial development,
+was reverted).
+
+**Also added while investigating:** `frontmatter.py` had no pattern at
+all for the standard "this novel is a work of fiction ... any
+resemblance to actual persons ... is entirely coincidental" boilerplate
+Jacob also pointed out (the "Novel" page in `MOBI-Example.mobi`, and
+the same boilerplate exists verbatim in `MM5_Complete.epub` and
+`MM5_Incomplete.epub` -- not a MOBI-only gap). Added `FICTION_DISCLAIMER`
+as a new front-matter label with a dedicated pattern, matching this
+project's existing fixed-phrase checks (copyright, colophon, and so
+on) at "high" confidence.
+
+**Verified:** the dedication and "Novel" pages in the converted sample
+now classify as "dedication" and "fiction disclaimer" at high
+confidence. The finished EPUB's visible text is still identical to the
+reference unpacker's after normalizing whitespace (the fix only adds
+whitespace between blocks, changing nothing a reader would see -- block
+elements already force a visual line break regardless). Whitespace
+Normalizer reports the same 99 issues before and after the fix
+(confirmed identical, not just similar in count) -- all pre-existing in
+the source MOBI's own text (indentation via literal spaces,
+non-breaking spaces), none newly introduced. `repair` still converges
+to zero changes on a second pass. All markup and container test suites
+re-run clean.
 
 ## Next: AZW3/KF8
 

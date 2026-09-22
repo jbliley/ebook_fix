@@ -284,12 +284,31 @@ class _Converter:
                 if entry.out_name:
                     self._emit(self._start_html(entry.out_name, entry.attrs))
 
+    def _close_tag(self, name: str) -> None:
+        """Emits a closing tag. A block-level element also gets a single
+        following space, so plain-text extraction elsewhere in the
+        project (frontmatter detection, word counts, and so on) doesn't
+        glue this element's text onto the next one -- e.g. a heading
+        "Dedication" immediately followed by a paragraph "I feel an
+        army..." must read as two words, not "DedicationI". Ordinary
+        EPUB source markup has this same separating whitespace built
+        in (it's how a human-edited or Calibre-produced file is
+        formatted); MOBI7's own markup mostly doesn't, so this converter
+        adds it back. A single space, not a newline: the Whitespace
+        Normalizer repair module treats an already-single-space
+        whitespace-only text node as nothing to fix, so this never
+        shows up as a spurious finding on a freshly converted book (a
+        newline would, since it isn't already normalized)."""
+        self._emit(f"</{name}>")
+        if name in _BLOCKS or name in _BLOCKISH_EXTRA:
+            self._emit(" ")
+
     def _pop_to(self, index: int) -> None:
         """Closes stack entries down to and including `index`."""
         while len(self.stack) > index:
             entry = self.stack.pop()
             if entry.out_name and self.page_open:
-                self._emit(f"</{entry.out_name}>")
+                self._close_tag(entry.out_name)
 
     def _flush_pending(self) -> None:
         for ident in self.pending:
@@ -438,7 +457,7 @@ class _Converter:
         if self.page_open:
             for entry in reversed(self.stack):
                 if entry.out_name:
-                    self._emit(f"</{entry.out_name}>")
+                    self._close_tag(entry.out_name)
         self._finish_page()
         self.page_open = False
         self.has_content = False
@@ -651,7 +670,7 @@ class _Converter:
             self._flush_pending()
             for entry in reversed(self.stack):
                 if entry.out_name:
-                    self._emit(f"</{entry.out_name}>")
+                    self._close_tag(entry.out_name)
         if self.has_content or not self.pages:
             self._finish_page()
         else:

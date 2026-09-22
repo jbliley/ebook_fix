@@ -2073,6 +2073,25 @@ honestly rather than assumed away, same as the encryption.xml
 situation -- swap in a real sample if/when one turns up.
 
 
+## Fixed: MOBI conversion glued words across block boundaries (2026-09-20)
+
+Jacob caught this from the Review tab: an obvious dedication page in
+the converted `MOBI-Example.mobi` was only "medium confidence: front
+matter" instead of a high-confidence dedication match. Cause and fix
+in `docs/mobi_conversion_plan.md`, under "Fixed: block-boundary word
+gluing". Short version: `markup.py` dropped all whitespace between
+adjacent blocks, silently breaking every `\b` word-boundary pattern
+in `frontmatter.py` on affected pages; fixed by emitting a single
+trailing space after block-level closing tags. Also added a missing
+`FICTION_DISCLAIMER` label/pattern to `frontmatter.py` for the
+standard "this novel is a work of fiction ... entirely coincidental"
+boilerplate, which Jacob also flagged and which had no pattern at all
+before (not MOBI-specific -- the same text exists verbatim in
+`MM5_Complete.epub`/`MM5_Incomplete.epub`). Whitespace Normalizer's
+finding count on the converted sample confirmed identical
+before/after (99 issues both times, all pre-existing in the source
+text); repair still converges to zero changes on a second pass.
+
 ## Done: MOBI to EPUB conversion (2026-09-20)
 
 Jacob picked this as the next feature and set the direction: a

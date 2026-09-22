@@ -78,6 +78,7 @@ class MatterLabel(Enum):
     AFTERWORD = "afterword"
     ABOUT_AUTHOR = "about the author"
     COLOPHON = "colophon"
+    FICTION_DISCLAIMER = "fiction disclaimer"
     FRONT_MATTER = "front matter"   # zone known, no more specific label matched
     BACK_MATTER = "back matter"     # zone known, no more specific label matched
     MAIN_CONTENT = "main content"
@@ -86,7 +87,8 @@ class MatterLabel(Enum):
 FRONT_LABELS = {
     MatterLabel.COVER, MatterLabel.TITLE_PAGE, MatterLabel.COPYRIGHT,
     MatterLabel.PUBLISHER, MatterLabel.DEDICATION, MatterLabel.EPIGRAPH,
-    MatterLabel.TABLE_OF_CONTENTS, MatterLabel.FRONT_MATTER,
+    MatterLabel.TABLE_OF_CONTENTS, MatterLabel.FICTION_DISCLAIMER,
+    MatterLabel.FRONT_MATTER,
 }
 BACK_LABELS = {
     MatterLabel.ACKNOWLEDGMENTS, MatterLabel.AFTERWORD,
@@ -146,6 +148,16 @@ _ACK_RE = re.compile(r"acknowledge?ments", re.IGNORECASE)
 _AFTERWORD_RE = re.compile(r"\bafterword\b", re.IGNORECASE)
 _ABOUT_AUTHOR_RE = re.compile(r"about the author", re.IGNORECASE)
 _COLOPHON_RE = re.compile(r"\bcolophon\b", re.IGNORECASE)
+# The standard "this is a work of fiction" boilerplate found on the
+# page right after the title page in most novels. Distinctive enough
+# wording (nobody writes "entirely/purely coincidental" about anything
+# else) that a match is trusted at "high" confidence like the other
+# fixed-phrase checks above, rather than the softer heuristics below.
+_FICTION_DISCLAIMER_RE = re.compile(
+    r"is a work of fiction|resemblance to actual (?:persons|events|locales)|"
+    r"(?:entirely|purely) coincidental",
+    re.IGNORECASE,
+)
 _DEDICATION_WORD_RE = re.compile(r"\bdedicat(e|ed|ion)\b", re.IGNORECASE)
 _DEDICATION_OPENER_RE = re.compile(r"^\s*(for|to)\s+\S", re.IGNORECASE)
 # A short line opening with an em/en dash or plain hyphen -- the
@@ -270,6 +282,8 @@ def _label_from_text(text, word_count, metadata=None):
         return MatterLabel.ABOUT_AUTHOR, "high"
     if _COLOPHON_RE.search(text):
         return MatterLabel.COLOPHON, "high"
+    if _FICTION_DISCLAIMER_RE.search(text):
+        return MatterLabel.FICTION_DISCLAIMER, "high"
 
     publisher_name = (getattr(metadata, "publisher", "") or "").strip()
     if len(publisher_name) >= 3 and publisher_name.lower() in text.lower():
