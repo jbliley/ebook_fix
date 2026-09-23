@@ -439,10 +439,27 @@ def _trailing_glue_sensitive(host, attr: str) -> bool:
         children = [c for c in host if isinstance(c.tag, str)]
         if children:
             return _local_tag(children[0]) in INLINE_TAGS
-        # No children: nothing follows within host itself. What comes
-        # after host closes is host's own tail slot's concern (its
-        # leading edge), not this one's -- treating it as sensitive
-        # here too would just duplicate the same space from both sides.
+        # No element children: host's own tail text (if any) butts
+        # directly up against this trailing edge -- there's no element
+        # boundary here at all, .tail is just host's own trailing text,
+        # not a separate node with a leading edge of its own to fall
+        # back on. This was the actual bug behind
+        # "<span>might </span>be my daughter" losing its space and
+        # becoming "mightbe my daughter": the old reasoning here ("the
+        # tail slot's own leading edge governs that") only holds when
+        # the tail already starts with whitespace of its own to
+        # normalize -- when it doesn't (the overwhelmingly common case,
+        # a tail that's just ordinary running prose), there is nothing
+        # on that side to preserve the word boundary, since this
+        # module only ever transforms existing whitespace and never
+        # inserts a space where none exists. Only treated as sensitive
+        # when the tail itself has no leading whitespace already: if it
+        # does, that side already supplies the separating space on its
+        # own, and also treating this side as sensitive would collapse
+        # each side to its own single space independently, leaving two
+        # spaces where the book only ever needed one.
+        if host.tail and not host.tail[:1].isspace():
+            return _local_tag(host) in INLINE_TAGS
         return False
     # attr == "tail": after host.tail is host's next sibling, if any.
     nxt = host.getnext()

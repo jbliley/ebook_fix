@@ -2073,6 +2073,53 @@ honestly rather than assumed away, same as the encryption.xml
 situation -- swap in a real sample if/when one turns up.
 
 
+## Fixed: Whitespace Normalizer deleting a real space next to italics (2026-09-22)
+
+Jacob spotted this from an actual repaired book (not a MOBI/FB2
+conversion this time -- a real EPUB he already owned), from a
+screenshot showing "Mightbe my daughter" and "thoughtyou would" with
+no space at all between the italicized word and the next one. He also
+flagged a stray apostrophe ("Mercede's" for the car brand) in the same
+book and asked whether either was caused by repair.
+
+Checked against his actual original and already-repaired files (he
+still had both, pre-emptying-the-recycle-bin): the apostrophe was
+already in the original commercial ebook, untouched by ebook_fix --
+not a bug here. The missing space was a real bug, and a repair-
+introduced one: the source had `<span class="...">might </span>be my
+daughter` (the trailing space correctly sitting inside the span,
+before the closing tag, which renders fine), and the repaired copy had
+`<span class="...">might</span>be my daughter` -- the space deleted
+outright, not moved.
+
+Root cause in `whitespace.py`'s `_trailing_glue_sensitive()`: for a
+span with no element children, the old code assumed "whatever follows
+after this span closes is the span's own tail slot's problem, not this
+one's" and always returned not-sensitive, so trailing whitespace in
+the span's own text was treated as ordinary stripped indentation. That
+reasoning only holds when the tail already starts with whitespace of
+its own to normalize; when the tail is just ordinary prose text
+starting directly with a letter (the overwhelmingly common case), there
+is nothing on that side to preserve the word boundary, since this
+module only ever transforms existing whitespace and never inserts a
+space where none exists. Fixed by treating this case as sensitive
+whenever the span is inline and its tail doesn't already start with its
+own whitespace (checked explicitly, so a tail that *does* already start
+with a space still behaves exactly as before, rather than risking a new
+double-space).
+
+Confirmed harmless and worth doing regardless of frequency: reproduced
+with a minimal synthetic EPUB, confirmed present in the old code and
+gone with the fix, and checked that the "tail already has its own
+leading space" case doesn't turn into a double space. Then checked
+Jacob's actual full book: re-ran repair on his original file with the
+fix in place and diffed every chapter against his previously-repaired
+copy -- 11 instances of this exact pattern across the book, all the
+same italic-emphasis span class, all now fixed and nothing else
+changed. All 81 pages of the corrected repair still parse as strict
+XML, and a second repair pass is a no-op.
+
+
 ## Done: FB2 to EPUB conversion (2026-09-22)
 
 Jacob's chosen next feature after MOBI conversion, same direction:
