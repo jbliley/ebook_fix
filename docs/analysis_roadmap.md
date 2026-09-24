@@ -2073,6 +2073,30 @@ honestly rather than assumed away, same as the encryption.xml
 situation -- swap in a real sample if/when one turns up.
 
 
+## Planning: AZW3/KF8 conversion, phased (2026-09-24)
+
+Continuing straight on from MOBI7 conversion, per Jacob's priority
+call. First pass at scoping this (in `mobi_conversion_plan.md`'s
+"Next: AZW3/KF8" section) assumed KF8 was basically MOBI7 with a
+different link scheme. Spending real time with Jacob's three AZW3
+samples (`AZW3-Example.azw3`, `AZW3-Newer.azw3`, `AZW3-Older.azw3`,
+added to `examples/` 2026-09-24) showed that's wrong: a KF8 book's
+text isn't one continuous stream, it's broken into small interleaved
+"skeleton" and "fragment" pieces reassembled through custom, sparsely-
+documented index tables. Genuinely a second file format bolted onto
+the same container, not a MOBI7 variant.
+
+Full write-up and phase breakdown in the new `docs/azw3_kf8_conversion_plan.md`.
+Jacob's call: keep going, but broken into small, independently-
+checkable phases rather than one long push. Phase 1 (fixing two real
+bugs the sample files exposed in already-shipped MOBI7 code -- HUFF/CDIC
+decompression, previously unverified against any real file, is close
+but measurably wrong on a real sample; the "KF8 boundary" EXTH check
+has a false-positive on a file that isn't actually a two-header
+hybrid) is in progress. See the plan doc for the full phase list and
+everything confirmed empirically against the real samples so far.
+
+
 ## Fixed: Whitespace Normalizer deleting a real space next to italics (2026-09-22)
 
 Jacob spotted this from an actual repaired book (not a MOBI/FB2

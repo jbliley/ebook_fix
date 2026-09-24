@@ -121,6 +121,8 @@ re-run clean.
 
 ## Next: AZW3/KF8
 
+**Update 2026-09-24: this section was a rough sketch written before looking at a real AZW3 file. It undersold the complexity -- KF8 needed its own phased plan doc once real samples were available. See `docs/azw3_kf8_conversion_plan.md`.** Left below for history.
+
 KF8 keeps the same PalmDB container, header, EXTH, images and PalmDOC text records, so `palmdb.py`, `mobi_header.py`, `decompress.py` and most of `reader.py` carry over. What changes is everything after decompression:
 
 - The text is not one long HTML stream. It is split into a **skeleton** table (the outer HTML of each file), a **fragment** table (the pieces that get inserted into each skeleton), and a **flow** table (`FDST`, which separates the HTML from the CSS and SVG parts). Each is its own INDX-style index.
