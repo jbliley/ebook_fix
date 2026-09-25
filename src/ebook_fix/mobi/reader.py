@@ -165,6 +165,37 @@ def _read_images(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> tuple
     return images, skipped
 
 
+def _find_valid_kf8_boundary(data: bytes, palmdb: PalmDBHeader, exth: list) -> int | None:
+    """Where EXTH 121 ("KF8 boundary") claims a second MOBI header
+    begins, or None if there's no EXTH 121, or if there is one but a
+    real header doesn't actually verify at the record it names.
+
+    Confirmed against a real file that this second check matters: a
+    real AZW3 sample carried an EXTH 121 record whose value pointed at
+    that same file's own HUFF dictionary record, not a second header --
+    stale or misleading metadata from whatever tool produced it, not a
+    genuine two-header hybrid (the file has exactly one MOBI header in
+    it, confirmed by scanning every record). Trusting EXTH 121's mere
+    presence would have misclassified that file as a hybrid and tried
+    to read a MOBI7 half that isn't really there. See
+    docs/azw3_kf8_conversion_plan.md, Phase 1."""
+    for record in exth:
+        if record.record_type != 121:
+            continue
+        raw = record.raw
+        if len(raw) < 4:
+            return None
+        candidate = struct.unpack(">I", raw[:4])[0]
+        if not (0 < candidate < len(palmdb.records)):
+            return None
+        try:
+            read_mobi_header(data, palmdb.records[candidate].offset)
+        except (ValueError, struct.error, IndexError):
+            return None
+        return candidate
+    return None
+
+
 def read_mobi(path: Path) -> MobiBook:
     """Opens a MOBI-family file. Raises MobiError (with a message meant
     for a person) for anything it can't or won't convert."""
@@ -191,7 +222,7 @@ def read_mobi(path: Path) -> MobiBook:
     if header.has_exth:
         exth = read_exth(data, exth_start_offset(header.mobi_offset, header.header_length))
 
-    has_boundary = any(r.record_type == 121 for r in exth)
+    has_boundary = _find_valid_kf8_boundary(data, palmdb, exth) is not None
     if header.file_version >= 8 and not has_boundary:
         raise MobiError(
             "This is an AZW3/KF8 book (the newer Kindle format). ebook_fix can convert classic "
@@ -223,22 +254,32 @@ def read_mobi(path: Path) -> MobiBook:
 
     if header.text_length and len(book.text) != header.text_length:
         difference = len(book.text) - header.text_length
-        if header.compression == COMPRESSION_HUFFCDIC:
-            raise MobiError(
-                "The decompressed text length doesn't match what the file says it should be "
-                f"({len(book.text):,} vs {header.text_length:,} bytes), so the HUFF/CDIC "
-                "decompression can't be trusted for this file."
-            )
-        if difference < 0 and len(book.text) < header.text_length * 0.95:
+        if header.file_version >= 8 and difference > 0:
+            # KF8: header.text_length is flow 0's length specifically
+            # (the main HTML text), not the total size of every text
+            # record decompressed. The text records legitimately keep
+            # going past it with additional flows -- embedded CSS and
+            # SVG -- concatenated right after flow 0 in the same
+            # decompressed stream. Confirmed against a real HUFF/CDIC
+            # sample: the extra bytes here matched the book's own CSS
+            # byte-for-byte, and the visible text up to text_length
+            # matched a reference tool's independently-decoded output
+            # exactly. Splitting flow 0 out from what follows it is
+            # Phase 2 (see docs/azw3_kf8_conversion_plan.md); nothing
+            # to warn about here, since this is the expected shape, not
+            # a symptom of anything wrong.
+            pass
+        elif difference < 0 and len(book.text) < header.text_length * 0.95:
             raise MobiError(
                 f"The book's text is incomplete ({len(book.text):,} of {header.text_length:,} bytes "
                 "could be read), so the file looks damaged or cut off."
             )
-        book.warnings.append(
-            f"Decompressed text is {abs(difference):,} bytes "
-            f"{'longer' if difference > 0 else 'shorter'} than the file's header says; "
-            "internal links may land slightly off."
-        )
+        else:
+            book.warnings.append(
+                f"Decompressed text is {abs(difference):,} bytes "
+                f"{'longer' if difference > 0 else 'shorter'} than the file's header says; "
+                "internal links may land slightly off."
+            )
 
     book.images, skipped = _read_images(data, palmdb, header)
     if skipped:

@@ -2073,6 +2073,39 @@ honestly rather than assumed away, same as the encryption.xml
 situation -- swap in a real sample if/when one turns up.
 
 
+## Done: AZW3/KF8 conversion, Phase 1 (2026-09-24)
+
+First phase of `docs/azw3_kf8_conversion_plan.md`. Two bugs in
+already-shipped MOBI7 code, both surfaced by reading the real AZW3
+samples, fixed in `mobi/reader.py`:
+
+1. The "KF8 boundary" check (EXTH 121) trusted the record's mere
+presence to mean "this file has a second MOBI header, read its MOBI7
+half." One real sample (`AZW3-Older.azw3`) has an EXTH 121 pointing at
+its own HUFF dictionary record, not a second header -- confirmed by
+scanning the whole file for a second `MOBI` tag; there isn't one.
+Fixed: a boundary is only trusted once a real header actually verifies
+at the record it names. Covered by three synthetic tests (a stale
+pointer on a MOBI7-version file, the same on a file claiming
+`file_version=8`, and a real constructed two-header file), since none
+of the three real AZW3 samples turned out to be genuine hybrids.
+
+2. HUFF/CDIC decompression (written from the spec for MOBI7, never
+tested against a real file) looked broken against that same sample --
+1,090 bytes over the header's declared length. It wasn't: a reference
+tool's independently-decoded text matched this project's output
+character-for-character up to where the reference output ends, and
+the extra bytes turned out to be the book's own embedded CSS, which
+KF8 stores concatenated right after the main text in the same
+decompressed stream. The real bug was a length check that assumed
+`header.text_length` describes the whole decompressed stream for
+every MOBI generation; for KF8 it only describes the main text (flow
+0), with more legitimately following. Fixed to be generation-aware.
+Net effect: HUFF/CDIC decompression is now confirmed correct against a
+real sample, which also resolves a MOBI7-side gap noted since that
+converter shipped (see `mobi_conversion_plan.md`'s "Not covered yet").
+
+
 ## Planning: AZW3/KF8 conversion, phased (2026-09-24)
 
 Continuing straight on from MOBI7 conversion, per Jacob's priority

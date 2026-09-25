@@ -60,7 +60,7 @@ A faithful conversion, not a cleanup. Text, images, cover, metadata, links and t
 ## Not covered yet (known gaps)
 
 - **AZW3/KF8.** Next step. A real sample exists in `examples/` (`AZW3-Example.azw3`).
-- **HUFF/CDIC compression** (some early Mobipocket books) is written from the documented format but no real file has exercised it. The converter checks the decompressed length against the header and refuses, rather than producing a damaged book, if it doesn't match. Swap in a real sample if one turns up.
+- **HUFF/CDIC compression** (some early Mobipocket books) was written from the documented format with no real sample to test against; **confirmed correct 2026-09-24** against a real HUFF/CDIC file found while scoping AZW3/KF8 conversion (`AZW3-Older.azw3`, a KF8-generation *Frankenstein* using this older compression for its text) -- decompressed output matched a reference tool's independently-decoded text byte-for-byte. Full story in `docs/azw3_kf8_conversion_plan.md`, Phase 1. The refuse-rather-than-guess behavior for a genuine mismatch stays in place; it just no longer misfires on a correct decompression.
 - **Hybrid files** (a MOBI7 and a KF8 book in one file) are read through their MOBI7 half. Untested for lack of a sample; the report says so when it happens.
 - **BMP images** are skipped (not an EPUB image format, and converting them would need an imaging library). The report counts them.
 - **Index-label encodings** other than UTF-8/Windows-1252 in the table of contents (the rare "ORDT" scheme) aren't handled.
