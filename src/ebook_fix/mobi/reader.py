@@ -106,8 +106,13 @@ def _exth_values(records: list, record_type: int) -> list:
     return [r.value for r in records if r.record_type == record_type and r.value]
 
 
-def _read_text(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> bytes:
-    """Decompresses every text record and joins them."""
+def read_text_records(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> bytes:
+    """Decompresses every text record and joins them. Shared with
+    ebook_fix.mobi.kf8: for a KF8 book this is the input flow-
+    separation splits into flow 0 (the main text) and whatever flows
+    follow it (CSS, SVG) -- see docs/azw3_kf8_conversion_plan.md,
+    Phase 2. For a MOBI7 book the whole return value already is the
+    book's text, no further splitting needed."""
     if header.compression not in (COMPRESSION_NONE, COMPRESSION_PALMDOC, COMPRESSION_HUFFCDIC):
         raise MobiError(f"Unsupported text compression type ({header.compression}).")
 
@@ -248,7 +253,7 @@ def read_mobi(path: Path) -> MobiBook:
             )
 
     try:
-        book.text = _read_text(data, palmdb, header)
+        book.text = read_text_records(data, palmdb, header)
     except (struct.error, IndexError) as exc:
         raise MobiError(f"The book's text couldn't be read: {exc}")
 

@@ -2073,6 +2073,37 @@ honestly rather than assumed away, same as the encryption.xml
 situation -- swap in a real sample if/when one turns up.
 
 
+## Done: AZW3/KF8 conversion, Phase 2 (2026-09-25)
+
+Second phase of `docs/azw3_kf8_conversion_plan.md`: flow separation.
+New module `mobi/kf8.py` with `read_kf8()` (the KF8 counterpart to
+`mobi/reader.py`'s `read_mobi()`, refusing anything that isn't a real
+KF8 file rather than overlapping with what that function already
+gates), `read_fdst()`, and `split_flows()`. `MobiHeader` gained an
+`fdst_record` field. `reader.py`'s text-decompression helper was
+renamed from a private MOBI7-only function to a shared
+`read_text_records()`, since KF8 needed the exact same decompression
+step, just with different handling of what comes out of it.
+
+Real surprise caught by testing against all three samples rather than
+one: `header.text_length` turns out to mean different things in
+different KF8-generating tools' output (flow 0's own length in one
+sample, the *total* decompressed length across every flow in the other
+two), so it's not used to validate flow 0's boundary at all -- FDST's
+own internal consistency is the reliable signal instead. Full writeup
+in the plan doc, including exactly what tipped this off (a spurious-
+looking length mismatch on two of the three samples that turned out to
+be expected, not a bug).
+
+Verified: flow 0 cuts exactly where real content ends and CSS begins
+on all three samples (confirmed by eye), and `AZW3-Older.azw3`'s flow
+0 ends with *Frankenstein*'s actual final line. Five synthetic tests
+cover the reader-selection gate, a missing FDST record, a correct
+multi-flow split, two malformed-FDST cases, and a single-flow (no CSS)
+book, since none of the three real samples happen to have zero
+embedded CSS.
+
+
 ## Done: AZW3/KF8 conversion, Phase 1 (2026-09-24)
 
 First phase of `docs/azw3_kf8_conversion_plan.md`. Two bugs in
