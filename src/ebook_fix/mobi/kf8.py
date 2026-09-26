@@ -29,6 +29,31 @@ where that function refuses any file_version >= 8 book (unless it's
 reading a hybrid file's MOBI7 half), this one refuses anything that
 ISN'T file_version >= 8, so the two are complementary gatekeepers
 rather than overlapping ones.
+
+Phase 3 (docs/azw3_kf8_conversion_plan.md): flow 0 (Phase 2's output) is
+not one continuous document -- it's skeleton template pieces and
+fragment content pieces interleaved, each skeleton immediately followed
+by the fragment(s) that belong inside it. read_skeleton_table(),
+read_fragment_table() and read_guide_table() read the three INDX-family
+indices that describe this (a fourth, the chapter table of contents,
+is Phase 5's job -- it reuses MobiHeader.ncx_index_record, the same
+field MOBI7's NCX uses). reassemble_flow0() splices fragment content
+back into its skeleton to produce one complete page per skeleton entry,
+confirming the tables are being read correctly (Phase 3's own stated
+goal) even though turning that into well-formed, individually-named
+XHTML files wired into the rest of the converter is Phase 4's job.
+
+The Sept 24 exploration notes guessed the labels backwards (see
+azw3_kf8_conversion_plan.md's Phase 3 section) -- the 127-entry table in
+AZW3-Example.azw3 is FRAGMENT, not skeleton, and the 70-entry
+SKELnnnnnnnnnn-keyed one is SKELETON, not fragment. Confirmed multiple
+ways: by literally reconstructing pages from all three real samples and
+checking the result reads correctly (a `</body></html>` immediately
+followed by the exact next fragment's opening content, over and over);
+and cross-checked against a reference tool (a third-party MOBI-unpacking
+package, used here only as a one-off test oracle to compare table
+contents against, not a dependency -- same role it played verifying
+HUFF/CDIC in Phase 1).
 """
 from __future__ import annotations
 
@@ -36,11 +61,52 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ebook_fix.mobi.indx import NcxIndexError, _decode_text, read_indx_records
 from ebook_fix.mobi.mobi_header import ExthRecord, MobiHeader, exth_start_offset, read_exth, read_mobi_header
 from ebook_fix.mobi.palmdb import PalmDBHeader, is_palmdb, read_palmdb, record_bytes
 from ebook_fix.mobi.reader import MobiError, read_text_records
 
 NO_RECORD = 0xFFFFFFFF
+
+# Tag numbers, confirmed against the skeleton/fragment/guide indices of
+# all three real AZW3 samples in examples/ and cross-checked against a
+# reference tool -- see the module docstring above and
+# docs/azw3_kf8_conversion_plan.md, Phase 3.
+_SKEL_TAG_FRAGMENT_COUNT = 1
+_SKEL_TAG_GEOMETRY = 6           # 2 values: (start, length) of this skeleton's own template within flow 0
+
+_FRAG_TAG_AID_LABEL = 2          # offset into this table's own CTOC: the fragment's "aid" XPath selector text
+_FRAG_TAG_FILE_NUMBER = 3
+_FRAG_TAG_SEQUENCE_NUMBER = 4
+_FRAG_TAG_GEOMETRY = 6           # 2 values: (start [confirmed unused, see reassemble_flow0], length)
+
+_GUIDE_TAG_LABEL = 1             # offset into this table's own CTOC: the human-readable guide title
+_GUIDE_TAG_FRAGMENT_NUMBER = 6   # index into the fragment table (confirmed, not a skeleton/part index, by a
+                                  # reference tool's own comment: "fileno is actually a reference into fragtbl")
+
+
+@dataclass
+class SkeletonEntry:
+    name: str = ""             # this table's own entry id (e.g. "SKEL0000000000"); not otherwise used
+    fragment_count: int = 0    # how many of read_fragment_table()'s entries, taken in order, insert into this one
+    start: int = 0             # byte offset of this skeleton's own template within flow 0
+    length: int = 0            # length of that template
+
+
+@dataclass
+class FragmentEntry:
+    insert_position: int = 0   # byte offset within flow 0 -- also exactly where this fragment's content starts
+    aid: str = ""              # the "aid" attribute value this fragment's content is anchored to
+    file_number: int = 0
+    sequence_number: int = 0
+    length: int = 0            # length of this fragment's own content
+
+
+@dataclass
+class GuideEntry:
+    ref_type: str = ""         # e.g. "cover", "toc", "copyright-page" -- an EPUB guide/landmark type
+    title: str = ""
+    fragment_number: int | None = None   # index into read_fragment_table()'s result, or None if not given
 
 
 @dataclass
@@ -50,6 +116,10 @@ class Kf8Book:
     exth: list = field(default_factory=list)
     encoding: str = "cp1252"
     flows: list = field(default_factory=list)   # list[bytes]; flows[0] is the main text
+    skeleton_table: list = field(default_factory=list)   # list[SkeletonEntry]
+    fragment_table: list = field(default_factory=list)   # list[FragmentEntry]
+    guide_table: list = field(default_factory=list)      # list[GuideEntry]; empty if the book has none
+    pages: list = field(default_factory=list)            # list[bytes], one per skeleton entry (see reassemble_flow0)
     warnings: list = field(default_factory=list)
 
 
@@ -102,14 +172,153 @@ def split_flows(text: bytes, ranges: list[tuple[int, int]]) -> list[bytes]:
     return [text[start:end] for start, end in ranges]
 
 
+def read_skeleton_table(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> list[SkeletonEntry]:
+    """Reads the skeleton index: one entry per output page, each a byte
+    range within flow 0 holding that page's own template markup, with
+    an insertion point somewhere inside it for its fragment(s)' content
+    (read_fragment_table()) to be spliced into. Raises MobiError if
+    there's no skeleton index at all -- every real sample has one."""
+    if header.skeleton_index_record == NO_RECORD:
+        raise MobiError("This KF8 book has no skeleton index, which every sample this converter was built against has.")
+    try:
+        entries, _ctoc, encoding = read_indx_records(data, palmdb, header.skeleton_index_record)
+    except NcxIndexError as exc:
+        raise MobiError(f"This KF8 book's skeleton index is malformed: {exc}")
+    table = []
+    for entry_id, values in entries:
+        geometry = values.get(_SKEL_TAG_GEOMETRY, [0, 0])
+        table.append(
+            SkeletonEntry(
+                name=_decode_text(entry_id, encoding),
+                fragment_count=values.get(_SKEL_TAG_FRAGMENT_COUNT, [0])[0],
+                start=geometry[0],
+                length=geometry[1] if len(geometry) > 1 else 0,
+            )
+        )
+    return table
+
+
+def read_fragment_table(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> list[FragmentEntry]:
+    """Reads the fragment index: one entry per piece of real page
+    content, in the same order read_skeleton_table()'s fragment_count
+    fields expect to consume them. Raises MobiError if there's no
+    fragment index at all -- every real sample has one."""
+    if header.fragment_index_record == NO_RECORD:
+        raise MobiError("This KF8 book has no fragment index, which every sample this converter was built against has.")
+    try:
+        entries, ctoc, encoding = read_indx_records(data, palmdb, header.fragment_index_record)
+    except NcxIndexError as exc:
+        raise MobiError(f"This KF8 book's fragment index is malformed: {exc}")
+    table = []
+    for entry_id, values in entries:
+        geometry = values.get(_FRAG_TAG_GEOMETRY, [0, 0])
+        aid_offset = values.get(_FRAG_TAG_AID_LABEL, [None])[0]
+        aid_text = _decode_text(ctoc.get(aid_offset, b""), encoding) if aid_offset is not None else ""
+        try:
+            insert_position = int(entry_id)
+        except ValueError as exc:
+            raise MobiError(f"This KF8 book's fragment index has a non-numeric entry id ({entry_id!r}): {exc}")
+        table.append(
+            FragmentEntry(
+                insert_position=insert_position,
+                aid=aid_text,
+                file_number=values.get(_FRAG_TAG_FILE_NUMBER, [0])[0],
+                sequence_number=values.get(_FRAG_TAG_SEQUENCE_NUMBER, [0])[0],
+                length=geometry[1] if len(geometry) > 1 else 0,
+            )
+        )
+    return table
+
+
+def read_guide_table(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> list[GuideEntry]:
+    """Reads the guide index (EPUB guide/landmark-style entries: cover,
+    table of contents, copyright page, and so on). Not every KF8 book
+    has one -- AZW3-Older.azw3 doesn't -- so a missing index isn't an
+    error, just an empty result; a malformed one (the index exists but
+    can't be read) raises MobiError, same as the other two."""
+    if header.guide_index_record == NO_RECORD:
+        return []
+    try:
+        entries, ctoc, encoding = read_indx_records(data, palmdb, header.guide_index_record)
+    except NcxIndexError as exc:
+        raise MobiError(f"This KF8 book's guide index is malformed: {exc}")
+    table = []
+    for entry_id, values in entries:
+        label_offset = values.get(_GUIDE_TAG_LABEL, [None])[0]
+        title = _decode_text(ctoc.get(label_offset, b""), encoding) if label_offset is not None else ""
+        table.append(
+            GuideEntry(
+                ref_type=_decode_text(entry_id, encoding),
+                title=title,
+                fragment_number=values.get(_GUIDE_TAG_FRAGMENT_NUMBER, [None])[0],
+            )
+        )
+    return table
+
+
+def reassemble_flow0(
+    flow0: bytes, skeletons: list[SkeletonEntry], fragments: list[FragmentEntry]
+) -> list[bytes]:
+    """Splices flow 0's fragment content back into each skeleton's own
+    template to produce one complete page per skeleton entry, in
+    order. This is Phase 3's verification step -- confirming the two
+    tables above are being read correctly by checking the reassembled
+    pages actually read right -- not yet Phase 4's job of turning the
+    result into well-formed, individually-named XHTML files wired into
+    the rest of the converter.
+
+    A fragment's own content is the `length` bytes immediately
+    following its skeleton's template range in flow 0 -- confirmed
+    against all three real samples and against a reference tool. The
+    fragment table's own `start` field is confirmed unused for this:
+    it duplicates a position already implied by that adjacency and a
+    reference tool's own reassembly code doesn't read it either.
+
+    Raises MobiError if a skeleton's fragment_count calls for more
+    fragments than the fragment table actually has, if any are left
+    over once every skeleton has taken its share, or if a fragment's
+    insert position doesn't fall inside its own skeleton's template."""
+    pages = []
+    fragment_pos = 0
+    for skeleton in skeletons:
+        template = flow0[skeleton.start:skeleton.start + skeleton.length]
+        content_pos = skeleton.start + skeleton.length
+        for _ in range(skeleton.fragment_count):
+            if fragment_pos >= len(fragments):
+                raise MobiError(
+                    f"This KF8 book's skeleton table expects more fragments than its fragment "
+                    f"table has ({len(fragments)})."
+                )
+            fragment = fragments[fragment_pos]
+            insert_at = fragment.insert_position - skeleton.start
+            if not (0 <= insert_at <= len(template)):
+                raise MobiError(
+                    f"A fragment's insert position falls outside its own skeleton ({skeleton.name!r})."
+                )
+            content = flow0[content_pos:content_pos + fragment.length]
+            template = template[:insert_at] + content + template[insert_at:]
+            content_pos += fragment.length
+            fragment_pos += 1
+        pages.append(template)
+    if fragment_pos != len(fragments):
+        raise MobiError(
+            f"This KF8 book's fragment table has {len(fragments)} entries, but its skeleton "
+            f"table only accounts for {fragment_pos} of them."
+        )
+    return pages
+
+
 def read_kf8(path: Path) -> Kf8Book:
-    """Opens a KF8 (AZW3) file far enough to separate its main text
-    from its embedded styling (Phase 2). Raises MobiError (with a
-    message meant for a person) for anything it can't read, including
-    -- for now -- everything past this phase: skeleton/fragment
-    reassembly, links, images, and metadata aren't read yet, so the
-    text in flows[0] is not yet valid standalone HTML (its content is
-    real, but split into pieces that haven't been rewoven into pages)."""
+    """Opens a KF8 (AZW3) file and, as of Phase 3, rebuilds its actual
+    pages: separates its main text from its embedded styling (Phase 2),
+    reads its skeleton/fragment/guide indices, and splices fragment
+    content back into its skeletons (book.pages, one entry per output
+    page). Raises MobiError (with a message meant for a person) for
+    anything it can't read. Still not done: links, images and metadata
+    aren't rewritten to match the split-up pages, and the chapter table
+    of contents isn't read yet -- both Phase 4/5 jobs -- so book.pages
+    holds real, readable content but isn't yet a set of standalone,
+    fully cross-referenced XHTML files."""
     path = Path(path)
     data = path.read_bytes()
 
@@ -161,5 +370,21 @@ def read_kf8(path: Path) -> Kf8Book:
     # whole decompressed stream with nothing left over) is a stronger
     # and more reliable signal than either reading of that field, so
     # nothing here re-derives a warning from comparing against it.
+
+    # Phase 3: skeleton/fragment/guide indices and page reassembly.
+    # Skeleton and fragment are load-bearing -- without them flow 0 is
+    # just an interleaved byte stream, not readable pages -- so a
+    # problem with either is a hard MobiError, same as a missing FDST
+    # above. A missing or malformed guide index is not: it's an
+    # optional landmark list (AZW3-Older.azw3 has none at all), so a
+    # problem reading one is a warning, matching how MOBI7's NCX is
+    # treated in ebook_fix.mobi.reader.
+    book.skeleton_table = read_skeleton_table(data, palmdb, header)
+    book.fragment_table = read_fragment_table(data, palmdb, header)
+    book.pages = reassemble_flow0(book.flows[0], book.skeleton_table, book.fragment_table)
+    try:
+        book.guide_table = read_guide_table(data, palmdb, header)
+    except MobiError as exc:
+        book.warnings.append(f"The book's guide (landmarks) couldn't be read ({exc}).")
 
     return book

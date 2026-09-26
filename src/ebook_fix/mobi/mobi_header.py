@@ -109,6 +109,25 @@ class MobiHeader:
     # same as the other extended fields above, but only meaningful for
     # a KF8-generation (file_version >= 8) book -- ignore it otherwise.
     fdst_record: int = 0xFFFFFFFF   # the FDST record (flow byte ranges), or 0xFFFFFFFF
+    # KF8-only, Phase 3 (see docs/azw3_kf8_conversion_plan.md). Found by
+    # brute-force scanning every 4-byte field in the header for the
+    # record numbers already confirmed by tag-sniffing the palmdb, not
+    # trusted from a third-party tool's own offset table (which uses a
+    # different base pointer and disagrees with this project's own,
+    # already-verified `fdst_record` offset by 16 bytes -- a reminder
+    # that "the same field name" across two implementations doesn't
+    # guarantee the same offset without checking). Confirmed identical
+    # across all three real samples, guide_index_record included (it's
+    # simply absent -- 0xFFFFFFFF -- on the one sample that has no
+    # guide, AZW3-Older.azw3, rather than at a different offset).
+    fragment_index_record: int = 0xFFFFFFFF
+    skeleton_index_record: int = 0xFFFFFFFF
+    guide_index_record: int = 0xFFFFFFFF
+    # Reused, not duplicated: on a KF8 book this same field (already
+    # read for MOBI7's NCX above) holds the record number of the
+    # book's real, structurally-grounded chapter table of contents --
+    # confirmed identical across all three samples. See
+    # docs/azw3_kf8_conversion_plan.md Phase 5.
 
 
 @dataclass
@@ -182,6 +201,9 @@ def read_mobi_header(data: bytes, record0_offset: int) -> MobiHeader:
     extra_data_flags = _u16(data, mobi_offset + 226) if header_length >= 228 else 0
     ncx_index_record = _u32(data, mobi_offset + 228) if header_length >= 232 else 0xFFFFFFFF
     fdst_record = _u32(data, mobi_offset + 176) if header_length >= 180 else 0xFFFFFFFF
+    fragment_index_record = _u32(data, mobi_offset + 232) if header_length >= 236 else 0xFFFFFFFF
+    skeleton_index_record = _u32(data, mobi_offset + 236) if header_length >= 240 else 0xFFFFFFFF
+    guide_index_record = _u32(data, mobi_offset + 244) if header_length >= 248 else 0xFFFFFFFF
 
     name_start = record0_offset + full_name_offset
     full_name = _decode(data[name_start : name_start + full_name_length])
@@ -209,6 +231,9 @@ def read_mobi_header(data: bytes, record0_offset: int) -> MobiHeader:
         huff_record_count=huff_record_count,
         mobi_offset=mobi_offset,
         fdst_record=fdst_record,
+        fragment_index_record=fragment_index_record,
+        skeleton_index_record=skeleton_index_record,
+        guide_index_record=guide_index_record,
     )
 
 

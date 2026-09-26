@@ -22,9 +22,16 @@ unpacker's output:
 
 Only the pieces a table of contents needs are kept: where the entry
 points (a byte offset into the book's text), its heading, and how deeply
-it is nested. The AZW3/KF8 flavor of this index is laid out the same way
-but points into a different address space, so this module only claims
-the MOBI7 case (see convert.py).
+it is nested.
+
+`read_indx_records()` below is the generic INDX-table walk (header +
+TAGX, then one or more data records, then optional CTOC label records)
+with none of the NCX-specific interpretation -- `read_ncx_entries()` is
+now just one consumer of it. A KF8 book's skeleton, fragment, guide and
+chapter-TOC indices (docs/azw3_kf8_conversion_plan.md, Phase 3) are laid
+out exactly the same way and read through the same function, in
+ebook_fix.mobi.kf8; only the tag numbers' meanings differ table to
+table, which is why those readers live there instead of here.
 """
 from __future__ import annotations
 
@@ -157,16 +164,30 @@ def _decode_entry(entry: bytes, tags, control_bytes: int) -> dict[int, list[int]
     return result
 
 
-def read_ncx_entries(data: bytes, palmdb: PalmDBHeader, first_index_record: int) -> list[NcxEntry]:
-    """Reads the whole NCX index starting at `first_index_record`.
-    Raises NcxIndexError if the structure isn't what this module knows.
-    Returns entries in index order (which is reading order)."""
+def read_indx_records(
+    data: bytes, palmdb: PalmDBHeader, first_index_record: int
+) -> tuple[list[tuple[bytes, dict[int, list[int]]]], dict[int, bytes], int]:
+    """Generic INDX-table walk: INDX header + TAGX, then one or more
+    INDX data records, then optional CTOC label records. No
+    domain-specific tag interpretation -- that's each caller's job
+    (read_ncx_entries below for MOBI7's NCX; ebook_fix.mobi.kf8 for a
+    KF8 book's skeleton, fragment, guide and chapter-TOC indices, which
+    are laid out identically but use these same tag numbers for
+    different things table to table).
+
+    Returns (entries, ctoc, encoding): entries is
+    [(raw_id_bytes, {tag: [values]}), ...] in index order (reading
+    order); ctoc maps a label's byte offset to its raw text bytes;
+    encoding is the INDX header's own text-encoding code (1252 or
+    65001), needed to decode both entry ids and CTOC text since callers
+    that use either do differ on it. Raises NcxIndexError if the
+    structure isn't what this module knows."""
     if not (0 <= first_index_record < len(palmdb.records)):
-        raise NcxIndexError("NCX index record number is out of range.")
+        raise NcxIndexError("INDX index record number is out of range.")
 
     header = record_bytes(data, palmdb, first_index_record)
     if header[:4] != b"INDX":
-        raise NcxIndexError("NCX index record doesn't start with INDX.")
+        raise NcxIndexError("INDX index record doesn't start with INDX.")
 
     header_length = struct.unpack_from(">I", header, 4)[0]
     entry_record_count = struct.unpack_from(">I", header, 24)[0]
@@ -176,15 +197,15 @@ def read_ncx_entries(data: bytes, palmdb: PalmDBHeader, first_index_record: int)
     tags, control_bytes = _read_tagx(header, header_length)
 
     ctoc_first = first_index_record + 1 + entry_record_count
-    label_text: dict[int, bytes] = {}
+    ctoc: dict[int, bytes] = {}
     for i in range(ctoc_count):
         rec_index = ctoc_first + i
         if rec_index >= len(palmdb.records):
             break
         for off, text in _read_ctoc(record_bytes(data, palmdb, rec_index)).items():
-            label_text[off + i * 0x10000] = text
+            ctoc[off + i * 0x10000] = text
 
-    entries: list[NcxEntry] = []
+    entries: list[tuple[bytes, dict[int, list[int]]]] = []
     for i in range(entry_record_count):
         rec_index = first_index_record + 1 + i
         if rec_index >= len(palmdb.records):
@@ -200,14 +221,28 @@ def read_ncx_entries(data: bytes, palmdb: PalmDBHeader, first_index_record: int)
         offsets.append(idxt_start)
         for n in range(entry_count):
             raw = record[offsets[n]:offsets[n + 1]]
+            id_length = raw[0]
+            entry_id = raw[1:1 + id_length]
             values = _decode_entry(raw, tags, control_bytes)
-            position = values.get(TAG_POSITION, [None])[0]
-            label_offset = values.get(TAG_LABEL, [None])[0]
-            if position is None or label_offset is None:
-                continue
-            label = _decode_text(label_text.get(label_offset, b""), encoding).strip()
-            if not label:
-                continue
-            level = values.get(TAG_LEVEL, [0])[0]
-            entries.append(NcxEntry(label=label, position=position, level=level))
+            entries.append((entry_id, values))
+    return entries, ctoc, encoding
+
+
+def read_ncx_entries(data: bytes, palmdb: PalmDBHeader, first_index_record: int) -> list[NcxEntry]:
+    """Reads the whole NCX index starting at `first_index_record`.
+    Raises NcxIndexError if the structure isn't what this module knows.
+    Returns entries in index order (which is reading order)."""
+    _entries, ctoc, encoding = read_indx_records(data, palmdb, first_index_record)
+
+    entries: list[NcxEntry] = []
+    for _entry_id, values in _entries:
+        position = values.get(TAG_POSITION, [None])[0]
+        label_offset = values.get(TAG_LABEL, [None])[0]
+        if position is None or label_offset is None:
+            continue
+        label = _decode_text(ctoc.get(label_offset, b""), encoding).strip()
+        if not label:
+            continue
+        level = values.get(TAG_LEVEL, [0])[0]
+        entries.append(NcxEntry(label=label, position=position, level=level))
     return entries
