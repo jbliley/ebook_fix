@@ -82,6 +82,13 @@ class MatterLabel(Enum):
     FRONT_MATTER = "front matter"   # zone known, no more specific label matched
     BACK_MATTER = "back matter"     # zone known, no more specific label matched
     MAIN_CONTENT = "main content"
+    # A bare Prologue/Epilogue -- Jacob's call (docs/analysis_roadmap.md):
+    # these are unnumbered chapters of the main story, not front/back
+    # matter, so they're deliberately absent from FRONT_LABELS/
+    # BACK_LABELS below and zone_for_label falls through to MAIN_ZONE
+    # for both, same as MAIN_CONTENT.
+    PROLOGUE = "prologue"
+    EPILOGUE = "epilogue"
 
 
 FRONT_LABELS = {
@@ -371,6 +378,15 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
     confirmed_boundaries = chapter_summary.confirmed_boundaries or []
     confirmed_hrefs = {c.href for c in confirmed_boundaries}
 
+    # href -> "prologue"/"epilogue" for every bare Prologue/Epilogue
+    # chapters.py found (see its "unnumbered" label_kind) -- used below
+    # to give these their own label instead of falling through to the
+    # generic MAIN_CONTENT catch-all. Only the first marker per href is
+    # kept; a file wouldn't realistically carry more than one of these.
+    unnumbered_by_href = {}
+    for c in getattr(chapter_summary, "unnumbered_chapters", None) or []:
+        unnumbered_by_href.setdefault(c.href, c.text.strip().split()[0].lower())
+
     # Guard against a real anomaly this surfaced on a sample book: a
     # single page (e.g. a one-page anchored table of contents) can
     # itself contain markers for every chapter number in the book,
@@ -459,6 +475,14 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
                 f"filename is exactly a {label.value} page" if exact
                 else f"filename hints at {label.value}"
             )
+        elif unnumbered_by_href.get(chapter.href) == "prologue":
+            label = MatterLabel.PROLOGUE
+            confidence = "high"
+            reason = "recognized as a prologue -- treated as an unnumbered chapter of the main story"
+        elif unnumbered_by_href.get(chapter.href) == "epilogue":
+            label = MatterLabel.EPILOGUE
+            confidence = "high"
+            reason = "recognized as an epilogue -- treated as an unnumbered chapter of the main story"
         elif zone == FRONT_ZONE:
             label = MatterLabel.FRONT_MATTER
             confidence = "medium" if word_count <= SHORT_PAGE_WORD_THRESHOLD else "low"

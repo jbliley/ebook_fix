@@ -2369,3 +2369,66 @@ This file is the source of truth for "what's next" on the analysis
 side, more reliable than relying on conversation memory across
 sessions. Update it as items get picked up, scoped, finished, or
 dropped.
+
+## Fixed: pre-split chapters showing no title, and Prologue/Epilogue swept into back matter (2026-09-26)
+
+Jacob ran `The Numbers Killer` through the tool and couldn't tell what
+some chapters were, or the epilogue, from the GUI. Traced to three
+separate bugs, all confirmed against the real file:
+
+1. `Chapter.title` was only ever set by `splitter.py`, for a chapter
+   it creates itself by splitting a file apart. A book that arrives
+   already split into one file per chapter -- true of most
+   professionally converted EPUBs, this one included -- never got its
+   chapters named at all, so anywhere the GUI shows a chapter (the
+   Before/After tab, `engine.py`'s log) fell back to the raw internal
+   filename (`text/part0000_split_035.html`) instead of the real title
+   the book's own NCX/nav already had ("Epilogue"). Fixed in
+   `parser.py`: after loading, it now walks `book.toc` and copies each
+   entry's label onto the matching chapter by href (fragment ignored),
+   the first time each href is seen, only where `title` is still
+   blank.
+2. A bare "Prologue"/"Epilogue" (no ordinal -- see `chapters.py`'s
+   `SUFFIX_PART_LABEL_WORDS`) was classified as a `part`-kind
+   candidate and never joined `confirmed_boundaries`, so
+   `frontmatter.py`'s zone anchoring swept it into generic back
+   matter along with the actual bonus content ("Note from the
+   Author", "Ready for Book Two?"). Jacob's call: a bare
+   Prologue/Epilogue is an unnumbered chapter of the main story, not
+   back matter. Gave it its own `label_kind` ("unnumbered"),
+   confirmed on sight (it's self-describing, unlike a numbered
+   chapter it doesn't need another one of its kind nearby counting up
+   to be believable), and folded into `confirmed_boundaries` so it --
+   and anything between it and the nearest numbered chapter -- zones
+   as main content. Added matching `MatterLabel.PROLOGUE`/`EPILOGUE`
+   entries to `frontmatter.py` so it gets its own label instead of
+   the generic "main content" catch-all. The ordinal form ("First
+   Epilogue"/"Second Epilogue", a Book/Part-style restart container --
+   see `WarPeace-GoodCopy.epub`) is unchanged.
+3. Found along the way, unrelated to Jacob's original question: any
+   spelled-out compound chapter number with a hyphen -- "Chapter
+   Twenty-One" through "Chapter Ninety-Nine" -- was silently misread
+   as just its tens digit ("Twenty-One" read as 20), because the
+   "drop the subtitle after the number" split in `_classify`
+   (`re.split` on `:.-` etc.) ran on the whole remainder first and
+   caught the compound number's own hyphen. In `The Numbers Killer`
+   this meant only Chapters One through Twenty were ever confirmed as
+   a sequence; Twenty-One through Thirty-Four fell outside it and
+   never got Chapter Markup applied. Fixed by trying the whole
+   remainder as a number first, only splitting off a subtitle when
+   that fails outright.
+
+Verified against `The Numbers Killer`: all 34 chapters now confirm as
+one sequence (previously 20), the Epilogue reads as `Epilogue` /
+`main` / high confidence, and every other example in `examples/`
+still analyzes without error. Repaired the real file end to end:
+idempotent (second pass makes zero changes), passes strict XML
+parsing on every file, passes the file-integrity check, and a
+file-by-file diff against the pre-fix repair output shows the only
+differences are the intended ones (Chapter Markup now wraps Chapters
+21-34 and the Epilogue; everything else byte-identical). Also ran
+the same before/after comparison against `WarPeace-GoodCopy.epub`,
+`MM21.epub`, `MM5_Complete.epub`, and `MM5_Incomplete.epub`: no
+content differences anywhere, confirming the ordinal Book/Part-style
+epilogue handling and everything else was untouched.
+

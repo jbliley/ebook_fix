@@ -154,7 +154,9 @@ class ChapterCandidate:
     style: MarkerStyle | None = None
     number: int | None = None
     label_prefix: bool = False      # text started with "Chapter"/"Part"/etc.
-    label_kind: str | None = None   # "chapter", "part" (Book/Part/Volume), or None (bare numeral)
+    label_kind: str | None = None   # "chapter", "part" (Book/Part/Volume), "unnumbered"
+                                     # (a bare Prologue/Epilogue -- see _classify), or
+                                     # None (bare numeral)
     isolated: bool = True           # element's own text is *only* the marker
     is_heading_tag: bool = False
     heading_level: int | None = None  # h1=1, h2=2, etc. Only set if is_heading_tag=True
@@ -185,6 +187,8 @@ class BookChapterSummary:
     best_sequence: ChapterSequence | None = None
     other_sequences: list = field(default_factory=list)
     parts: list = field(default_factory=list)  # detected Book/Part/Volume-level markers, in book order
+    unnumbered_chapters: list = field(default_factory=list)  # bare Prologue(s)/Epilogue(s), in book order --
+                                                               # see _classify's "unnumbered" label_kind
 
 
 # ---------------------------------------------------------------------
@@ -354,8 +358,10 @@ def _classify(text: str) -> tuple[MarkerStyle, int, bool, str | None] | None:
     """
     Try to read `text` as a chapter marker. Returns (style, number,
     had_label_prefix, label_kind) or None if it doesn't look like one
-    at all. label_kind is "part" for a Book/Part/Volume-style division,
-    "chapter" for an ordinary chapter, or None when there's no label
+    at all. label_kind is "part" for a Book/Part/Volume-style division
+    (including an ordinal "First Epilogue"/"Second Epilogue"),
+    "chapter" for an ordinary chapter, "unnumbered" for a bare
+    Prologue/Epilogue with no ordinal, or None when there's no label
     word at all (a bare "4" or "IV").
     """
     stripped = text.strip()
@@ -370,10 +376,19 @@ def _classify(text: str) -> tuple[MarkerStyle, int, bool, str | None] | None:
         working = working.lstrip(":.-\u2013\u2014 ").strip()
         if not working:
             return None
-        working = re.split(r"[:.\u2013\u2014-]", working, maxsplit=1)[0].strip()
-        if not working:
-            return None
+        # Try the whole remainder as a number first ("Chapter
+        # Twenty-One") -- a spelled-out compound number's own internal
+        # hyphen would otherwise get mistaken for a "Chapter Four -
+        # Title" style separator and truncated to just "Twenty" (a bug
+        # found and fixed 2026-09-25: every "Twenty-One" through
+        # "Ninety-Nine" style chapter number was silently misread as
+        # its bare tens digit). Only split off a trailing subtitle when
+        # reading the whole remainder as a number fails outright.
         result = _classify_number_only(working)
+        if result is None:
+            split_working = re.split(r"[:.\u2013\u2014-]", working, maxsplit=1)[0].strip()
+            if split_working:
+                result = _classify_number_only(split_working)
         if result is None:
             return None
         style, number = result
@@ -393,9 +408,16 @@ def _classify(text: str) -> tuple[MarkerStyle, int, bool, str | None] | None:
             if number is not None:
                 return MarkerStyle.SPELLED_ORDINAL, number, True, "part"
         elif w0 in SUFFIX_PART_LABEL_WORDS:
-            # Bare "Epilogue"/"Prologue" with no ordinal -- treat as the
-            # first (and possibly only) one of its kind.
-            return MarkerStyle.SPELLED_ORDINAL, 1, True, "part"
+            # Bare "Epilogue"/"Prologue" with no ordinal -- Jacob's
+            # call (see docs/analysis_roadmap.md): this is a whole
+            # chapter's worth of real story content in its own right,
+            # not a Book/Part-style container restarting the numbering
+            # underneath it (that's what the ordinal form above is
+            # for). label_kind "unnumbered" keeps it out of both the
+            # numbered chapter sequence and the part-sequence checks in
+            # analyze_book_chapters, and gets it treated as a
+            # single-instance, always-trusted main-content boundary.
+            return MarkerStyle.SPELLED_ORDINAL, 1, True, "unnumbered"
 
     # No label word. First try treating the whole text as a number
     # ("IV", "4", "Four").
@@ -1114,27 +1136,47 @@ def analyze_book_chapters(book) -> BookChapterSummary:
         all_candidates = detector.filter_candidates(all_candidates, contents_files)
 
     part_candidates = [c for c in all_candidates if c.label_kind == "part"]
-    chapter_candidates = [c for c in all_candidates if c.label_kind != "part"]
+    unnumbered_candidates = [c for c in all_candidates if c.label_kind == "unnumbered"]
+    chapter_candidates = [
+        c for c in all_candidates if c.label_kind not in ("part", "unnumbered")
+    ]
     _assign_part_indices(chapter_candidates, part_candidates)
 
     for c in _find_best_part_sequence(part_candidates):
         c.confirmed = True
 
+    # A bare Prologue/Epilogue doesn't need another one of its kind
+    # nearby counting up to be believable the way an ordinary chapter
+    # marker does (see _find_best_sequence) -- it's a whole chapter's
+    # worth of real content on its own, self-describing by its label
+    # alone. Each one found is trusted on sight, per Jacob's own call
+    # (docs/analysis_roadmap.md), and folded into confirmed_boundaries
+    # below so frontmatter.py's zone anchoring treats it -- and
+    # anything between it and the nearest numbered chapter -- as part
+    # of the main story rather than front/back matter.
+    for c in unnumbered_candidates:
+        c.confirmed = True
+    unnumbered_candidates = sorted(unnumbered_candidates, key=lambda c: c.book_order)
+
     summary = BookChapterSummary(
         candidates=all_candidates,
         parts=sorted(part_candidates, key=lambda c: c.book_order),
+        unnumbered_chapters=unnumbered_candidates,
     )
 
     if not chapter_candidates:
+        summary.confirmed_boundaries = list(unnumbered_candidates)
         return summary
 
     best, all_sequences = _find_best_sequence(chapter_candidates)
     summary.best_sequence = best
     summary.other_sequences = [s for s in all_sequences if s is not best]
 
+    confirmed_boundaries = list(unnumbered_candidates)
     if best is not None:
         for c in best.candidates:
             c.confirmed = True
-        summary.confirmed_boundaries = list(best.candidates)
+        confirmed_boundaries.extend(best.candidates)
+    summary.confirmed_boundaries = confirmed_boundaries
 
     return summary

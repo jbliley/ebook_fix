@@ -61,6 +61,7 @@ class EPUBParser:
                 manifest,
                 book
             )
+            self._apply_toc_titles(book)
         return book
 
 # ---------------------------------------------------------
@@ -303,6 +304,45 @@ class EPUBParser:
                 xml_parser
             ),
         )
+
+    def _apply_toc_titles(self, book):
+        """Copies each TOC entry's label onto the matching Chapter's
+        `title`, the first time each href is seen in document order --
+        but only where `title` is still blank.
+
+        A book's own NCX/nav already carries every chapter's real name
+        ("Chapter One", "Epilogue", ...). splitter.py sets `chapter.title`
+        itself for a chapter IT creates by splitting a file apart (see
+        splitter.py:495), but that's the only place Chapter.title was
+        ever populated -- a book that arrives already split into one
+        file per chapter (as most professionally converted EPUBs are,
+        including anything that passed through Calibre or Kindle's own
+        conversion) never got its chapters named at all, so every place
+        the GUI displays a chapter (e.g. the Before/After tab) fell back
+        to showing the raw internal filename instead of the real title.
+
+        A TOC entry's href may point at an anchor within a chapter
+        (`#fragment`), while Chapter.href never does -- the fragment is
+        dropped before matching. Only the first entry seen per href is
+        used, so a chapter with more than one TOC entry (an anchored
+        sub-heading further down the same page) keeps its own top-level
+        title rather than a later anchor's label overwriting it.
+        """
+        by_href = {c.href: c for c in book.chapters}
+        seen_hrefs = set()
+
+        def _walk(entries):
+            for entry in entries:
+                href = entry.href.partition("#")[0]
+                if href and href not in seen_hrefs:
+                    seen_hrefs.add(href)
+                    chapter = by_href.get(href)
+                    label = entry.label.strip()
+                    if chapter is not None and not chapter.title and label:
+                        chapter.title = label
+                _walk(entry.children)
+
+        _walk(book.toc)
 
 # ---------------------------------------------------------
 # Table of contents (NCX and/or EPUB3 nav document)
