@@ -43,6 +43,31 @@ confirming the tables are being read correctly (Phase 3's own stated
 goal) even though turning that into well-formed, individually-named
 XHTML files wired into the rest of the converter is Phase 4's job.
 
+Phase 4 (docs/azw3_kf8_conversion_plan.md): every reassemble_flow0() page
+turned out to already be a complete, well-formed standalone document on
+its own -- its own `<?xml?>` declaration, its own `<html><head>...
+</head><body>...</body></html>`, confirmed identical (structurally) on
+every single page across all three real samples, not just the first.
+The Phase 3 "known gap" note about this was wrong: there was nothing
+left to *build* here, only to confirm and then strip back down.
+extract_page_body() does that stripping: it pulls out just the
+`<body>` element's inner content, as a decoded string, matching the
+shape ebook_fix.epub_builder.EpubSpec.pages already expects (the same
+shape ebook_fix.mobi.markup.Page.body and the FB2 converter's pages
+use) -- so a later phase (7) can finish a KF8 page through the exact
+same shared `page_filename()`/`_page_xhtml()` wrapper every other
+converter uses, rather than keeping each page's own Kindle-generated
+`<head>` (an "Adept.expected..." meta tag that looks DRM-related but
+isn't, a `<title>` that's just the book's own title repeated on every
+page rather than a real per-page one, and a stylesheet reference in
+the KF8 `kindle:flow:...` addressing scheme rather than a real href --
+none of that is something Phase 7 wants to carry forward as-is).
+Real per-page filenames need no new code here: book.pages is already
+in final reading order (confirmed identical to skeleton-table order,
+which is confirmed correct -- see Phase 3), so a later phase can call
+ebook_fix.epub_builder.page_filename() directly against that order,
+exactly like ebook_fix.mobi.convert.py already does for MOBI7.
+
 The Sept 24 exploration notes guessed the labels backwards (see
 azw3_kf8_conversion_plan.md's Phase 3 section) -- the 127-entry table in
 AZW3-Example.azw3 is FRAGMENT, not skeleton, and the 70-entry
@@ -57,6 +82,7 @@ HUFF/CDIC in Phase 1).
 """
 from __future__ import annotations
 
+import re
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -120,6 +146,7 @@ class Kf8Book:
     fragment_table: list = field(default_factory=list)   # list[FragmentEntry]
     guide_table: list = field(default_factory=list)      # list[GuideEntry]; empty if the book has none
     pages: list = field(default_factory=list)            # list[bytes], one per skeleton entry (see reassemble_flow0)
+    page_bodies: list = field(default_factory=list)       # list[str], same order, see extract_page_body
     warnings: list = field(default_factory=list)
 
 
@@ -263,9 +290,11 @@ def reassemble_flow0(
     template to produce one complete page per skeleton entry, in
     order. This is Phase 3's verification step -- confirming the two
     tables above are being read correctly by checking the reassembled
-    pages actually read right -- not yet Phase 4's job of turning the
-    result into well-formed, individually-named XHTML files wired into
-    the rest of the converter.
+    pages actually read right. Surprisingly, it turns out to also
+    finish the job Phase 4 was expecting to still have to do: every
+    resulting page is already a complete, well-formed standalone
+    document (see extract_page_body() below and Phase 4's notes in
+    docs/azw3_kf8_conversion_plan.md).
 
     A fragment's own content is the `length` bytes immediately
     following its skeleton's template range in flow 0 -- confirmed
@@ -308,17 +337,52 @@ def reassemble_flow0(
     return pages
 
 
+# Phase 4: every reassembled page is already a standalone document with
+# its own <body>...</body> -- this pulls just that element's inner
+# content back out, as a decoded string, matching the shape
+# ebook_fix.epub_builder.EpubSpec.pages already expects. Anchored to
+# the very end of the page (there's exactly one <body>...</body> in a
+# well-formed page, and every real sample's pages are), so this can't
+# be fooled by anything that merely looks like a closing tag earlier on.
+_BODY_RE = re.compile(rb"<body\b[^>]*>(.*)</body>\s*</html>\s*\Z", re.S)
+
+
+def extract_page_body(page: bytes, encoding: str) -> str:
+    """Strips one of reassemble_flow0()'s pages down to its <body>
+    element's inner content, decoded to a string -- the same shape
+    ebook_fix.mobi.markup.Page.body and the FB2 converter's pages
+    already use, so Phase 7 can finish a KF8 page through the exact
+    same shared page_filename()/_page_xhtml() wrapper every other
+    converter does, rather than keeping this page's own Kindle-
+    generated <head> (see the module docstring's Phase 4 section for
+    why that's not worth carrying forward as-is).
+
+    Confirmed against every page of all three real samples: each one
+    has exactly one <body>...</body>, immediately followed by
+    </html> and nothing else. Raises MobiError if a page doesn't
+    match that shape."""
+    match = _BODY_RE.search(page)
+    if not match:
+        raise MobiError("A reassembled page has no recognizable <body>...</body> element.")
+    return match.group(1).decode(encoding, errors="replace")
+
+
+
+
 def read_kf8(path: Path) -> Kf8Book:
-    """Opens a KF8 (AZW3) file and, as of Phase 3, rebuilds its actual
-    pages: separates its main text from its embedded styling (Phase 2),
-    reads its skeleton/fragment/guide indices, and splices fragment
-    content back into its skeletons (book.pages, one entry per output
-    page). Raises MobiError (with a message meant for a person) for
-    anything it can't read. Still not done: links, images and metadata
-    aren't rewritten to match the split-up pages, and the chapter table
-    of contents isn't read yet -- both Phase 4/5 jobs -- so book.pages
-    holds real, readable content but isn't yet a set of standalone,
-    fully cross-referenced XHTML files."""
+    """Opens a KF8 (AZW3) file and rebuilds its actual pages: separates
+    its main text from its embedded styling (Phase 2), reads its
+    skeleton/fragment/guide indices and splices fragment content back
+    into its skeletons (book.pages, one entry per output page, each
+    already a complete standalone document -- Phase 3), and pulls out
+    each page's inner body content ready for the shared EPUB assembler
+    (book.page_bodies, same order -- Phase 4). Raises MobiError (with a
+    message meant for a person) for anything it can't read. Still not
+    done: links and images inside a page still point at KF8's own
+    addressing scheme rather than real hrefs, and the chapter table of
+    contents isn't read yet -- Phase 5/6 jobs -- so book.page_bodies is
+    real, readable content, correctly split and ordered, but not yet
+    wired into a finished, fully cross-referenced EPUB."""
     path = Path(path)
     data = path.read_bytes()
 
@@ -386,5 +450,10 @@ def read_kf8(path: Path) -> Kf8Book:
         book.guide_table = read_guide_table(data, palmdb, header)
     except MobiError as exc:
         book.warnings.append(f"The book's guide (landmarks) couldn't be read ({exc}).")
+
+    # Phase 4: each page is already a standalone document (see
+    # extract_page_body()'s docstring) -- pull out just its <body>
+    # content, in the same shape the shared EPUB assembler expects.
+    book.page_bodies = [extract_page_body(page, book.encoding) for page in book.pages]
 
     return book
