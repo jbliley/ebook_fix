@@ -84,7 +84,7 @@ from __future__ import annotations
 
 import re
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ebook_fix.mobi.indx import NcxIndexError, _decode_text, read_indx_records
@@ -109,6 +109,17 @@ _FRAG_TAG_GEOMETRY = 6           # 2 values: (start [confirmed unused, see reass
 _GUIDE_TAG_LABEL = 1             # offset into this table's own CTOC: the human-readable guide title
 _GUIDE_TAG_FRAGMENT_NUMBER = 6   # index into the fragment table (confirmed, not a skeleton/part index, by a
                                   # reference tool's own comment: "fileno is actually a reference into fragtbl")
+
+_TOC_TAG_LABEL = 3               # offset into this table's own CTOC: the chapter/heading title
+_TOC_TAG_LEVEL = 4               # nesting depth, 0-based -- directly usable by
+                                  # ebook_fix.epub_builder's flat-list-with-level tree builder, same as MOBI7's NCX
+_TOC_TAG_CHILD1 = 22             # first child's index, in this table's own storage order (see read_toc_table)
+_TOC_TAG_CHILDN = 23             # last child's index (inclusive), same order
+_TOC_TAG_POSITION = 6            # 2 values: (fragment_number, offset) -- an index into read_fragment_table()'s
+                                  # result and a byte offset into that fragment's own content. It's not base32-
+                                  # encoded (that only applies to the textual kindle:pos:fid:...:off:... scheme
+                                  # used for hrefs inside a page's own body, which Phase 6 will need to decode --
+                                  # this tag's own value is already a plain integer).
 
 
 @dataclass
@@ -136,6 +147,16 @@ class GuideEntry:
 
 
 @dataclass
+class TocEntry:
+    label: str = ""
+    level: int = 0
+    fragment_number: int = 0   # raw, as read; see resolve_toc_table() for what this turns into
+    offset: int = 0
+    page_index: int | None = None   # filled in by resolve_toc_table(); None means it couldn't be resolved
+    anchor: str = ""                # filled in by resolve_toc_table(); "" means the top of the page
+
+
+@dataclass
 class Kf8Book:
     path: Path = None
     header: MobiHeader = None
@@ -145,6 +166,7 @@ class Kf8Book:
     skeleton_table: list = field(default_factory=list)   # list[SkeletonEntry]
     fragment_table: list = field(default_factory=list)   # list[FragmentEntry]
     guide_table: list = field(default_factory=list)      # list[GuideEntry]; empty if the book has none
+    toc: list = field(default_factory=list)              # list[TocEntry], already resolved; empty if the book has none
     pages: list = field(default_factory=list)            # list[bytes], one per skeleton entry (see reassemble_flow0)
     page_bodies: list = field(default_factory=list)       # list[str], same order, see extract_page_body
     warnings: list = field(default_factory=list)
@@ -281,6 +303,177 @@ def read_guide_table(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> l
             )
         )
     return table
+
+
+def read_toc_table(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> list[TocEntry]:
+    """Reads the book's real, structurally-grounded chapter-by-chapter
+    table of contents -- unlike MOBI7, which has no equivalent and
+    needs heuristic chapter detection instead. Reuses
+    MobiHeader.ncx_index_record, the same field MOBI7's own NCX uses.
+    Entries come back with fragment_number/offset still raw; call
+    resolve_toc_table() to turn those into a page and an anchor.
+
+    This table's own storage order is NOT depth-first -- it lists
+    every top-level entry first, then descends into level 1 for all of
+    them, and so on (confirmed against AZW3-Example.azw3: entries 0-15
+    are every top-level day/section heading, and only entries 16+ are
+    chapters, grouped by which day they belong to via tags 22/23
+    rather than appearing right after their own parent). A flat list
+    in that order, handed to ebook_fix.epub_builder's stack-based tree
+    builder (which assumes a child immediately follows its parent),
+    would nest everything under whatever the last-seen entry at the
+    right level happened to be -- confirmed wrong by cross-checking
+    against a reference tool's own generated toc.ncx before this
+    reordering was added, and confirmed right after: reordering by
+    tags 22/23 (child1/childn -- read here, used, then discarded; tag
+    21, parent, is redundant with walking downward from the top
+    instead of up from a child, so it's not read) via depth-first
+    traversal, this table's entries in the *returned* list are in the
+    right order for that tree builder to work correctly, matching a
+    reference tool's own recursive rebuild exactly.
+
+    Treated the same as the guide index: not every book might have
+    one, so a missing index isn't an error, just an empty result; a
+    malformed one raises MobiError."""
+    if header.ncx_index_record == NO_RECORD:
+        return []
+    try:
+        raw_entries, ctoc, encoding = read_indx_records(data, palmdb, header.ncx_index_record)
+    except NcxIndexError as exc:
+        raise MobiError(f"This KF8 book's table of contents is malformed: {exc}")
+
+    entries: list[TocEntry] = []
+    child1s: list[int | None] = []
+    childns: list[int | None] = []
+    for _entry_id, values in raw_entries:
+        label_offset = values.get(_TOC_TAG_LABEL, [None])[0]
+        label = _decode_text(ctoc.get(label_offset, b""), encoding) if label_offset is not None else ""
+        position = values.get(_TOC_TAG_POSITION, [0, 0])
+        entries.append(
+            TocEntry(
+                label=label,
+                level=values.get(_TOC_TAG_LEVEL, [0])[0],
+                fragment_number=position[0],
+                offset=position[1] if len(position) > 1 else 0,
+            )
+        )
+        child1s.append(values.get(_TOC_TAG_CHILD1, [None])[0])
+        childns.append(values.get(_TOC_TAG_CHILDN, [None])[0])
+
+    ordered: list[TocEntry] = []
+
+    def walk(level: int, start: int, end: int) -> None:
+        for i in range(max(start, 0), min(end, len(entries))):
+            if entries[i].level != level:
+                continue
+            ordered.append(entries[i])
+            child1 = child1s[i]
+            if child1 is not None and child1 >= 0:
+                childn = childns[i]
+                walk(level + 1, child1, (childn if childn is not None else child1) + 1)
+
+    walk(0, 0, len(entries))
+    if len(ordered) != len(entries):
+        # Some entry's level/child1/childn didn't fit the walk above
+        # (an unexpected root level, a missing child pointer on some
+        # real-world file this wasn't tested against). Append whatever
+        # got missed, in original order, rather than silently dropping
+        # part of the table of contents.
+        seen = {id(e) for e in ordered}
+        ordered.extend(e for e in entries if id(e) not in seen)
+    return ordered
+
+
+def fragment_page_map(skeletons: list[SkeletonEntry], fragments: list[FragmentEntry]) -> list[int]:
+    """For each of read_fragment_table()'s entries (by index), which
+    page (an index into read_skeleton_table()'s result) it belongs to
+    -- the same sequential consumption reassemble_flow0() does, minus
+    the byte-splicing. Shared by TOC resolution (below) and, later,
+    Phase 6's internal-link resolution, since both need to turn a
+    fragment-table index back into a page."""
+    mapping = [0] * len(fragments)
+    pos = 0
+    for page_index, skeleton in enumerate(skeletons):
+        for _ in range(skeleton.fragment_count):
+            if pos < len(mapping):
+                mapping[pos] = page_index
+            pos += 1
+    return mapping
+
+
+# The existing id=/name=/aid= attribute closest at-or-before a target
+# position, matching the approach a reference tool uses to resolve
+# kindle:pos:fid:...:off:... targets -- Kindle's own generator tags
+# nearly every element with an "aid=" attribute at fine granularity,
+# so a usable one is almost always right there; a brand-new synthetic
+# anchor is confirmed unnecessary by every resolution below actually
+# landing on or right next to the content the label describes.
+_ANCHOR_ID_OR_NAME_RE = re.compile(rb"""<[^>]*\s(?:id|name)\s*=\s*['"]([^'"]*)['"]""", re.I)
+_ANCHOR_AID_RE = re.compile(rb"""<[^>]*\said\s*=\s*['"]([^'"]*)['"]""", re.I)
+
+
+def find_nearest_anchor(page: bytes, position: int) -> str:
+    """The nearest existing anchor at or before byte `position` in one
+    of reassemble_flow0()'s pages. An "aid=" value comes back prefixed
+    "aid-" (it isn't a valid standalone anchor id by itself -- Phase
+    6/7 will need to turn a page's own aid= attributes into real id=
+    attributes using this same prefix for the two to line up). Returns
+    "" (meaning: link to the top of the page) if position lands at or
+    before the first content inside <body>, or nothing usable is
+    found."""
+    position = max(0, min(position, len(page)))
+    # A position landing inside a tag's own <...> span means "at this
+    # element", not partway through its markup -- snap forward past it.
+    next_lt = page.find(b"<", position)
+    next_gt = page.find(b">", position)
+    if next_lt == position or (next_gt != -1 and (next_lt == -1 or next_gt < next_lt)):
+        position = next_gt + 1
+    search_end = position
+    while True:
+        start = page.rfind(b"<", 0, search_end)
+        if start == -1:
+            return ""
+        end = page.find(b">", start)
+        if end == -1:
+            search_end = start
+            continue
+        tag = page[start:end + 1]
+        lowered = tag[:6].lower()
+        if lowered in (b"<body ", b"<body>"):
+            return ""
+        if lowered != b"<meta ":
+            match = _ANCHOR_ID_OR_NAME_RE.match(tag)
+            if match:
+                return match.group(1).decode("latin-1")
+            match = _ANCHOR_AID_RE.match(tag)
+            if match:
+                return "aid-" + match.group(1).decode("latin-1")
+        search_end = start
+
+
+def resolve_toc_table(
+    entries: list[TocEntry], skeletons: list[SkeletonEntry], fragments: list[FragmentEntry], pages: list[bytes]
+) -> list[TocEntry]:
+    """Resolves each TOC entry's raw (fragment_number, offset) to a
+    real (page_index, anchor), via find_nearest_anchor() above. An
+    entry whose fragment_number is out of range comes back with
+    page_index left as None rather than raising -- matching how
+    ebook_fix.mobi.convert.py already treats a MOBI7 NCX entry
+    pointing nowhere real: a per-entry problem, not a reason to fail
+    the whole conversion."""
+    fragment_page = fragment_page_map(skeletons, fragments)
+    resolved = []
+    for entry in entries:
+        if not (0 <= entry.fragment_number < len(fragments)):
+            resolved.append(replace(entry, page_index=None, anchor=""))
+            continue
+        fragment = fragments[entry.fragment_number]
+        page_index = fragment_page[entry.fragment_number]
+        skeleton = skeletons[page_index]
+        local_position = (fragment.insert_position - skeleton.start) + entry.offset
+        anchor = find_nearest_anchor(pages[page_index], local_position)
+        resolved.append(replace(entry, page_index=page_index, anchor=anchor))
+    return resolved
 
 
 def reassemble_flow0(
@@ -455,5 +648,16 @@ def read_kf8(path: Path) -> Kf8Book:
     # extract_page_body()'s docstring) -- pull out just its <body>
     # content, in the same shape the shared EPUB assembler expects.
     book.page_bodies = [extract_page_body(page, book.encoding) for page in book.pages]
+
+    # Phase 5: the book's real chapter-by-chapter table of contents.
+    # Treated like the guide above -- optional, so a problem reading
+    # or resolving it is a warning, not a hard failure; a book that
+    # can't be split into skeleton+fragment pages already failed
+    # earlier, above, where that's actually load-bearing.
+    try:
+        raw_toc = read_toc_table(data, palmdb, header)
+        book.toc = resolve_toc_table(raw_toc, book.skeleton_table, book.fragment_table, book.pages)
+    except MobiError as exc:
+        book.warnings.append(f"The book's table of contents couldn't be read ({exc}).")
 
     return book
