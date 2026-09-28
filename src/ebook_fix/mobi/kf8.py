@@ -88,9 +88,9 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ebook_fix.mobi.indx import NcxIndexError, _decode_text, read_indx_records
-from ebook_fix.mobi.mobi_header import ExthRecord, MobiHeader, exth_start_offset, read_exth, read_mobi_header
+from ebook_fix.mobi.mobi_header import ExthRecord, MobiHeader, exth_int, exth_start_offset, read_exth, read_mobi_header
 from ebook_fix.mobi.palmdb import PalmDBHeader, is_palmdb, read_palmdb, record_bytes
-from ebook_fix.mobi.reader import MobiError, read_text_records
+from ebook_fix.mobi.reader import MobiError, MobiImage, _read_images, read_text_records
 
 NO_RECORD = 0xFFFFFFFF
 
@@ -167,6 +167,8 @@ class Kf8Book:
     fragment_table: list = field(default_factory=list)   # list[FragmentEntry]
     guide_table: list = field(default_factory=list)      # list[GuideEntry]; empty if the book has none
     toc: list = field(default_factory=list)              # list[TocEntry], already resolved; empty if the book has none
+    images: dict = field(default_factory=dict)            # recindex -> MobiImage; same shape as MobiBook.images
+    cover_recindex: int | None = None
     pages: list = field(default_factory=list)            # list[bytes], one per skeleton entry (see reassemble_flow0)
     page_bodies: list = field(default_factory=list)       # list[str], same order, see extract_page_body
     warnings: list = field(default_factory=list)
@@ -451,6 +453,23 @@ def find_nearest_anchor(page: bytes, position: int) -> str:
         search_end = start
 
 
+def resolve_fragment_position(
+    skeletons: list[SkeletonEntry], fragments: list[FragmentEntry], fragment_page: list[int], fid: int, off: int
+) -> tuple[int, int] | None:
+    """Turns a raw (fragment_number, offset) pair -- whether it came
+    from a TOC/guide table's own tag 6, or was decoded from a
+    kindle:pos:fid:...:off:... string found literally in a page's own
+    body (Phase 6, see rewrite_internal_links() below) -- into
+    (page_index, local_offset_within_that_page's raw bytes), suitable
+    for find_nearest_anchor(). Returns None if fid is out of range."""
+    if not (0 <= fid < len(fragments)):
+        return None
+    fragment = fragments[fid]
+    page_index = fragment_page[fid]
+    skeleton = skeletons[page_index]
+    return page_index, (fragment.insert_position - skeleton.start) + off
+
+
 def resolve_toc_table(
     entries: list[TocEntry], skeletons: list[SkeletonEntry], fragments: list[FragmentEntry], pages: list[bytes]
 ) -> list[TocEntry]:
@@ -464,16 +483,139 @@ def resolve_toc_table(
     fragment_page = fragment_page_map(skeletons, fragments)
     resolved = []
     for entry in entries:
-        if not (0 <= entry.fragment_number < len(fragments)):
+        target = resolve_fragment_position(skeletons, fragments, fragment_page, entry.fragment_number, entry.offset)
+        if target is None:
             resolved.append(replace(entry, page_index=None, anchor=""))
             continue
-        fragment = fragments[entry.fragment_number]
-        page_index = fragment_page[entry.fragment_number]
-        skeleton = skeletons[page_index]
-        local_position = (fragment.insert_position - skeleton.start) + entry.offset
+        page_index, local_position = target
         anchor = find_nearest_anchor(pages[page_index], local_position)
         resolved.append(replace(entry, page_index=page_index, anchor=anchor))
     return resolved
+
+
+# Phase 6: rewriting a page's own kindle:pos:fid:...:off:... (internal
+# links), kindle:embed:... (images), and kindle:flow:...?mime=text/css
+# (stylesheets) references to real hrefs. Confirmed present in all
+# three real samples in exactly this shape (kindle:embed always with a
+# ?mime= parameter when it's an image; no kindle:flow:...?mime=image/
+# svg+xml reference appears in any of the three, so that case is
+# handled the same way as the general kindle:flow case below but
+# hasn't been exercised against a real sample). None of these three
+# functions invent a naming scheme themselves -- each takes a callable
+# that supplies the real href for a resolved target, matching how
+# Phase 4 already deferred filename assignment to
+# ebook_fix.epub_builder.page_filename() rather than inventing its
+# own; a later phase supplies image/flow href callables built the same
+# way ebook_fix.mobi.convert.py already names MOBI7's images, so a
+# KF8 and a MOBI7 conversion produce identically-named image files.
+_POSFID_RE = re.compile(r"""kindle:pos:fid:([0-9A-Va-v]+):off:([0-9A-Va-v]+)""")
+_UNRESOLVED_HREF_RE = re.compile(r'''\s?href=["']\x03["']''')
+_EMBED_RE = re.compile(r"""kindle:embed:([0-9A-Va-v]+)(?:\?mime=[^'"\)]*)?""")
+_FLOW_CSS_RE = re.compile(r"""kindle:flow:([0-9A-Va-v]+)\?mime=text/css[^'"\)]*""")
+_AID_ATTR_RE = re.compile(r'''\said=['"]([^'"]*)['"]''')
+
+
+def rewrite_internal_links(
+    body: str,
+    skeletons: list[SkeletonEntry],
+    fragments: list[FragmentEntry],
+    fragment_page: list[int],
+    pages: list[bytes],
+    page_filename,
+) -> tuple[str, set[str]]:
+    """Rewrites every kindle:pos:fid:...:off:... reference in a page's
+    body to a real "filename#anchor" href, via
+    resolve_fragment_position()/find_nearest_anchor() above --
+    `page_filename` is a callable, index -> str (e.g.
+    ebook_fix.epub_builder.page_filename), always applied even for a
+    link back to the same page, matching how
+    ebook_fix.mobi.markup.resolve_links() already does it for MOBI7's
+    own filepos links. Returns the rewritten body, plus the set of
+    aid= values (without the "aid-" prefix find_nearest_anchor()
+    returns them with) that ended up actually referenced -- needed by
+    finish_page_anchors() below, since a page's own internal links can
+    reference an aid= just as easily as a TOC or guide entry can.
+
+    A reference whose fragment number is out of range has its whole
+    href="..." attribute removed rather than left broken -- matching
+    resolve_links()'s own treatment of an unresolvable MOBI7 filepos
+    link exactly (leaving plain, unlinked text instead of a dead
+    link)."""
+    linked_aids: set[str] = set()
+
+    def replace(match: re.Match) -> str:
+        fid = int(match.group(1), 32)
+        off = int(match.group(2), 32)
+        target = resolve_fragment_position(skeletons, fragments, fragment_page, fid, off)
+        if target is None:
+            return "\x03"
+        target_page, local_position = target
+        anchor = find_nearest_anchor(pages[target_page], local_position)
+        if anchor.startswith("aid-"):
+            linked_aids.add(anchor[len("aid-"):])
+        href = page_filename(target_page)
+        if anchor:
+            href += f"#{anchor}"
+        return href
+
+    body = _POSFID_RE.sub(replace, body)
+    body = _UNRESOLVED_HREF_RE.sub("", body)
+    return body, linked_aids
+
+
+def finish_page_anchors(body: str, linked_aids: set[str]) -> str:
+    """Converts a page's own aid= attributes into real id= attributes
+    where something actually links to them (linked_aids, gathered from
+    TOC/guide resolution and rewrite_internal_links() above, using the
+    same "aid-" + value convention find_nearest_anchor() returns), and
+    removes the rest. "aid" isn't a standard XHTML attribute -- Kindle's
+    own generator adds one to nearly every element, so leaving them
+    all in as unused, invalid attributes isn't an option, and turning
+    every single one into a real id would work but bloat the output
+    with hundreds of ids nothing points at."""
+
+    def replace(match: re.Match) -> str:
+        value = match.group(1)
+        if value in linked_aids:
+            return f' id="aid-{value}"'
+        return ""
+
+    return _AID_ATTR_RE.sub(replace, body)
+
+
+def rewrite_image_refs(body: str, image_href) -> str:
+    """Rewrites every kindle:embed:XXXX(?mime=...) reference in a
+    page's body to a real image href, via `image_href`, a callable,
+    recindex -> str | None (e.g. built the same way
+    ebook_fix.mobi.convert._image_filename already names MOBI7's own
+    images, so the two generations' converted images end up named
+    identically). A reference to a recindex with no matching image is
+    removed rather than left pointing at nothing."""
+
+    def replace(match: re.Match) -> str:
+        recindex = int(match.group(1), 32)
+        href = image_href(recindex)
+        return href if href is not None else ""
+
+    return _EMBED_RE.sub(replace, body)
+
+
+def rewrite_css_flow_refs(body: str, flows: list[bytes], flow_href) -> str:
+    """Rewrites every kindle:flow:XXXX?mime=text/css reference in a
+    page's body to a real stylesheet href, via `flow_href`, a
+    callable, flow_index -> str | None. flow_index is 1-based into
+    `flows` (flows[0] is the book's own main text, never a stylesheet
+    -- confirmed against all three real samples: every
+    kindle:flow:...?mime=text/css reference found pointed only at
+    flows[1:], each one plain CSS text). A reference to a flow index
+    this book doesn't have is removed rather than left broken."""
+
+    def replace(match: re.Match) -> str:
+        flow_index = int(match.group(1), 32)
+        href = flow_href(flow_index) if 0 < flow_index < len(flows) else None
+        return href if href is not None else ""
+
+    return _FLOW_CSS_RE.sub(replace, body)
 
 
 def reassemble_flow0(
@@ -617,6 +759,18 @@ def read_kf8(path: Path) -> Kf8Book:
 
     ranges = read_fdst(data, palmdb, header)
     book.flows = split_flows(text, ranges)
+
+    # Phase 6: images and cover. Reused directly from ebook_fix.mobi.reader,
+    # unchanged -- confirmed against all three real samples that
+    # first_image_record, the image records themselves, and EXTH 201
+    # (the cover offset) all mean exactly the same thing here as they
+    # do for a MOBI7 book (same header field, same record layout).
+    book.images, skipped = _read_images(data, palmdb, header)
+    if skipped:
+        book.warnings.append(f"{skipped} BMP image(s) were skipped (BMP isn't an EPUB image format).")
+    cover_offset = exth_int(exth, 201)
+    if cover_offset is not None and cover_offset + 1 in book.images:
+        book.cover_recindex = cover_offset + 1
 
     # header.text_length is not used to sanity-check flow 0 here: it
     # turns out to mean different things in different KF8-generating
