@@ -90,7 +90,14 @@ from pathlib import Path
 from ebook_fix.mobi.indx import NcxIndexError, _decode_text, read_indx_records
 from ebook_fix.mobi.mobi_header import ExthRecord, MobiHeader, exth_int, exth_start_offset, read_exth, read_mobi_header
 from ebook_fix.mobi.palmdb import PalmDBHeader, is_palmdb, read_palmdb, record_bytes
-from ebook_fix.mobi.reader import MobiError, MobiImage, _read_images, read_text_records
+from ebook_fix.mobi.reader import (
+    MobiError,
+    MobiImage,
+    _find_valid_kf8_boundary,
+    _read_images,
+    fill_metadata,
+    read_text_records,
+)
 
 NO_RECORD = 0xFFFFFFFF
 
@@ -144,6 +151,8 @@ class GuideEntry:
     ref_type: str = ""         # e.g. "cover", "toc", "copyright-page" -- an EPUB guide/landmark type
     title: str = ""
     fragment_number: int | None = None   # index into read_fragment_table()'s result, or None if not given
+    page_index: int | None = None        # filled in by resolve_guide_table(); None means it couldn't be resolved
+    anchor: str = ""                     # filled in by resolve_guide_table(); "" means the top of the page
 
 
 @dataclass
@@ -169,6 +178,19 @@ class Kf8Book:
     toc: list = field(default_factory=list)              # list[TocEntry], already resolved; empty if the book has none
     images: dict = field(default_factory=dict)            # recindex -> MobiImage; same shape as MobiBook.images
     cover_recindex: int | None = None
+    # Descriptive metadata, filled by ebook_fix.mobi.reader.fill_metadata()
+    # -- the same function MobiBook uses, so the two generations can't drift.
+    title: str = ""
+    authors: list = field(default_factory=list)
+    publisher: str = ""
+    description: str = ""
+    isbn: str = ""
+    asin: str = ""
+    language: str = ""
+    date: str = ""
+    rights: str = ""
+    subjects: list = field(default_factory=list)
+    contributors: list = field(default_factory=list)
     pages: list = field(default_factory=list)            # list[bytes], one per skeleton entry (see reassemble_flow0)
     page_bodies: list = field(default_factory=list)       # list[str], same order, see extract_page_body
     warnings: list = field(default_factory=list)
@@ -493,6 +515,90 @@ def resolve_toc_table(
     return resolved
 
 
+def resolve_guide_table(
+    entries: list[GuideEntry], skeletons: list[SkeletonEntry], fragments: list[FragmentEntry], pages: list[bytes]
+) -> list[GuideEntry]:
+    """The guide-table counterpart to resolve_toc_table(): turns each
+    entry's raw fragment_number (its offset is always the start of that
+    fragment -- the guide index has no offset field) into a real
+    page_index and anchor. An entry with no fragment number, or one out
+    of range, comes back with page_index left as None."""
+    fragment_page = fragment_page_map(skeletons, fragments)
+    resolved = []
+    for entry in entries:
+        target = None
+        if entry.fragment_number is not None:
+            target = resolve_fragment_position(skeletons, fragments, fragment_page, entry.fragment_number, 0)
+        if target is None:
+            resolved.append(replace(entry, page_index=None, anchor=""))
+            continue
+        page_index, local_position = target
+        anchor = find_nearest_anchor(pages[page_index], local_position)
+        resolved.append(replace(entry, page_index=page_index, anchor=anchor))
+    return resolved
+
+
+_HEAD_CSS_LINK_RE = re.compile(rb"kindle:flow:([0-9A-Va-v]+)\?mime=text/css")
+_BODY_CLASS_RE = re.compile(rb"<body\b[^>]*?\bclass=[\"']([^\"']*)[\"']", re.I)
+
+
+def referenced_css_flows(pages: list[bytes]) -> list[int]:
+    """The flow indices (into Kf8Book.flows) of every stylesheet the
+    book's pages link to in their <head>, in the order they're linked
+    -- which is the order they must be concatenated in, since CSS
+    cascade order depends on it (AZW3-Example.azw3 links flow 2 before
+    flow 1, for instance). Pages' <head> elements are stripped by
+    extract_page_body(), so this reads the raw pages instead."""
+    seen: list[int] = []
+    for page in pages:
+        head_end = page.find(b"</head>")
+        head = page[:head_end] if head_end != -1 else page[:2000]
+        for match in _HEAD_CSS_LINK_RE.finditer(head):
+            index = int(match.group(1), 32)
+            if index not in seen:
+                seen.append(index)
+    return seen
+
+
+def body_classes(pages: list[bytes]) -> list[str]:
+    """Every distinct class name found on a page's own <body> tag, in
+    first-seen order. extract_page_body() keeps only what's inside
+    <body>, so a class on the tag itself (AZW3-Example.azw3 and
+    AZW3-Newer.azw3 both use class="calibre" on every page) would
+    otherwise be lost along with its CSS effect."""
+    seen: list[str] = []
+    for page in pages:
+        match = _BODY_CLASS_RE.search(page)
+        if match:
+            for name in match.group(1).decode("latin-1").split():
+                if name not in seen:
+                    seen.append(name)
+    return seen
+
+
+def is_pure_kf8(path: Path) -> bool:
+    """True if this file is a pure KF8/AZW3 book (read_kf8()'s job), as
+    opposed to classic MOBI7 or a MOBI7+KF8 hybrid (read_mobi()'s job,
+    reading the hybrid's MOBI7 half -- same rule read_mobi() itself uses
+    to decide). Cheap: reads only the header, never the book's text.
+    False for anything that isn't a readable MOBI-family file at all --
+    the real reader then produces the proper error."""
+    try:
+        data = Path(path).read_bytes()
+        if not is_palmdb(data):
+            return False
+        palmdb = read_palmdb(data)
+        header = read_mobi_header(data, palmdb.records[0].offset)
+        if header.file_version < 8:
+            return False
+        exth = []
+        if header.has_exth:
+            exth = read_exth(data, exth_start_offset(header.mobi_offset, header.header_length))
+        return _find_valid_kf8_boundary(data, palmdb, exth) is None
+    except (ValueError, IndexError, struct.error, OSError):
+        return False
+
+
 # Phase 6: rewriting a page's own kindle:pos:fid:...:off:... (internal
 # links), kindle:embed:... (images), and kindle:flow:...?mime=text/css
 # (stylesheets) references to real hrefs. Confirmed present in all
@@ -705,19 +811,19 @@ def extract_page_body(page: bytes, encoding: str) -> str:
 
 
 def read_kf8(path: Path) -> Kf8Book:
-    """Opens a KF8 (AZW3) file and rebuilds its actual pages: separates
-    its main text from its embedded styling (Phase 2), reads its
-    skeleton/fragment/guide indices and splices fragment content back
-    into its skeletons (book.pages, one entry per output page, each
-    already a complete standalone document -- Phase 3), and pulls out
-    each page's inner body content ready for the shared EPUB assembler
-    (book.page_bodies, same order -- Phase 4). Raises MobiError (with a
-    message meant for a person) for anything it can't read. Still not
-    done: links and images inside a page still point at KF8's own
-    addressing scheme rather than real hrefs, and the chapter table of
-    contents isn't read yet -- Phase 5/6 jobs -- so book.page_bodies is
-    real, readable content, correctly split and ordered, but not yet
-    wired into a finished, fully cross-referenced EPUB."""
+    """Opens a KF8 (AZW3) file and rebuilds everything a converter needs
+    from it: the main text separated from its embedded styling (Phase 2),
+    the skeleton/fragment indices spliced back into complete pages
+    (book.pages, Phase 3) and their inner body content
+    (book.page_bodies, Phase 4), the chapter table of contents and guide
+    resolved to a real page and anchor each (book.toc, book.guide_table,
+    Phase 5), the images and cover (Phase 6), and the descriptive
+    metadata. What it deliberately does NOT do is rewrite the
+    kindle:pos/embed/flow references inside those pages to real hrefs --
+    that needs naming decisions belonging to the EPUB assembler, so the
+    Phase 6 rewrite_* functions do it, called by
+    ebook_fix.mobi.kf8_convert. Raises MobiError (with a message meant
+    for a person) for anything it can't read."""
     path = Path(path)
     data = path.read_bytes()
 
@@ -794,7 +900,9 @@ def read_kf8(path: Path) -> Kf8Book:
     book.fragment_table = read_fragment_table(data, palmdb, header)
     book.pages = reassemble_flow0(book.flows[0], book.skeleton_table, book.fragment_table)
     try:
-        book.guide_table = read_guide_table(data, palmdb, header)
+        book.guide_table = resolve_guide_table(
+            read_guide_table(data, palmdb, header), book.skeleton_table, book.fragment_table, book.pages
+        )
     except MobiError as exc:
         book.warnings.append(f"The book's guide (landmarks) couldn't be read ({exc}).")
 
@@ -814,4 +922,5 @@ def read_kf8(path: Path) -> Kf8Book:
     except MobiError as exc:
         book.warnings.append(f"The book's table of contents couldn't be read ({exc}).")
 
+    fill_metadata(book, header, exth)
     return book

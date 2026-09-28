@@ -2073,6 +2073,21 @@ honestly rather than assumed away, same as the encryption.xml
 situation -- swap in a real sample if/when one turns up.
 
 
+## Done: AZW3/KF8 conversion, Phases 3-7 (2026-09-26 to 2026-09-28)
+
+`convert` (and the GUI) now converts a pure AZW3/KF8 book to EPUB end to
+end, no Calibre needed: skeleton/fragment reassembly, the real chapter
+TOC and guide, internal links, images and cover, stylesheets, and
+metadata, assembled through the same shared `epub_builder` as MOBI7 and
+FB2. Verified against all three real AZW3 samples (strict XML, every link
+resolving, text identical to a reference tool, `repair` converging in one
+pass). One real bug in existing code turned up along the way: Paragraph
+Repair deleted empty `<p>` tags that held link targets, breaking links in
+converted Kindle books; fixed in `paragraphs.py`. Full details, including
+what's still untested (fonts, SVG, hybrids), in
+`docs/azw3_kf8_conversion_plan.md`.
+
+
 ## Done: AZW3/KF8 conversion, Phase 2 (2026-09-25)
 
 Second phase of `docs/azw3_kf8_conversion_plan.md`: flow separation.
@@ -2355,7 +2370,7 @@ converted book with no TOC gets a nav and NCX from TOC Generation, also
 idempotent.
 
 **Known gaps:** AZW3/KF8 not converted yet (a real sample exists in
-`examples/`). HUFF/CDIC decompression is written from the documented
+`examples/`). (Update 2026-09-28: it is now; see the AZW3/KF8 entry above.) HUFF/CDIC decompression is written from the documented
 format but no real file has exercised it (the converter refuses rather
 than emit a damaged book if the length doesn't match the header).
 Hybrid MOBI7+KF8 files are read through their MOBI7 half, untested for

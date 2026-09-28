@@ -127,8 +127,19 @@ def default_output_path(source: Path) -> Path:
 
 
 def convert_mobi_to_epub(source: Path, output: Path | None = None, overwrite: bool = False) -> ConvertResult:
-    """Converts one MOBI/AZW/PRC file to an EPUB. Raises MobiError (with
-    a message meant for a person) if the book can't be converted."""
+    """Converts one MOBI/AZW/AZW3/PRC file to an EPUB. A pure KF8/AZW3
+    book is handed to ebook_fix.mobi.kf8_convert (a lazy import: that
+    module imports this one for the pieces the two converters share);
+    everything else -- classic MOBI7, and a MOBI7+KF8 hybrid's MOBI7 half
+    -- is converted here. Raises MobiError (with a message meant for a
+    person) if the book can't be converted."""
+    from ebook_fix.mobi.kf8 import is_pure_kf8
+
+    if is_pure_kf8(source):
+        from ebook_fix.mobi.kf8_convert import convert_kf8_to_epub
+
+        return convert_kf8_to_epub(source, output, overwrite)
+
     source = Path(source)
     output = Path(output) if output else default_output_path(source)
 

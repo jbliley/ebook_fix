@@ -133,6 +133,50 @@ def _is_empty(element) -> bool:
     return _text(element) == ""
 
 
+def _referenced_fragments(book) -> set:
+    """Every fragment id (the part after a '#') that some link in the
+    book points at: in-body links, the EPUB 3 nav document (an ordinary
+    chapter, so covered by the first loop), and the NCX. Deliberately
+    ignores which file a link names -- an id that any link anywhere
+    mentions is treated as a live target, since a false "still needed"
+    only leaves a harmless empty paragraph behind, while a false "not
+    needed" silently breaks a link."""
+    fragments: set = set()
+    for chapter in book.chapters:
+        if chapter.document is None:
+            continue
+        for element in chapter.document.iter():
+            href = element.get("href") if isinstance(element.tag, str) else None
+            if href and "#" in href:
+                fragments.add(href.split("#", 1)[1])
+    ncx = getattr(book, "ncx_document", None)
+    if ncx is not None:
+        for element in ncx.iter():
+            src = element.get("src") if isinstance(element.tag, str) else None
+            if src and "#" in src:
+                fragments.add(src.split("#", 1)[1])
+    fragments.discard("")
+    return fragments
+
+
+def _holds_link_target(element, referenced: set) -> bool:
+    """True if this element, or anything inside it, carries an id (or
+    name) that a link somewhere points at. An empty paragraph that does
+    is an anchor for that link, not a leftover -- removing it (which is
+    what repair does to a paragraph with no text and no image) would
+    leave the link pointing at nothing. Confirmed against real AZW3
+    conversions, where Kindle books routinely keep chapter targets as
+    <p><br/><a id="..."></a></p>."""
+    if not referenced:
+        return False
+    for node in element.iter():
+        if not isinstance(node.tag, str):
+            continue
+        if node.get("id") in referenced or node.get("name") in referenced:
+            return True
+    return False
+
+
 def _is_junk(element) -> bool:
     text = _text(element)
     if text and any(pattern.search(text) for pattern in JUNK_PATTERNS):
@@ -398,6 +442,8 @@ def analyze_book_paragraphs(book, frontmatter_summary=None) -> BookParagraphSumm
         from ebook_fix.frontmatter import MAIN_ZONE
         main_hrefs = {cm.href for cm in frontmatter_summary.chapters if cm.zone == MAIN_ZONE}
 
+    referenced = _referenced_fragments(book)
+
     for chapter in book.chapters:
         if chapter.document is None:
             continue
@@ -419,7 +465,7 @@ def analyze_book_paragraphs(book, frontmatter_summary=None) -> BookParagraphSumm
             junk = _is_junk(p)
             empty = _is_empty(p)
 
-            if not junk and empty:
+            if not junk and empty and not _holds_link_target(p, referenced):
                 chapter_summary.empty_paragraphs.append(
                     EmptyParagraph(href=chapter.href, element=p)
                 )

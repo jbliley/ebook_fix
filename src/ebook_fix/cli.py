@@ -353,11 +353,11 @@ def build_parser():
     # Convert
     convert = sub.add_parser(
         "convert",
-        help="Convert a MOBI/AZW/PRC or FB2 book to EPUB. Built in, so Calibre isn't needed. Classic MOBI only for now; AZW3/KF8 is planned."
+        help="Convert a MOBI/AZW/AZW3/PRC or FB2 book to EPUB. Built in, so Calibre isn't needed."
     )
     convert.add_argument(
         "input",
-        help="Input MOBI/AZW/PRC or FB2 file"
+        help="Input MOBI/AZW/AZW3/PRC or FB2 file"
     )
     convert.add_argument(
         "-o",

@@ -201,6 +201,33 @@ def _find_valid_kf8_boundary(data: bytes, palmdb: PalmDBHeader, exth: list) -> i
     return None
 
 
+def fill_metadata(book, header, exth) -> None:
+    """Fills the descriptive metadata fields (title, authors, publisher,
+    description, isbn, asin, language, date, rights, subjects,
+    contributors) on a MobiBook or a KF8 book (ebook_fix.mobi.kf8.Kf8Book)
+    from the EXTH records and header. Shared so the two generations can't
+    drift apart: EXTH means the same thing in both."""
+    updated_title = _exth_values(exth, 503)
+    book.title = updated_title[0] if updated_title else header.full_name
+    book.authors = _exth_values(exth, 100)
+    publishers = _exth_values(exth, 101)
+    book.publisher = publishers[0] if publishers else ""
+    descriptions = _exth_values(exth, 103)
+    book.description = descriptions[0] if descriptions else ""
+    isbns = _exth_values(exth, 104)
+    book.isbn = isbns[0] if isbns else ""
+    asins = _exth_values(exth, 113)
+    book.asin = asins[0] if asins else ""
+    languages = _exth_values(exth, 524)
+    book.language = languages[0] if languages else ""
+    dates = _exth_values(exth, 106)
+    book.date = dates[0] if dates else ""
+    rights = _exth_values(exth, 109)
+    book.rights = rights[0] if rights else ""
+    book.subjects = _exth_values(exth, 105)
+    book.contributors = _exth_values(exth, 108)
+
+
 def read_mobi(path: Path) -> MobiBook:
     """Opens a MOBI-family file. Raises MobiError (with a message meant
     for a person) for anything it can't or won't convert."""
@@ -230,8 +257,9 @@ def read_mobi(path: Path) -> MobiBook:
     has_boundary = _find_valid_kf8_boundary(data, palmdb, exth) is not None
     if header.file_version >= 8 and not has_boundary:
         raise MobiError(
-            "This is an AZW3/KF8 book (the newer Kindle format). ebook_fix can convert classic "
-            "MOBI files so far; AZW3/KF8 conversion is the next planned step."
+            "This is an AZW3/KF8 book (the newer Kindle format), which the classic MOBI reader "
+            "doesn't handle. Use ebook_fix.mobi.kf8.read_kf8() (convert_mobi_to_epub() routes "
+            "these automatically)."
         )
 
     book = MobiBook(path=path, header=header, exth=exth)
@@ -304,23 +332,5 @@ def read_mobi(path: Path) -> MobiBook:
         except (NcxIndexError, struct.error, IndexError) as exc:
             book.warnings.append(f"The book's table of contents couldn't be read ({exc}).")
 
-    updated_title = _exth_values(exth, 503)
-    book.title = updated_title[0] if updated_title else header.full_name
-    book.authors = _exth_values(exth, 100)
-    publishers = _exth_values(exth, 101)
-    book.publisher = publishers[0] if publishers else ""
-    descriptions = _exth_values(exth, 103)
-    book.description = descriptions[0] if descriptions else ""
-    isbns = _exth_values(exth, 104)
-    book.isbn = isbns[0] if isbns else ""
-    asins = _exth_values(exth, 113)
-    book.asin = asins[0] if asins else ""
-    languages = _exth_values(exth, 524)
-    book.language = languages[0] if languages else ""
-    dates = _exth_values(exth, 106)
-    book.date = dates[0] if dates else ""
-    rights = _exth_values(exth, 109)
-    book.rights = rights[0] if rights else ""
-    book.subjects = _exth_values(exth, 105)
-    book.contributors = _exth_values(exth, 108)
+    fill_metadata(book, header, exth)
     return book
