@@ -826,51 +826,34 @@ def _normalize_marker_text(text: str) -> str:
 
 
 def merge_repeated_markers(candidates: list) -> list:
-    """
-    Collapse runs of consecutive-in-book-order candidates that share
-    the same normalized text, style, and number -- the signature of a
-    running header repeating across pages -- into a single candidate.
-    The first occurrence is kept as the representative; later ones are
-    recorded on it via `occurrence_count` / `also_seen_hrefs` rather
-    than discarded outright, so repair modules can still see every
-    file the chapter's heading actually touched.
-
-    Runs are tracked per marker style, not across the raw mixed stream:
-    a running chapter-title header and a running page number are often
-    two separate candidates sitting side by side on every page, and
-    that page number changing between occurrences shouldn't stop the
-    chapter title's repeats from being recognized as the same run.
-    """
+    """Collapse repeated markers across different XHTML files, but preserve
+    duplicate markers inside the same file so a real Prologue cannot be hidden
+    by a front-matter occurrence."""
     if not candidates:
         return candidates
-
-    by_style: dict = {}
+    by_style = {}
     for c in candidates:
         by_style.setdefault(c.style, []).append(c)
-
     merged = []
     for style, group in by_style.items():
         ordered = sorted(group, key=lambda c: c.book_order)
-        i = 0
-        n = len(ordered)
+        i = 0; n = len(ordered)
         while i < n:
-            current = ordered[i]
-            norm = _normalize_marker_text(current.text)
-            seen_hrefs = []
-            j = i + 1
+            current = ordered[i]; norm = _normalize_marker_text(current.text)
+            seen_hrefs = []; j = i + 1
             while j < n:
                 nxt = ordered[j]
+                if nxt.href == current.href:
+                    break
                 if _normalize_marker_text(nxt.text) != norm or nxt.number != current.number:
                     break
-                if nxt.href not in seen_hrefs and nxt.href != current.href:
+                if nxt.href not in seen_hrefs:
                     seen_hrefs.append(nxt.href)
                 j += 1
             if j - i > 1:
                 current.occurrence_count = j - i
                 current.also_seen_hrefs = seen_hrefs
-            merged.append(current)
-            i = j
-
+            merged.append(current); i = j
     merged.sort(key=lambda c: c.book_order)
     return merged
 
@@ -1115,6 +1098,33 @@ def _assign_part_indices(chapter_candidates: list, part_candidates: list) -> Non
         c.part_index = idx
 
 
+def _select_unnumbered_boundaries(candidates: list, numbered_candidates: list) -> list:
+    """Resolve duplicate bare Prologue/Epilogue markers using position."""
+    if not candidates:
+        return []
+    numbered = sorted(numbered_candidates, key=lambda c: c.book_order)
+    first_numbered = numbered[0].book_order if numbered else None
+    last_numbered = numbered[-1].book_order if numbered else None
+    groups = {}
+    for c in candidates:
+        groups.setdefault(_normalize_marker_text(c.text), []).append(c)
+    selected = []
+    for label, group in groups.items():
+        group = sorted(group, key=lambda c: c.book_order)
+        if len(group) == 1 or not numbered:
+            selected.append(max(group, key=lambda c: (c.score, c.book_order)))
+            continue
+        if label.startswith('prologue'):
+            pool = [c for c in group if c.book_order < first_numbered] or group
+            chosen = max(pool, key=lambda c: (c.book_order, c.score))
+        elif label.startswith('epilogue'):
+            pool = [c for c in group if c.book_order > last_numbered] or group
+            chosen = min(pool, key=lambda c: (c.book_order, -c.score))
+        else:
+            chosen = max(group, key=lambda c: (c.score, c.book_order))
+        selected.append(chosen)
+    return selected
+
 def analyze_book_chapters(book) -> BookChapterSummary:
     all_candidates = []
     order = 0
@@ -1145,15 +1155,12 @@ def analyze_book_chapters(book) -> BookChapterSummary:
     for c in _find_best_part_sequence(part_candidates):
         c.confirmed = True
 
-    # A bare Prologue/Epilogue doesn't need another one of its kind
-    # nearby counting up to be believable the way an ordinary chapter
-    # marker does (see _find_best_sequence) -- it's a whole chapter's
-    # worth of real content on its own, self-describing by its label
-    # alone. Each one found is trusted on sight, per Jacob's own call
-    # (docs/analysis_roadmap.md), and folded into confirmed_boundaries
-    # below so frontmatter.py's zone anchoring treats it -- and
-    # anything between it and the nearest numbered chapter -- as part
-    # of the main story rather than front/back matter.
+    # A bare Prologue/Epilogue is self-describing, but the same label can
+    # also appear in front matter. Select the occurrence with the strongest
+    # evidence that it is the actual story boundary.
+    unnumbered_candidates = _select_unnumbered_boundaries(
+        unnumbered_candidates, chapter_candidates,
+    )
     for c in unnumbered_candidates:
         c.confirmed = True
     unnumbered_candidates = sorted(unnumbered_candidates, key=lambda c: c.book_order)
