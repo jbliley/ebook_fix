@@ -1,7 +1,12 @@
 # Omnibus Splitter -- Planning Doc
 
-**Status:** Scoped, not started. Scheduled as "ways down the road" (Jacob's words).
-**Started:** 2026-09-17 (scoping session).
+**Status:** Detection done and verified (2026-10-01). Splitting (the repair phase) not started.
+**Started:** 2026-09-17 (scoping session). Detection built 2026-10-01 after Jacob supplied three real
+omnibus files to test against, which also led to finding two more already sitting in `examples/`
+under names that didn't say "omnibus" (`OmnibusExample.epub`, and a Russian-titled First Mountain Man
+file) -- five real samples in total, covering three genuinely different structures. See "Detection
+phase" below for what's actually built, and the 2026-10-01 entries throughout this doc for what
+changed from the original scoping.
 
 ## The idea
 
@@ -11,25 +16,63 @@ This is fundamentally different from the chapter-splitting work in `xhtml_recode
 
 Jacob's actual motivation: for a 50+ book series still expanding, he wants each entry as its own file in his Calibre library, not bundled 2-to-a-file omnibus editions. Making each output "look like it was always a single book" ensures the split output is indistinguishable from having purchased each book separately -- users won't see "this looks like it came from a different edition" when they open the book.
 
-## Real example: Mountain Man omnibus
+## Real examples (2026-10-01)
 
-File: `MM5_Complete.epub` (in `examples/`).
+The original version of this section described `MM5_Complete.epub` as a two-book "Creed/Guns of the
+Mountain Man" omnibus with `class="toc_entry_part"` dividers and a `title-part` div per book. That
+file no longer matches that description -- it's `Law of the Mountain Man`, a single novel, already
+repaired by this project's own tooling (its `contents.xhtml` carries `ebookfix-chapter-wrapper`
+markup). Whether it was swapped out at some point or the original description was simply wrong isn't
+known; either way, nothing in `examples/` matched it when this was checked. The real two-book
+"Creed/Guns" omnibus does still exist in `examples/`, just under a different name:
+`OmnibusExample.epub`.
 
-**Structure:**
-- Title page: "CREED OF THE MOUNTAIN MAN / GUNS OF THE MOUNTAIN MAN"
-- Book One: `Creed of the Mountain Man` (chapters 1-31 + Author's Note)
-- Book Two: `Guns of the Mountain Man` (chapters 1-32, renumbered from the original chapters 32-63 in the omnibus)
-- Combined copyright page: two separate copyright blocks, one per book
-- Shared footnotes file with cross-book references
-- Single cover image (represents the omnibus, not either individual book)
+Five real omnibus files were examined in total -- three Jacob uploaded for this (not kept in
+`examples/`, since he didn't want them added permanently; ask him again if a permanent fixture is
+wanted later) and two already in `examples/` under names that didn't say "omnibus" clearly enough to
+have been noticed sooner. Between them they use three genuinely different structures, not the one
+structure (TOC dividers + split copyright blocks) this doc originally assumed:
 
-**Detection signals:**
-- In-body Contents page uses `class="toc_entry_part"` dividers; each book's title lives on a dedicated one-line spine file (`<div class="title-part">GUNS OF THE MOUNTAIN MAN</div>`)
-- Chapter numbering restarts at 1 for each book (Case 3 restart detection in `chapters.py`)
-- Copyright page independently lists each book's title and year separately
-- Two independent signals agreeing on the same split point = high confidence for the boundary
+- **`OmnibusExample.epub`** (`examples/`) -- "Creed of the Mountain Man" / "Guns of the Mountain Man",
+  2 books. Flat table of contents; chapter numbering restarts from 1 at "Guns"; the entry immediately
+  before the restart ("GUNS OF THE MOUNTAIN MAN") is that book's title. No TOC divider class, no split
+  copyright blocks -- just the restart itself, with a title immediately before it.
+- **A Russian-titled First Mountain Man file** (`examples/`) -- "The First Mountain Man: Absaroka
+  Ambush" / "Courage of the Mountain Man", 2 books. More complex: *each* book is itself divided into
+  "BOOK ONE"/"BOOK TWO"/"BOOK THREE" parts, each restarting its own chapter count -- restarts that
+  are **not** book boundaries, since nothing separates them but a part label, not a title. The real
+  boundary between the two actual books has no restart signal driving it at all (TOC source).
+- **Ravaged Land: Eventuality Series Box Set** (Jacob's upload, not kept) -- "The Wall" / "The
+  Outside", 2 books. Same flat-restart shape as OmnibusExample, plus real shared front matter (a title
+  page, a copyright page with no book-specific text at all, an ad page, an author's note) before the
+  first book's own title.
+- **Tales of Talon Box Set** (Jacob's upload, not kept) -- 4 books, 3 main plus a short bonus novella.
+  Different shape entirely: the table of contents is *hierarchical*, each book's own chapters nested
+  as children of that book's own top-level entry. No restart-scanning needed at all here -- the
+  structure already says where each book is directly.
+- **The Complete Tarzan Collection** (Jacob's upload, not kept; also the stress test for scale -- 659
+  spine files, 7.4 MB) -- 25 full novels. No chapter numbers anywhere in the table of contents at all;
+  each novel is its own flat top-level entry with nothing to restart. The only way to tell a real book
+  entry from a stray front-matter one here is span length: a real novel's entries span tens of
+  thousands of characters, a front-matter page a few hundred. One of the per-novel "title pages" here
+  is a scanned pulp-magazine cover image with no text at all (`<title>Unknown</title>`) -- confirms the
+  "title page might be an image" edge case this doc already anticipated.
+
+**What this changed about the plan:** the CSS-divider-based and copyright-block-based detection this
+doc originally specified doesn't match any of the five real files above -- not one of them has a
+`toc_entry_part`/`title-part` class, and only `OmnibusExample.epub` even has a copyright page that
+mentions book titles at all (and it mentions neither book by name there). The book's own table of
+contents turned out to be the one signal present, in some form, in every real sample -- see "Detection
+phase" below for what actually got built instead.
 
 ## Architecture decisions
+
+**2026-10-01 note:** the title-page "clone + overlay text" mechanism described below turned out to be
+largely unnecessary against real samples -- see finding 9 under "Known gaps and open questions" further
+down. The open questions in this section (ISBN handling, cover image, shared front/back matter) were
+also resolved the same day -- see the decisions list below this section for the actual answers. What
+follows is kept as the original 2026-09-17 scoping, for the parts (copyright-block edge cases, the
+general shape of per-book metadata) that are still relevant.
 
 ### What gets split and what doesn't
 
@@ -144,53 +187,60 @@ The OPF metadata (`dc:title`, `dc:creator`, `dc:date`, etc.) in the original omn
 
 **Decision pending:** Jacob's preference on effort vs. polish here. For now, assume option 1 (reuse omnibus cover) as the MVP path.
 
-## Detection phase: identifying omnibus structure
+## Detection phase: identifying omnibus structure -- done, 2026-10-01
 
-Detection runs as part of `EPUBAnalyzer.analyze()`, separate from the repair pipeline. A book with no detected split points is not an omnibus candidate (confidence: NONE).
+Built in `ebook_fix/omnibus.py` as `detect(book) -> OmnibusAnalysis`, descriptive-only in the same
+style as `fonts.py`/`frontmatter.py`/`css.py` -- it finds boundaries and a confidence level; it
+doesn't write anything. Works off the book's own already-parsed `book.toc` (which the parser builds
+identically whether the source is an NCX or an EPUB3 nav document), not off CSS classes or copyright
+text, since the real samples showed that's the one signal every omnibus structure actually carries:
 
-**Signals to detect:**
+- **`_detect_nested`** -- each book is already its own top-level `book.toc` entry, with that book's
+  own "Chapter 1, 2, 3..." sequence nested as its children (reusing `chapters.py`'s own `_classify()`
+  to recognize chapter numbers in a TOC label). No restart-scanning needed; the structure already says
+  where each book is. Confidence: high. Matches Tales of Talon.
+- **`_detect_restart`** -- one flat `book.toc`, chapter numbering restarts at 1 partway through. A
+  restart only counts as a book boundary when the entry immediately before it is genuinely
+  unclassifiable (a real standalone title) -- not itself a "Book Two"/"Part Three" label, which means
+  the restart belongs to a single novel's own internal part structure, not a second work. (Confirmed
+  real, not hypothetical: War and Peace restarts chapter numbering 17 times, once per "BOOK ONE"/
+  "BOOK TWO"/... division, and was a real false positive before this check was added.) Confidence:
+  high. Matches OmnibusExample and Ravaged Land.
+- **`_detect_title_list`** -- one flat `book.toc`, no chapter numbers anywhere, but several top-level
+  entries that each cover a long enough span to be a real book: at least 3 pages within that span each
+  at least 2000 characters of visible text, not a cumulative total across the span (a cumulative total
+  was tried first and is wrong -- a run of several short front-matter pages, none individually long,
+  can add up past almost any single threshold without any of them, or the book they belong to,
+  containing a single real chapter; confirmed a real false positive on the already-single-book
+  MM5_Complete.epub before this was changed to require several chapter-sized pages instead).
+  Project Gutenberg's own standard license text is long enough on its own to pass as a "book" this way
+  (confirmed false positive on "The Call of Cthulhu"), so anything at or after the file
+  ebook_fix.gutenberg's own detector already flags as Gutenberg back matter is excluded. Confidence:
+  medium (a real title match, but no chapter-numbering signal to corroborate it). Matches The Complete
+  Tarzan Collection and the First Mountain Man file's own two-book split (which has no restart signal
+  of its own, see above).
 
-1. **Chapter numbering restarts** (already implemented in `chapters.py`):
-   - Case 3 detection identifies sequences like: chapters 1..31 (Book One), then 1..32 (Book Two)
-   - `_classify` recognizes part boundaries; a numbering restart inside a part is the primary signal
-   - Confidence: HIGH when a restart is both detected and corroborated by a Contents divider or title-part page
+detect() tries the three in that order (a structural signal is stronger evidence than a title-length
+heuristic) and returns the first real match. Whichever matches, the first book's own span always
+starts at spine index 0, regardless of where its own title marker sits -- shared front matter (a
+cover, a title page, a copyright page, an author's note) goes to Book One, per Jacob's decision below,
+and a naive implementation of this turned out to have a real bug: a file with no marker at all before
+the first detected title (The Complete Tarzan Collection's own cover/title-page files, which have no
+table-of-contents entry of their own) silently lost that content outside every book's range entirely,
+rather than merely mis-attributing it.
 
-2. **In-body Contents dividers** (new signal):
-   - Scan the Contents page for elements like `<div class="toc_entry_part">GUNS OF THE MOUNTAIN MAN</div>`
-   - Match divider text against detected chapter-restart points
-   - Confidence: HIGH when the divider's position aligns with where chapter numbering restarts
+**Verified:** all five real samples detect with the right method, the right number of books, and the
+right titles; every book's range is contiguous with its neighbors and the whole set spans exactly
+[0, len(book.chapters)) with nothing lost or overlapping; and a full scan of every other file in
+examples/ (18+ single-book EPUBs, including War and Peace and The Call of Cthulhu, both of which
+were real false positives at an earlier point in building this) produces zero false positives.
 
-3. **Copyright block separation** (new signal, forensic):
-   - On the copyright page, detect multi-paragraph blocks separated by visual breaks (double newlines, explicit `<hr>`, blank `<p>` elements)
-   - Each block should mention one of the book titles already identified by signals 1 or 2
-   - Confidence: MEDIUM-HIGH when two blocks independently mention the same titles
+**Not yet wired anywhere:** detect() isn't called from analyzer.py, the CLI, or the GUI yet -- that
+and the actual splitting/output-writing are the repair phase below, not started.
 
-**Result of detection:** An `OmnibusAnalysis` object (new, in `analyzer.py`):
-```python
-@dataclass
-class OmnibusAnalysis:
-    is_omnibus: bool                           # True if split detected
-    confidence: ConfidenceLevel                # HIGH, MEDIUM, LOW, NONE
-    split_points: List[OmnibusBook]            # Each book's metadata + boundaries
-    
-@dataclass
-class OmnibusBook:
-    title: str                                 # Extracted from Contents/copyright
-    author: str                                # Preserved from original or extracted
-    chapter_range: Tuple[int, int]             # Start/end chapters (1..31, 32..63)
-    first_chapter_href: str                    # First XHTML file for this book
-    last_chapter_href: str                     # Last XHTML file for this book
-    copyright_block_text: str                  # Extracted from copyright page
-    title_page_href: str                       # XHTML file containing title page
-    footnotes_referenced: Set[str]             # footnote IDs this book uses
-```
+## Repair phase: producing the output EPUBs -- not started
 
-**When to flag for review (GUI Review tab):**
-- Detected split points exist, but confidence is MEDIUM or below
-- Split boundaries detected but copyright blocks don't cleanly align (one book has copyright, other doesn't)
-- Unusual structure (more than 2 books, interleaved chapters, etc.)
 
-## Repair phase: producing the output EPUBs
 
 Once an omnibus is detected and the user confirms the split in the GUI Review tab (or via CLI flag `--split-omnibus`), the repair engine produces *N* complete, valid EPUB files.
 
@@ -245,34 +295,70 @@ For each book:
 
 ## Known gaps and open questions
 
-**Decided:**
+**Decided (2026-09-17):**
 - Title page extraction and overlay: YES, as Jacob specified
 - Copyright block extraction: YES, per-book only
 - Full planning doc: YES, now (this doc)
 
-**Not yet decided:**
-1. **Front matter before the first book** (dedication, foreword, generic publisher letter): Include in all outputs, only first, or exclude entirely?
-2. **Shared back matter** (colophon, publisher info): Include in all outputs or only first?
-3. **ISBN handling for split books**: Keep omnibus ISBN in metadata, omit it, or generate new identifiers?
-4. **Cover image**: Reuse omnibus cover (current assumption), generate simple text covers per book, or flag for manual review?
-5. **Confidence bar for automatic splitting**: What confidence level should trigger "split is safe enough to do without review" (HIGH only, or MEDIUM-HIGH too)?
-6. **More than 2 books in one omnibus**: Current design assumes 2, but could extend. Should we scope 3+ books now, or build for 2 and generalize later?
-7. **Already-split omnibus** (some chapters already in separate files): Does `splitter.py`'s existing mixed-state handling cover this, or does the omnibus feature need its own logic?
+**Decided (2026-10-01) -- Jacob confirmed every recommendation below as-is:**
+1. **Front matter before the first book** (dedication, foreword, generic publisher letter): include
+   only in Book One's output, not duplicated into every book.
+2. **Shared back matter** (colophon, publisher info): include only in the last book's output.
+3. **ISBN handling**: use a per-book ISBN if found; otherwise a generated UUID, not the omnibus's own
+   ISBN reused on two separate files.
+4. **Cover image**: reuse the omnibus cover for the MVP; revisit later if it's a problem in practice.
+5. **Confidence bar for automatic splitting**: high only auto-splits; medium routes to the GUI Review
+   tab; low (i.e. not detected at all) offers nothing.
+6. **More than two books**: build for N books generally. Already true of the detection phase above --
+   none of its three methods assume exactly two.
+7. **Already-split omnibus**: out of scope for v1 unless a real sample turns up.
 
-These will be decided before Phase 1 implementation begins, in a follow-up scoping session with Jacob.
+Jacob's own words on 1 and 2: this is deliberately the simple version for now -- "We may end up
+recreating the front matter and copying it to the other books in the future, and same with the back
+material, if only for the look and feel. Once we get this working and reliable, we can go back and
+tweak it." So the repair phase below should build the simple version (shared matter goes to one book
+only) rather than the original title-page-cloning/overlay design, and treat per-book front/back matter
+as a later refinement once the basic split is proven reliable.
+
+**Found while building detection, not anticipated by the original scoping:**
+8. **Footnote/cross-reference splitting** (originally planned as Phase 4 of the repair phase): none of
+   the five real samples examined has shared footnotes referenced across book boundaries -- the two
+   self-published box sets and the Mountain Man westerns have none at all, and Tarzan's are Gutenberg-
+   sourced public-domain fiction with none either. Deferred until a real sample actually needs it,
+   rather than built against no evidence at all.
+9. **Title page cloning and text overlay** (originally the core of "Title page extraction and
+   customization" above): turned out to be largely unnecessary against real samples. Every book found
+   by `_detect_restart` or `_detect_nested` already has its own standalone title/divider page as real
+   spine content immediately at its own start index (e.g. Ravaged Land's "The Wall / Ravaged Land:
+   Eventuality Book One by Kellee L. Greene", or Tarzan's own pulp-cover-image page) -- which the
+   detection phase's own span-slicing already includes as that book's first page, with no text
+   replacement needed. The one case genuinely needing something like the original cloning idea is a
+   book found by `_detect_title_list` whose own "title entry" is actually a real title but whose span
+   starts immediately at a chapter file with no dedicated title page of its own (not yet seen in a real
+   sample either) -- worth building if and when one turns up, not before.
+
+These two findings substantially shrink the repair phase from the original design: Phase 1 (title/
+copyright extraction) and Phase 4 (footnotes) below are both mostly unneeded for v1; Phase 2
+(manifest/spine reconstruction), Phase 3 (metadata), and Phase 6 (verification) are the real work.
 
 ## Implementation order
 
-**If/when this is built:**
+Steps 1-2 are done (as `ebook_fix/omnibus.py`'s standalone `detect()`, not as an expansion of
+`analyzer.py` itself -- matching how `fonts.py`/`frontmatter.py`/`css.py` are each their own module
+that `analyzer.py` calls into, not inline code within it). Remaining:
 
-1. Expand `analyzer.py` with omnibus detection (signals 1-3 above)
-2. Add `OmnibusAnalysis` to the analyzer's output report
-3. Wire omnibus findings to the CLI `map-structure` command (display detected split points)
-4. Wire omnibus findings to the GUI Review tab (allow acceptance/rejection of split)
-5. Build `OmnibusRepair` module (all 6 phases above) in `modules/omnibus_split.py`
+1. ~~Expand `analyzer.py` with omnibus detection~~ -- done differently: `ebook_fix/omnibus.py`,
+   called from `analyzer.py` the same way every other analysis module is.
+2. ~~Add `OmnibusAnalysis` to the analyzer's output report~~ -- done; `OmnibusAnalysis`/`OmnibusBook`
+   live in `omnibus.py` itself.
+3. Wire `detect()`'s result into the CLI `map-structure` command (display detected split points)
+4. Wire it into the GUI Review tab (medium confidence) and a plain report (high confidence)
+5. Build `OmnibusRepair` module in `modules/omnibus_split.py` -- per the 2026-10-01 decisions above,
+   the simple version first (shared front/back matter to one book only, no title-page cloning or
+   footnote splitting, both deferred for lack of real evidence they're needed)
 6. Register in `engine.py` (if omnibus detected and user approved, run before other repairs)
-7. Update CLI/GUI to expose the `--split-omnibus` flag and output-file naming
-8. Full regression testing on all sample books + Mountain Man examples (existing + any new test cases)
+7. Update CLI/GUI to expose a `--split-omnibus` flag and output-file naming
+8. Full regression testing -- see "Testing strategy" below, already partly done for detection
 9. Document the feature in README.md and CLI help text
 
 ## Difference from chapter splitting
@@ -284,31 +370,44 @@ These will be decided before Phase 1 implementation begins, in a follow-up scopi
 
 **Omnibus splitting** (this doc):
 - Produces multiple *independent* EPUBs from one input
-- Each output is a complete, standalone book (new OPF, new manifest, new metadata, new title/copyright pages)
+- Each output is a complete, standalone book (new OPF, new manifest, new metadata; title/copyright
+  pages carried through as part of each book's own span, not cloned/edited -- see the 2026-10-01 note
+  on title-page handling above)
 - Each output should be indistinguishable from a real, separate purchase of that book
-- More architectural complexity (manifest rebuilding, metadata per-output, file cloning)
+- More architectural complexity (manifest rebuilding, metadata per-output)
 
 ## Testing strategy
 
-**Sample books:**
-- `MM5_Complete.epub`: the real example (2 books in omnibus)
-- `MM5_Incomplete.epub`: if it's already split into chapters, it's a good stress-test for the mixed-state case
-- Synthetic test case: build a 3-book omnibus to verify the design generalizes beyond 2 books
+**Sample books (updated 2026-10-01):**
+- `OmnibusExample.epub` (in `examples/`): "Creed/Guns of the Mountain Man", 2 books, detected via
+  `_detect_restart`. The real fixture this doc originally meant by "MM5_Complete.epub".
+- The Russian-titled First Mountain Man file (in `examples/`): 2 books, detected via
+  `_detect_title_list` -- also the regression case for "a restart that isn't a book boundary" (its own
+  internal BOOK ONE/TWO/THREE parts).
+- Three files Jacob uploaded for this and did not want kept in `examples/`: Ravaged Land (2 books,
+  restart), Tales of Talon (4 books, nested), The Complete Tarzan Collection (25 books, title-list, and
+  the scale stress-test at 659 spine files / 7.4 MB). Ask Jacob again if any should become permanent
+  fixtures once the repair phase needs real files to split, rather than just detect against.
+- `MM5_Incomplete.epub`: not an omnibus (confirmed, detection's own regression scan) -- still useful as
+  a mixed-state stress test once the repair phase exists.
+- *War and Peace* and *The Call of Cthulhu* (both already in `examples/`): not omnibuses, but real
+  false positives at an earlier point in building detection (an internal part structure, and Project
+  Gutenberg's own license text respectively) -- keep these in the regression set specifically for that
+  reason, not just as generic single-book coverage.
 
-**Test cases:**
-1. Detect split point correctly (correct chapter range, correct titles)
-2. Title page extraction and customization (text replaced, images intact)
-3. Copyright block extraction (only relevant block included, formatting preserved)
-4. Metadata per output (title, author, date all correct)
-5. Footnote extraction and renumbering (footnotes renumbered, backlinks updated)
-6. Idempotency (running repair again produces identical files)
-7. Word-count diffing (outputs sum to input word count, no loss)
-8. Each output validates independently (valid EPUB, no broken links)
+**Test cases, detection (done):**
+1. Detect split point correctly (correct chapter range, correct titles) -- verified on all 5 real
+   samples
+2. Zero false positives across every other file in `examples/` -- verified
 
-**Regression suite:**
-- All 18 existing sample books: none should be detected as omnibus (confidence NONE)
-- Mountain Man examples: should be detected with HIGH confidence, split correctly, idempotent
+**Test cases, repair (not started):**
+3. Metadata per output (title, author, date all correct)
+4. Idempotency (running repair again produces identical files)
+5. Word-count diffing (outputs sum to input word count, no loss, no duplication)
+6. Each output validates independently (valid EPUB, no broken links)
+7. Shared front/back matter lands in the right one book per the 2026-10-01 decisions, not duplicated
 
 ---
 
-This file is the source of truth for omnibus splitting. When implementation begins, decisions on open questions (1-7 above) should be documented here as dated notes, before code is written.
+This file is the source of truth for omnibus splitting. Decisions and what was actually found while
+building are documented here as dated notes (see the 2026-09-17 and 2026-10-01 entries throughout).
