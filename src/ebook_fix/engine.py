@@ -28,11 +28,13 @@ from ebook_fix.structure import (
     analyze_structure, analyze_case3_structure, format_structure_report,
     iter_chapter_nodes, SplitConfidence,
 )
-from ebook_fix.splitter import apply_split, SplitMarker, SplitError
+from ebook_fix.split_fragments import merge_leading_fragments
+from ebook_fix.splitter import apply_split, SplitMarker, SplitError, marker_number
 from ebook_fix.crossref import find_links_into, rewrite_links, find_ncx_links_into, rewrite_ncx_links, generate_missing_ncx_entries
 from ebook_fix.case3_map import write_case3_boundaries_file, load_case3_boundaries_file, Case3MappingError
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
+from ebook_fix.modules.linebreak_repair import LineBreakRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.toc_generation import TocGenerationRepair
 from ebook_fix.modules.images import ImageRepair
@@ -71,6 +73,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     ColorStripRepair,
     FontStripRepair,
     ParagraphRepair,
+    LineBreakRepair,
     ChapterMarkupRepair,
     TocGenerationRepair,
     SceneBreakRepair,
@@ -103,6 +106,11 @@ class Engine:
         # module before it in this list.
         if getattr(self.config, "running_title_repair", None) and getattr(self.config.running_title_repair, "enabled", True):
             modules.append(RunningTitleRepair(self.config.running_title_repair))
+        # Stray Line Break Removal goes right before Paragraph Repair:
+        # a paragraph that starts with a stray <br/> would otherwise get
+        # merged into the one before it and strand the break mid-sentence.
+        if getattr(self.config, "linebreak_repair", None) and getattr(self.config.linebreak_repair, "enabled", True):
+            modules.append(LineBreakRepair(self.config.linebreak_repair))
         if getattr(self.config, "paragraph_repair", None) and getattr(self.config.paragraph_repair, "enabled", True):
             modules.append(ParagraphRepair(self.config.paragraph_repair))
         if getattr(self.config, "chapter_markup", None) and getattr(self.config.chapter_markup, "enabled", True):
@@ -845,6 +853,12 @@ class Engine:
                 paragraph_issues.append(f"Empty paragraphs: {para.empty_paragraph_count}")
             if para.mid_sentence_split_count:
                 paragraph_issues.append(f"Mid-sentence paragraph splits: {para.mid_sentence_split_count}")
+            stray_breaks = getattr(analysis_report, "linebreaks", None)
+            if stray_breaks is not None and stray_breaks.stray_break_count:
+                paragraph_issues.append(
+                    f"Stray line breaks at paragraph edges: {stray_breaks.stray_break_count} "
+                    f"across {len(stray_breaks.chapters_with_stray_breaks)} chapter(s)"
+                )
 
             if paragraph_issues:
                 self.log("\n[Paragraphs]")
@@ -1506,6 +1520,7 @@ class Engine:
         current_href_origin = {}
         href_by_id_by_origin = {}
         new_hrefs_by_origin = {}
+        leading_fragment_hrefs = []
         for href, markers in markers_by_href.items():
             chapter = next((c for c in book.chapters if c.href == href), None)
             if chapter is None:
@@ -1522,6 +1537,8 @@ class Engine:
                 current_href_origin[new_href] = href
             href_by_id_by_origin[href] = result.href_by_id
             new_hrefs_by_origin[href] = result.new_hrefs
+            if result.has_leading_segment:
+                leading_fragment_hrefs.append(href)
             all_hrefs = [href] + result.new_hrefs
             if log_each_split:
                 self.log(
@@ -1541,6 +1558,19 @@ class Engine:
         ncx_report = rewrite_ncx_links(book, ncx_refs, href_by_id_by_origin)
 
         entry_report = generate_missing_ncx_entries(book, split_hrefs, new_hrefs_by_origin)
+
+        # Last step: a file that was originally cut by size rather than
+        # by chapter leaves the tail of the previous file's last chapter
+        # sitting alone (no heading, no TOC entry) once split. Put it
+        # back where it belongs. See ebook_fix.split_fragments for every
+        # condition that has to hold; anything skipped is logged.
+        if leading_fragment_hrefs:
+            anchored = set(current_href_origin)
+            merge_result = merge_leading_fragments(book, leading_fragment_hrefs, anchored)
+            for fragment_href, target_href in merge_result.merged:
+                self.log(f"Rejoined the continuation of a chapter: {fragment_href} merged into {target_href}")
+            for fragment_href, reason in merge_result.skipped:
+                self.log(f"Left {fragment_href} as its own file: {reason}")
 
         return split_count, [crossref_report, ncx_report, entry_report], new_hrefs_by_origin
 
@@ -1653,7 +1683,7 @@ class Engine:
                     SplitMarker(
                         element=node.evidence.candidate.element,
                         title=node.title,
-                        number=node.evidence.candidate.number,
+                        number=marker_number(node.evidence.candidate),
                     )
                     for node in nodes
                 ]
@@ -2147,7 +2177,7 @@ class Engine:
                 skipped += 1
                 continue
             markers_by_href.setdefault(b.href, []).append(
-                SplitMarker(element=candidate.element, title=node.title, number=candidate.number)
+                SplitMarker(element=candidate.element, title=node.title, number=marker_number(candidate))
             )
 
         if not markers_by_href:

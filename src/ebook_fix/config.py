@@ -32,6 +32,15 @@ class ParagraphRepairConfig:
 
 
 @dataclass(slots=True)
+class LineBreakRepairConfig:
+    enabled: bool = True
+    # Remove a <br/> sitting at the very start or end of a paragraph or
+    # heading in the main story (shows up as an extra blank line between
+    # paragraphs). A <br/> in the middle of a paragraph is never touched.
+    remove_stray_breaks: bool = True
+
+
+@dataclass(slots=True)
 class ImageRepairConfig:
     enabled: bool = True
     fix_broken_images: bool = True
@@ -234,6 +243,7 @@ class MetadataRepairConfig:
 class Config:
     epub3_upgrade: EPUB3UpgradeConfig = field(default_factory=EPUB3UpgradeConfig)
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
+    linebreak_repair: LineBreakRepairConfig = field(default_factory=LineBreakRepairConfig)
     chapter_markup: ChapterMarkupConfig = field(default_factory=ChapterMarkupConfig)
     toc_generation: TocGenerationConfig = field(default_factory=TocGenerationConfig)
     image_repair: ImageRepairConfig = field(default_factory=ImageRepairConfig)
@@ -287,6 +297,7 @@ def load_config(path: str | Path | None = None) -> Config:
     modules = data.get("modules", {})
     _apply_module_toggle(config.epub3_upgrade, modules, "epub3_upgrade")
     _apply_module_toggle(config.paragraph_repair, modules, "paragraph_repair")
+    _apply_module_toggle(config.linebreak_repair, modules, "linebreak_repair")
     _apply_module_toggle(config.chapter_markup, modules, "chapter_markup")
     _apply_module_toggle(config.toc_generation, modules, "toc_generation")
     _apply_module_toggle(config.image_repair, modules, "image_repair")
@@ -305,6 +316,7 @@ def load_config(path: str | Path | None = None) -> Config:
 
     _apply_section(config.epub3_upgrade, "epub3_upgrade", data.get("epub3_upgrade", {}))
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
+    _apply_section(config.linebreak_repair, "linebreak_repair", data.get("linebreak_repair", {}))
     _apply_section(config.chapter_markup, "chapter_markup", data.get("chapter_markup", {}))
     _apply_section(config.toc_generation, "toc_generation", data.get("toc_generation", {}))
     _apply_section(config.image_repair, "image_repair", data.get("image_repair", {}))
@@ -375,6 +387,7 @@ DEFAULT_CONFIG_TEXT = """\
 [modules]
 epub3_upgrade = true
 paragraph_repair = true
+linebreak_repair = true
 chapter_markup = true
 toc_generation = true
 image_repair = true
@@ -417,6 +430,17 @@ fix_watermark_junk = true
 
 # Merge paragraphs that were incorrectly split mid-sentence.
 fix_mid_sentence_splits = true
+
+# ---------------------------------------------------------------------
+# Stray Line Break Removal
+# ---------------------------------------------------------------------
+[linebreak_repair]
+
+# Remove a line break (<br/>) sitting at the very start or end of a
+# paragraph or heading in the main story. These show up as an extra
+# blank line between paragraphs. A line break in the middle of a
+# paragraph is never touched.
+remove_stray_breaks = true
 
 # ---------------------------------------------------------------------
 # Chapter Markup

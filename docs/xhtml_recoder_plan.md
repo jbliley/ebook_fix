@@ -1062,6 +1062,18 @@ real work on this begins, not before.
 - Whether Phase 0's structure tree subsumes chapters.py entirely or
   sits alongside it.
 
+## Done: orphaned continuation fragments after a split, and unnumbered file names (2026-10-02)
+Two follow-ups found by splitting a book that had no chapters or table
+of contents (see `docs/analysis_roadmap.md`, 2026-10-02 entry, for the
+full write-up). `split_fragments.py` rejoins the untitled tail of a
+chapter that a size-based file cut left stranded at the start of the
+next file, with the guards described there, and runs as the last step
+of `Engine._split_and_rewire`. `splitter.marker_number()` stops a
+Prologue/Epilogue or Part divider from carrying a chapter number into
+its file name, so the Prologue no longer collides with Chapter One;
+unnumbered files use `chapter_NNN` when free and the first free
+`section_NNN` otherwise.
+
 ## Continuity note
 This file is the source of truth for where this feature stands --
 more reliable than relying on conversation memory across sessions.

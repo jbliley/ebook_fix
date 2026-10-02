@@ -85,6 +85,7 @@ class SplitSegment:
     title: str = ""
     number: int | None = None
     elements: list = field(default_factory=list)  # body children, in order
+    leading: bool = False  # True only for the untitled chunk before a file's first marker
 
 
 # ---------------------------------------------------------------------
@@ -98,6 +99,8 @@ class SplitResult:
     new_hrefs: list = field(default_factory=list)  # newly created files only
     segment_word_counts: list = field(default_factory=list)  # one per resulting file, in order
     original_word_count: int = 0
+    has_leading_segment: bool = False  # segment 0 is an untitled chunk that came
+    # before the file's first chapter marker (it kept original_href)
     href_by_id: dict = field(default_factory=dict)  # every id that existed in the
     # original file, mapped to whichever href now holds it -- original_href for
     # anything that stayed in segment 0, one of new_hrefs for anything that moved.
@@ -287,7 +290,7 @@ def split_body_at_markers(document, markers: list) -> list:
 
     leading = children[0:boundaries[0]]
     if leading:
-        segments.append(SplitSegment(title="", number=None, elements=leading))
+        segments.append(SplitSegment(title="", number=None, elements=leading, leading=True))
 
     for (start, marker, _), end in zip(placed, boundaries[1:]):
         segments.append(
@@ -416,6 +419,17 @@ def _reassemble_original_body(segments: list) -> None:
 # ---------------------------------------------------------------------
 
 
+def marker_number(candidate):
+    """The chapter number to hand a SplitMarker for `candidate`. A
+    Prologue/Epilogue ("unnumbered") or a Part/Book divider has a number
+    internally (the sequence code counts it as 1, say) but isn't chapter
+    1, so it must not be named like one -- it gets None and is named by
+    its position instead (see generate_split_hrefs)."""
+    if getattr(candidate, "label_kind", "") in ("unnumbered", "part"):
+        return None
+    return getattr(candidate, "number", None)
+
+
 def generate_split_hrefs(original_href: str, segments: list, existing_hrefs: set) -> list:
     """
     One href per segment, in the same directory as the original file.
@@ -436,12 +450,25 @@ def generate_split_hrefs(original_href: str, segments: list, existing_hrefs: set
     used = set(existing_hrefs) | {original_href}
     unnumbered_position = 0
 
+    # Stems claimed by numbered chapters in this split. An unnumbered
+    # file (a Prologue, say) whose position-based name would land on one
+    # of them, or on a file that already exists, is named with the first
+    # free section_NNN instead of getting a "_2" suffix.
+    numbered_stems = {
+        f"chapter_{s.number:03d}" for s in segments[1:] if s.number is not None
+    }
+
     for segment in segments[1:]:
         if segment.number is not None:
             stem = f"chapter_{segment.number:03d}"
         else:
             unnumbered_position += 1
             stem = f"chapter_{unnumbered_position:03d}"
+            if stem in numbered_stems or f"{prefix}{stem}{suffix}" in used:
+                number = unnumbered_position
+                while f"{prefix}section_{number:03d}{suffix}" in used:
+                    number += 1
+                stem = f"section_{number:03d}"
         candidate = f"{prefix}{stem}{suffix}"
         href = _unique(used, candidate, f"{prefix}{stem}_{{n}}{suffix}")
         used.add(href)
@@ -597,5 +624,6 @@ def apply_split(book, chapter, markers: list) -> SplitResult:
         new_hrefs=new_hrefs[1:],
         segment_word_counts=segment_word_counts,
         original_word_count=original_word_count,
+        has_leading_segment=segments[0].leading,
         href_by_id=href_by_id,
     )

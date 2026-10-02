@@ -20,6 +20,7 @@ from ebook_fix.chapters import BookChapterSummary, analyze_book_chapters
 from ebook_fix.images import BookImageSummary, analyze_book_images
 from ebook_fix.packaging import BookPackagingSummary, analyze_book_packaging
 from ebook_fix.paragraphs import BookParagraphSummary, analyze_book_paragraphs
+from ebook_fix.linebreaks import BookLineBreakSummary, analyze_book_linebreaks
 from ebook_fix.whitespace import BookWhitespaceSummary, analyze_book_whitespace
 from ebook_fix.ellipsis import BookEllipsisSummary, analyze_book_ellipsis
 from ebook_fix.scene_breaks import BookSceneBreakSummary, analyze_book_scene_breaks
@@ -130,6 +131,7 @@ class AnalysisReport:
     images:BookImageSummary=field(default_factory=BookImageSummary)
     packaging:BookPackagingSummary=field(default_factory=BookPackagingSummary)
     paragraphs:BookParagraphSummary=field(default_factory=BookParagraphSummary)
+    linebreaks:BookLineBreakSummary=field(default_factory=BookLineBreakSummary)
     whitespace:BookWhitespaceSummary=field(default_factory=BookWhitespaceSummary)
     ellipsis:BookEllipsisSummary=field(default_factory=BookEllipsisSummary)
     scene_breaks:BookSceneBreakSummary=field(default_factory=BookSceneBreakSummary)
@@ -309,6 +311,7 @@ class EPUBAnalyzer:
         r.images=analyze_book_images(book)
         r.packaging=analyze_book_packaging(book)
         r.paragraphs=analyze_book_paragraphs(book,frontmatter_summary=r.frontmatter)
+        r.linebreaks=analyze_book_linebreaks(book,frontmatter_summary=r.frontmatter)
         r.whitespace=analyze_book_whitespace(book)
         r.ellipsis=analyze_book_ellipsis(book)
         r.scene_breaks=analyze_book_scene_breaks(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)

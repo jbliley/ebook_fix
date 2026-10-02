@@ -61,7 +61,7 @@ from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.config import load_config
 from ebook_fix.engine import Engine
 from ebook_fix.parser import EPUBParser
-from ebook_fix.splitter import SplitMarker
+from ebook_fix.splitter import SplitMarker, marker_number
 from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, iter_chapter_nodes, _walk_structure_nodes, NodeKind
 from ebook_fix.writer import EPUBWriter
 from ebook_fix.apostrophes import analyze_book_possessives, apply_possessive_resolutions
@@ -78,6 +78,7 @@ from ebook_fix.fb2.convert import convert_fb2_to_epub
 from ebook_fix.fb2.reader import Fb2Error
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
+from ebook_fix.modules.linebreak_repair import LineBreakRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.toc_generation import TocGenerationRepair
 from ebook_fix.modules.images import ImageRepair
@@ -126,6 +127,7 @@ _EDITABLE_FIELDS = ("title", "author", "publisher", "date", "rights", "descripti
 _REPAIR_MODULES = [
     ("gutenberg_repair", "Gutenberg Boilerplate Removal"),
     ("running_title_repair", "Running Title Removal"),
+    ("linebreak_repair", "Stray Line Break Removal"),
     ("paragraph_repair", "Paragraph Repair"),
     ("chapter_markup", "Chapter Markup"),
     ("epub3_upgrade", "EPUB 3 Upgrade"),
@@ -154,6 +156,7 @@ _REPAIR_MODULES = [
 _REPAIR_MODULE_CLASSES = {
     "gutenberg_repair": GutenbergRepair,
     "running_title_repair": RunningTitleRepair,
+    "linebreak_repair": LineBreakRepair,
     "paragraph_repair": ParagraphRepair,
     "chapter_markup": ChapterMarkupRepair,
     "epub3_upgrade": EPUB3UpgradeRepair,
@@ -1281,7 +1284,7 @@ def apply_repair(session_id):
                 if len(accepted_nodes) < 2:
                     continue
                 markers_by_href[group["href"]] = [
-                    SplitMarker(element=node.evidence.candidate.element, title=node.title, number=node.evidence.candidate.number)
+                    SplitMarker(element=node.evidence.candidate.element, title=node.title, number=marker_number(node.evidence.candidate))
                     for node in accepted_nodes
                 ]
             if markers_by_href:
@@ -1578,7 +1581,7 @@ def book_before_after(session_id):
     chapters = []
     for c in original_book.chapters:
         if c.href in split_mapping:
-            after_options = [c.href] + split_mapping[c.href]
+            after_options = [h for h in [c.href] + split_mapping[c.href] if h in fixed_hrefs]
             status = "split"
         elif c.href not in fixed_hrefs:
             after_options = []

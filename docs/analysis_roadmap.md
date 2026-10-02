@@ -2457,3 +2457,102 @@ the same before/after comparison against `WarPeace-GoodCopy.epub`,
 content differences anywhere, confirming the ordinal Book/Part-style
 epilogue handling and everything else was untouched.
 
+
+## Done: stray line break removal, and rejoining orphaned chapter fragments after a split (2026-10-02)
+
+Jacob uploaded two copies of the same book (Deathlands 1, "Pilgrimage
+to Hell"): one already split into one file per chapter with a table of
+contents, one still in four large files with neither. He asked for
+three things: remove the extra blank line showing between paragraphs,
+confirm the Prologue detection fix works on this book, and make sure
+the no-chapters copy would split the way the chapters copy did.
+
+1. Prologue detection: confirmed, no code change. The word
+   "Prologue" appears twice in the same file (once as a stray label on
+   the copyright page, once as the real heading). The detector keeps
+   the real one, and the Epilogue is found too. The Epilogue stays
+   inside the Chapter Seventeen file, as in Jacob's chapters copy,
+   since it is only a few words and the structure analyzer already
+   flags it as too short to split on its own.
+2. Extra line breaks between paragraphs. The cause was not empty
+   paragraphs (Paragraph Repair already removes those) but a bare
+   `<br/>` sitting at the very start of a paragraph (29 in this book),
+   or inside a chapter heading before the title (17), plus a few
+   inside bold lines. The book's stylesheet gives paragraphs no
+   spacing, so each one rendered as a full blank line. New analyzer
+   `linebreaks.py` records them in the single analysis pass, and new
+   repair module `modules/linebreak_repair.py` ("Stray Line Break
+   Removal") removes them. On by default, per Jacob, with its own
+   checkbox in the Repair tab and a `[linebreak_repair]` section in
+   the config file (`remove_stray_breaks`).
+   - Only a `<br/>` at the very start or end of a paragraph or
+     heading is touched, and only in confirmed main-matter chapters
+     (same scoping as scene-break normalization). A break in the
+     middle of a paragraph is never touched, and a `<br clear="...">`
+     (a float-clearing layout instruction) is never touched.
+   - Only paragraphs and headings are covered. Breaks in table cells,
+     list items, or directly in a `<div>` are left alone. First
+     version also covered table cells, and testing against
+     `Images-PageNumbers.epub` showed it flagging 41 deliberate layout
+     breaks around page numbers, so it was narrowed. Per the
+     no-speculative-fixes rule, nothing outside paragraphs and
+     headings is touched until a real book shows a need.
+   - Only the `<br/>` goes. Text that followed it is kept.
+   - Runs before Paragraph Repair, so a paragraph that starts with a
+     stray break can't get merged into the one before it and strand
+     the break in the middle of a sentence.
+   - Known tradeoff: in this particular book, every one of the 29
+     paragraph-start breaks sits right before a new scene, so they
+     doubled as the book's only scene-break marker. Removing them
+     removes that visual gap.
+   - Added to `FIXED_LAYOUT_RISKY_MODULE_TYPES` so it is skipped on a
+     fixed-layout book.
+3. Splitting the no-chapters copy. Detection was already correct
+   (Prologue, Chapters 1 to 17, Epilogue). A normal `repair` still
+   does not split a book with no table of contents by itself (the
+   Case 3 safety rule is unchanged); splitting goes through
+   `split-structure`, `--case3-boundaries`, or the Review tab. Two
+   problems showed up once it did split:
+   - The original four files were cut by size, not by chapter, so
+     three chapters (3, 7, and 10) started in one file and finished
+     in the next. Splitting each file at its headings left the tail
+     of each of those chapters as its own untitled file with no
+     table of contents entry. New `split_fragments.py` moves each
+     such tail back onto the end of the chapter before it and drops
+     the empty file. It only acts when it is safe to: the file before
+     it must be a chapter this split produced (a leading chunk after
+     a title page is genuine front matter and is left alone), the
+     fragment must contain no heading and must not open with
+     something that looks like a chapter or part marker, must hold no
+     internal links, and nothing may link to the fragment's file as a
+     whole (a table of contents entry, for example). Links to
+     specific ids inside it are re-pointed at the file that now holds
+     them. A word count check runs before and after, and the move is
+     undone if it fails. Every skip is logged with its reason. Wired
+     in as the last step of `_split_and_rewire`, so it applies to all
+     three ways of splitting. The GUI Before/After tab now lists only
+     post-repair files that still exist for a split chapter.
+   - A Prologue was numbered 1 internally, so its file collided with
+     Chapter One and came out as `chapter_001_2.htm`. Unnumbered and
+     Part-style boundaries now carry no chapter number into the file
+     name (`marker_number` in `splitter.py`). The Prologue is named
+     `section_001.htm`, and an Epilogue split from a later file would
+     be `section_002.htm`. Books with no collision keep the original
+     `chapter_NNN` naming for unnumbered files.
+
+Verified against both uploaded books. The no-chapters copy now splits
+into 20 files (title page, a short front-matter file, `section_001`,
+`chapter_001` through `chapter_017`), each chapter whole, with a table
+of contents entry for the Prologue and all 17 chapters, and the same
+106,312 words before and after. The chapters copy repairs with zero
+stray breaks left and a second pass makes no changes. Regression run
+across every EPUB in `examples/`: repair output has identical word
+counts to the previous code on all of them, passes strict XML parsing
+and the manifest check, and is idempotent. `split-structure` against
+the same samples: the fragment merge fired on `BrokenSentences.epub`
+(three real mid-sentence file cuts, such as one file ending "to
+associate with this" and the next starting "moment, one that...",
+with the token sequence identical before and after), and was
+correctly skipped everywhere a table of contents entry or genuine
+front matter was involved (`Sidewinders`, `OmnibusExample`, and
+others).

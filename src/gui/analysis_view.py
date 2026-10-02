@@ -382,6 +382,12 @@ def build_issues(analysis_report) -> list[Section]:
         paragraph_issues.append(f"Empty paragraphs: {para.empty_paragraph_count}")
     if para.mid_sentence_split_count:
         paragraph_issues.append(f"Mid-sentence paragraph splits: {para.mid_sentence_split_count}")
+    stray_breaks = getattr(analysis_report, "linebreaks", None)
+    if stray_breaks is not None and stray_breaks.stray_break_count:
+        paragraph_issues.append(
+            f"Stray line breaks at paragraph edges: {stray_breaks.stray_break_count} "
+            f"across {len(stray_breaks.chapters_with_stray_breaks)} chapter(s)"
+        )
     if paragraph_issues:
         sections.append(Section("Paragraphs", paragraph_issues))
 
