@@ -2498,6 +2498,17 @@ the no-chapters copy would split the way the chapters copy did.
      no-speculative-fixes rule, nothing outside paragraphs and
      headings is touched until a real book shows a need.
    - Only the `<br/>` goes. Text that followed it is kept.
+   - Breaks that are part of a scene break are kept (Jacob's call,
+     added the same day): any `<br/>` inside a marker paragraph
+     ("* * *", "***", "# # #", "---", a lone ornament), a trailing
+     `<br/>` in the paragraph right before an `<hr>` or marker
+     paragraph, and a leading `<br/>` in the paragraph right after
+     one. A lone dash, period or ellipsis does not count as a marker.
+     Neither Pilgrimage book contains a marker or `<hr>`, so this
+     doesn't change their results; verified on a copy with a `* * *`
+     paragraph and an `<hr>` injected, where the surrounding breaks
+     survived, the other 51 were still removed, and a second repair
+     run made no changes.
    - Runs before Paragraph Repair, so a paragraph that starts with a
      stray break can't get merged into the one before it and strand
      the break in the middle of a sentence.

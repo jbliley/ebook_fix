@@ -21,6 +21,14 @@ Only breaks at an *edge* are flagged:
 
 A <br/> in the middle of a paragraph is never flagged -- that's a real
 line break (poetry, an address block, a signature), not an artifact.
+Breaks that belong to a scene break are kept, since they are doing a
+real job (a visual pause):
+
+- Any <br/> inside a scene-break marker paragraph ("* * *", "***",
+  "# # #", "---", a lone ornament like a fleuron).
+- A trailing <br/> in the paragraph right before an <hr> or a marker
+  paragraph, and a leading <br/> in the paragraph right after one.
+
 A <br clear="..."/> is never flagged (that's a float-clearing layout
 instruction, not an empty line). A paragraph whose only content is a <br/> is not flagged here either;
 it's an empty paragraph, which Paragraph Repair already owns (and it
@@ -48,6 +56,15 @@ BLOCK_TAGS = frozenset(("p", "h1", "h2", "h3", "h4", "h5", "h6"))
 
 # Elements that count as real content even though they have no text.
 _CONTENT_TAGS = frozenset(("img", "image", "svg", "hr", "video", "audio", "object", "math", "table"))
+
+
+# A scene-break marker paragraph is only ornament glyphs: no letters or
+# digits. Three or more glyphs ("* * *", "---", "###"), or one or two
+# of the star-like ornaments on their own ("*", "* *", a fleuron).
+# A lone dash, a lone period or an ellipsis is NOT a marker.
+_ORNAMENTS = frozenset("*#~\u2022\u25e6\u25ca\u2042\u2726\u2727\u2731\u2732\u2756\u2055\u00a7")
+_MARKER_GLYPHS = _ORNAMENTS | frozenset("=_+-\u2013\u2014")
+_MARKER_MAX_GLYPHS = 20
 
 
 @dataclass
@@ -108,6 +125,43 @@ def _flatten(el, out: list) -> None:
         _flatten(child, out)
         if child.tail:
             out.append(("text", child.tail))
+
+
+def is_scene_break_marker(el) -> bool:
+    """True for a paragraph/div whose whole text is a scene-break
+    ornament ("* * *", "***", "# # #", "---", a fleuron)."""
+    if el is None or _local(el) not in ("p", "div"):
+        return False
+    glyphs = "".join("".join(el.itertext()).replace("\u00a0", " ").split())
+    if not glyphs or len(glyphs) > _MARKER_MAX_GLYPHS:
+        return False
+    if any(ch not in _MARKER_GLYPHS for ch in glyphs):
+        return False
+    if len(glyphs) >= 3:
+        return True
+    return all(ch in _ORNAMENTS for ch in glyphs)
+
+
+def _neighbor(block, direction: str):
+    """Previous/next sibling element of `block`, skipping comments."""
+    sibling = block.getprevious() if direction == "previous" else block.getnext()
+    while sibling is not None and not isinstance(sibling.tag, str):
+        sibling = sibling.getprevious() if direction == "previous" else sibling.getnext()
+    return sibling
+
+
+def _is_scene_divider(el) -> bool:
+    return el is not None and (_local(el) == "hr" or is_scene_break_marker(el))
+
+
+def _belongs_to_scene_break(block, kind: str) -> bool:
+    """True when a leading/trailing <br/> in `block` is part of a scene
+    break and should be kept."""
+    if is_scene_break_marker(block):
+        return True
+    if kind == "leading":
+        return _is_scene_divider(_neighbor(block, "previous"))
+    return _is_scene_divider(_neighbor(block, "next"))
 
 
 def _nearest_block(el):
@@ -200,6 +254,8 @@ def analyze_book_linebreaks(book, frontmatter_summary=None) -> BookLineBreakSumm
                 continue
             seen_blocks.add(block)
             for element, kind in breaks_in_block(block):
+                if _belongs_to_scene_break(block, kind):
+                    continue
                 chapter_summary.stray_breaks.append(
                     StrayLineBreak(
                         href=chapter.href,
