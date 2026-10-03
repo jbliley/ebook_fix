@@ -14,6 +14,7 @@ linebreak_repair = true
 chapter_markup = true
 chapter_title_cleanup = true
 toc_cleanup = true
+dead_link_repair = true
 toc_generation = true
 image_repair = true
 whitespace_repair = true
@@ -128,6 +129,23 @@ collapse_duplicate_entries = true
 # in the file, or "Parent (Part 2)", or "Section 3") instead of leaving
 # readers to show a raw file path.
 fill_blank_labels = true
+
+# ---------------------------------------------------------------------
+# Dead Link Cleanup
+# ---------------------------------------------------------------------
+[dead_link_repair]
+
+# A link in the book's text to a file that is not in the book (a
+# Contents page written for a deleted layout, say) is pointed at the
+# table of contents entry whose label matches the link's text, when
+# there is exactly one such entry. Otherwise the link is removed and its
+# text is kept.
+repoint_from_contents = true
+
+# A link to a spot (#something) that does not exist: a link into another
+# file keeps going to that file, and a link to a spot on its own page is
+# removed.
+fix_missing_anchors = true
 
 # ---------------------------------------------------------------------
 # TOC Generation

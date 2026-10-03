@@ -37,6 +37,7 @@ from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.linebreak_repair import LineBreakRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.chapter_title_cleanup import ChapterTitleCleanupRepair
+from ebook_fix.modules.dead_link_repair import DeadLinkRepair
 from ebook_fix.modules.toc_cleanup import TocCleanupRepair
 from ebook_fix.modules.toc_generation import TocGenerationRepair
 from ebook_fix.modules.images import ImageRepair
@@ -80,6 +81,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     ChapterMarkupRepair,
     ChapterTitleCleanupRepair,
     TocCleanupRepair,
+    DeadLinkRepair,
     TocGenerationRepair,
     SceneBreakRepair,
     RunningTitleRepair,
@@ -132,6 +134,12 @@ class Engine:
         # blank or duplicate entries need to be dealt with first.
         if getattr(self.config, "toc_cleanup", None) and getattr(self.config.toc_cleanup, "enabled", True):
             modules.append(TocCleanupRepair(self.config.toc_cleanup))
+        # Right after TOC Cleanup, so the contents list it matches link
+        # text against is already tidy. Only touches <a> tags in the
+        # chapter text, so it is skipped on fixed-layout books with the
+        # other markup repairs (an empty link can be a clickable region).
+        if getattr(self.config, "dead_link_repair", None) and getattr(self.config.dead_link_repair, "enabled", True):
+            modules.append(DeadLinkRepair(self.config.dead_link_repair))
         # Runs after Gutenberg/Paragraph/Chapter Markup rather than
         # first, even though it used to run first: this module's own
         # nav-document generation (see modules/epub3_upgrade.py) reuses

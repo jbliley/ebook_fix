@@ -2869,3 +2869,74 @@ alone. Not yet tested against a real Calibre library: for a
 Calibre-managed book, the cleaned title is written into the EPUB, but
 Metadata Sync never pushes it into Calibre's own record, so Calibre may
 still show the old title until it is corrected there.
+
+## Done: dead links inside the book text (2026-10-03)
+
+Item 4 of the Sandman Slim list. That book's in-book Contents page has
+eight links to files that were deleted when the book was converted
+(`titlepage.html`, `epigraph.html`, `begin_reading_part1.html#ch01`, and
+so on), and five section headings ("Begin Reading", "Acknowledgments",
+"About the Author", "Copyright", "About the Publisher") are each wrapped
+in a link to a missing `contents.html`. All 13 of the book's internal
+links were dead. A link like that does nothing in most readers, and a
+link to a missing file is an error in an EPUB validator. The analyzer
+only checked links in the table of contents, so none of this was
+reported.
+
+Checked first whether this is common: of the twenty-three example books,
+Sandman Slim is the only real book with a dead internal link. The only
+other hit is the synthetic `CrossReferences-Synthetic.epub`, whose
+`#appendix` link to a missing spot was put there on purpose. Web links
+(`http:`, `ftp:` and so on) were never in question. So this is a rare
+case, built because it was next on Jacob's list.
+
+One new repair module, `modules/dead_link_repair.py` ("Dead Link
+Cleanup"), with a checkbox in the Repair tab and a `[dead_link_repair]`
+section in the config file. It runs right after TOC Cleanup, so the
+contents list it matches against is already tidy, and it is in the
+fixed-layout guard list with the other markup repairs, because an empty
+link can be a clickable region on a fixed-layout page.
+
+- A link to a file that is not in the book. With `repoint_from_contents`
+  on, if the link's text is exactly the label of one table of contents
+  entry (ignoring case, spacing and end punctuation), the link is pointed
+  at that entry, so a Contents page written for a deleted layout works
+  again. The match has to be unique, the entry's file has to exist, and
+  the entry cannot be the page the link is on. Otherwise the link is
+  removed and its text, picture or other contents stay in place. A link
+  that was also an anchor target (it has an id or name) keeps the anchor
+  and loses only the link.
+- `fix_missing_anchors`: a link to a spot (`#something`) that does not
+  exist in a file that does. A link into another file keeps going to that
+  file and loses the spot. A link to a missing spot on its own page, which
+  could only jump to the top of the same page, is removed.
+- Never touched: anything with a scheme (`http:`, `mailto:`, `ftp:`), a
+  bare `#`, links to files that exist and name no spot (pictures,
+  stylesheets), and links in the navigation document, which the contents
+  modules own. A file counts as existing if it is in the original zip or
+  queued to be added, and not queued for removal, the same rule the image
+  check uses since the cover-image fix earlier today.
+
+Verified on the real book. The eight Contents-page links now point at the
+real pages (Cover, Title Page, Epigraph, Begin Reading, Acknowledgments,
+About the Author, Copyright, About the Publisher), the five heading links
+are gone with their heading text intact, and a scan of the repaired file
+finds no dead internal links. A second pass makes zero changes, and word
+count is identical with the module on and off. Across every example book
+no file fails strict XML parsing or the manifest check, and the only two
+books the module changes are Sandman Slim and the synthetic cross-reference
+book (where the deliberately dead `#appendix` link is removed, text kept).
+Also tested on a modified copy of the book: a plain dead link (text and the
+words after it kept), a dead link around a picture (picture kept), a dead
+link that was also an anchor (anchor kept), a bad spot in another file
+(link kept, spot dropped), a bad spot on its own page (link removed), a
+link whose text matches two contents entries (not guessed, removed), good
+anchors, web and mail links and a bare `#` (all untouched), and both
+switches off (only the plain removals remain).
+
+Known limits: the heading links in Sandman Slim most likely pointed back
+at the Contents page, and are removed rather than repointed, since a
+return-to-Contents link cannot be told from a dead link by its text.
+Matching is by label only, so a Contents page whose link text differs from
+the table of contents ("Chapter One" against "1. The Beginning") is
+cleaned by removing the links, not repointing them.
