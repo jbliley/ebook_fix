@@ -12,6 +12,7 @@ epub3_upgrade = true
 paragraph_repair = true
 linebreak_repair = true
 chapter_markup = true
+chapter_title_cleanup = true
 toc_generation = true
 image_repair = true
 whitespace_repair = true
@@ -72,6 +73,29 @@ remove_stray_breaks = true
 # page break before it. Only chapters the detector is confident about
 # get split; weak/ambiguous candidates are left alone.
 enabled = true
+
+# ---------------------------------------------------------------------
+# Chapter Title Cleanup
+# ---------------------------------------------------------------------
+[chapter_title_cleanup]
+
+# A heading in the middle of a chapter that the book's original
+# conversion cut into its own file, giving it its own table of
+# contents entry. Only acted on when the numbered chapters on either
+# side of the entry count straight through it (2, then the heading,
+# then 3). The text is moved back onto the end of the chapter before
+# it and the contents entry is removed.
+merge_false_chapters = true
+
+# Make the hyphen spacing in numbered chapter titles consistent
+# ("9 - The Lull" vs "9-The Lull"), in the chapter heading and in
+# every table of contents.
+standardize_title_separators = true
+
+# Which spacing to standardize on. "auto" follows whichever style most
+# titles in the book already use (a tie goes to spaced). "spaced"
+# forces "9 - The Lull". "tight" forces "9-The Lull".
+separator_style = "auto"
 
 # ---------------------------------------------------------------------
 # TOC Generation

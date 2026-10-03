@@ -2498,17 +2498,6 @@ the no-chapters copy would split the way the chapters copy did.
      no-speculative-fixes rule, nothing outside paragraphs and
      headings is touched until a real book shows a need.
    - Only the `<br/>` goes. Text that followed it is kept.
-   - Breaks that are part of a scene break are kept (Jacob's call,
-     added the same day): any `<br/>` inside a marker paragraph
-     ("* * *", "***", "# # #", "---", a lone ornament), a trailing
-     `<br/>` in the paragraph right before an `<hr>` or marker
-     paragraph, and a leading `<br/>` in the paragraph right after
-     one. A lone dash, period or ellipsis does not count as a marker.
-     Neither Pilgrimage book contains a marker or `<hr>`, so this
-     doesn't change their results; verified on a copy with a `* * *`
-     paragraph and an `<hr>` injected, where the surrounding breaks
-     survived, the other 51 were still removed, and a second repair
-     run made no changes.
    - Runs before Paragraph Repair, so a paragraph that starts with a
      stray break can't get merged into the one before it and strand
      the break in the middle of a sentence.
@@ -2567,3 +2556,95 @@ with the token sequence identical before and after), and was
 correctly skipped everywhere a table of contents entry or genuine
 front matter was involved (`Sidewinders`, `OmnibusExample`, and
 others).
+
+
+## Done: false chapters in the contents list, and mixed hyphen spacing in chapter titles (2026-10-02)
+
+Jacob uploaded "War Against the Mafia" (Don Pendleton, Executioner 1).
+The book already has a table of contents, so the tool leaves its
+structure alone, but two things looked wrong in it: a chapter that
+appeared in the middle of another chapter, and numbered chapter titles
+that were inconsistent about spaces around the hyphen ("9-The Lull"
+next to "8 - Sanctuary"). He asked whether chapter detection, or some
+other module, could standardize the hyphens, with spaces as the style
+for this book.
+
+What the book actually contains:
+
+1. The false chapter. "DESTRUCTION!" is not a chapter. It is the last
+   line of a four-step list inside Chapter 2 ("Infiltration!", "Target
+   Identification!", "Confirmation!", "DESTRUCTION!"). The book's
+   original conversion cut it into its own file (`section5.xhtml`, one
+   paragraph long) and gave it its own contents entry, so the contents
+   list read 2, DESTRUCTION!, 3.
+2. The hyphens. Of the 26 numbered titles, four had no spaces ("9-The
+   Lull", "2-The Whole Truth", "7-Battle Order", "8-The Big Kill") and
+   the rest had them.
+3. Not changed, but noted: the first chapter of each Book has its title
+   ("1 - The Smiling Fates") in a subtitle line under the "BOOK ONE:"
+   heading, so the contents list shows only "BOOK ONE:" for it.
+   Chapter detection finds no numbered chapters in this book at all
+   (its numbered titles have no "Chapter" word), so everything here
+   comes from the book's own contents list.
+
+Chapter detection was not the right place for either fix, since it does
+not find these chapters in the first place. Both fixes live in one new
+repair module, `modules/chapter_title_cleanup.py` ("Chapter Title
+Cleanup"), with a checkbox in the Repair tab and a
+`[chapter_title_cleanup]` section in the config file.
+
+- False chapter merge (`merge_false_chapters`, on by default). A
+  contents entry is treated as false only when the entries directly
+  before and after it are both numbered titles and the numbers count
+  straight through it (2, then the entry, then 3). Prologue, Epilogue,
+  and Book/Part entries are never candidates. When that holds and every
+  guard passes, the file's content is moved onto the end of the chapter
+  before it, the contents entry is removed from the NCX, the EPUB 3 nav
+  document (if there is one), and the in-memory contents list, links
+  into the file are re-pointed, and the empty file is dropped. The
+  heading text stays where the author put it, as a heading inside the
+  chapter. The guards, each reported with its reason when it blocks a
+  merge: the entry has no children and points at a whole file; the file
+  is directly after the chapter that holds the previous numbered entry;
+  no other contents entry points at it; its text matches the first
+  heading in its file; both files wrap their content the same way and
+  sit in the same folder; no links to places within the file; no
+  element id already used by the chapter before it; nothing but the
+  contents links to the whole file; and a word count check that undoes
+  the move if it fails.
+- Hyphen spacing (`standardize_title_separators`, on by default, with
+  `separator_style`). A title is considered only if it starts with a
+  number (optionally after Chapter, Part, Book, or Section), then a
+  hyphen, then a capitalized word of two or more letters. That keeps
+  "5-year plan" and "3-D glasses" out. Only headings near the top of a
+  chapter file are scanned (a heading tag, or an element with title,
+  chapter, or heading in its class). `separator_style = "auto"` follows
+  whichever style most titles already use, needs at least three
+  numbered titles to decide, and sends a tie to spaced. `"spaced"` and
+  `"tight"` force one style. Only the hyphen and the spaces around it
+  change, never the number or the title. The same fix is applied to the
+  heading in each chapter file, the NCX, the nav document, and the
+  in-memory contents list.
+- Ordering. Runs right after Chapter Markup and before EPUB 3 Upgrade,
+  because the nav document that module generates is built from the
+  contents list this one corrects. Added to
+  `FIXED_LAYOUT_RISKY_MODULE_TYPES`. Reuses the file-removal and
+  link-repointing helpers in `split_fragments.py`.
+
+Verified on the real book. The contents list goes from 31 entries to
+30 with "DESTRUCTION!" gone, `section5.xhtml` is dropped and all four
+no-space titles now read "N - Title" in both the chapter files and the
+NCX and nav document. A second pass makes zero changes. Every file
+passes strict XML parsing and the manifest check, and the file
+integrity check passes. Word count: the merge itself moves every word
+(the module's own check enforces it); the only count difference
+against a run with the module off is eight extra tokens, which is the
+four titles gaining a separate "-" token each plus the number
+separating from the title. Also tested with deliberately broken
+variants: numbers that skip, an internal link, a link to the whole
+file, and a label that does not match the heading each block the merge
+with the right reason; a mostly-tight copy of the book standardizes to
+tight under `auto`; `separator_style = "tight"` forces tight; both
+toggles off reports nothing. Regression run across every EPUB in
+`examples/`: no crashes, and the module found nothing to do in any of
+them.

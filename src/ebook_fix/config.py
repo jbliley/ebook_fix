@@ -58,6 +58,22 @@ class ChapterMarkupConfig:
 
 
 @dataclass(slots=True)
+class ChapterTitleCleanupConfig:
+    enabled: bool = True
+    # A heading in the middle of a chapter that was cut into its own
+    # file and got its own contents entry. Moved back into the chapter
+    # before it, and the contents entry is removed.
+    merge_false_chapters: bool = True
+    # Make the hyphen spacing in numbered chapter titles consistent
+    # ("9 - The Lull" vs "9-The Lull").
+    standardize_title_separators: bool = True
+    # "auto" follows whichever style most titles in the book already
+    # use (a tie goes to spaced). "spaced" forces "9 - The Lull",
+    # "tight" forces "9-The Lull".
+    separator_style: str = "auto"
+
+
+@dataclass(slots=True)
 class TocGenerationConfig:
     enabled: bool = True
 
@@ -245,6 +261,7 @@ class Config:
     paragraph_repair: ParagraphRepairConfig = field(default_factory=ParagraphRepairConfig)
     linebreak_repair: LineBreakRepairConfig = field(default_factory=LineBreakRepairConfig)
     chapter_markup: ChapterMarkupConfig = field(default_factory=ChapterMarkupConfig)
+    chapter_title_cleanup: ChapterTitleCleanupConfig = field(default_factory=ChapterTitleCleanupConfig)
     toc_generation: TocGenerationConfig = field(default_factory=TocGenerationConfig)
     image_repair: ImageRepairConfig = field(default_factory=ImageRepairConfig)
     whitespace_repair: WhitespaceRepairConfig = field(default_factory=WhitespaceRepairConfig)
@@ -299,6 +316,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.paragraph_repair, modules, "paragraph_repair")
     _apply_module_toggle(config.linebreak_repair, modules, "linebreak_repair")
     _apply_module_toggle(config.chapter_markup, modules, "chapter_markup")
+    _apply_module_toggle(config.chapter_title_cleanup, modules, "chapter_title_cleanup")
     _apply_module_toggle(config.toc_generation, modules, "toc_generation")
     _apply_module_toggle(config.image_repair, modules, "image_repair")
     _apply_module_toggle(config.whitespace_repair, modules, "whitespace_repair")
@@ -318,6 +336,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.paragraph_repair, "paragraph_repair", data.get("paragraph_repair", {}))
     _apply_section(config.linebreak_repair, "linebreak_repair", data.get("linebreak_repair", {}))
     _apply_section(config.chapter_markup, "chapter_markup", data.get("chapter_markup", {}))
+    _apply_section(config.chapter_title_cleanup, "chapter_title_cleanup", data.get("chapter_title_cleanup", {}))
     _apply_section(config.toc_generation, "toc_generation", data.get("toc_generation", {}))
     _apply_section(config.image_repair, "image_repair", data.get("image_repair", {}))
     _apply_section(config.whitespace_repair, "whitespace_repair", data.get("whitespace_repair", {}))
@@ -335,6 +354,12 @@ def load_config(path: str | Path | None = None) -> Config:
         raise ValueError(
             f"Invalid ellipsis_repair.target_style: {config.ellipsis_repair.target_style!r} "
             '(must be "unicode" or "ascii")'
+        )
+
+    if config.chapter_title_cleanup.separator_style not in ("auto", "spaced", "tight"):
+        raise ValueError(
+            f"Invalid chapter_title_cleanup.separator_style: {config.chapter_title_cleanup.separator_style!r} "
+            '(must be "auto", "spaced", or "tight")'
         )
 
     if config.apostrophe_repair.target_style not in ("auto", "straight", "curly"):
@@ -389,6 +414,7 @@ epub3_upgrade = true
 paragraph_repair = true
 linebreak_repair = true
 chapter_markup = true
+chapter_title_cleanup = true
 toc_generation = true
 image_repair = true
 whitespace_repair = true
@@ -452,6 +478,29 @@ remove_stray_breaks = true
 # page break before it. Only chapters the detector is confident about
 # get split; weak/ambiguous candidates are left alone.
 enabled = true
+
+# ---------------------------------------------------------------------
+# Chapter Title Cleanup
+# ---------------------------------------------------------------------
+[chapter_title_cleanup]
+
+# A heading in the middle of a chapter that the book's original
+# conversion cut into its own file, giving it its own table of
+# contents entry. Only acted on when the numbered chapters on either
+# side of the entry count straight through it (2, then the heading,
+# then 3). The text is moved back onto the end of the chapter before
+# it and the contents entry is removed.
+merge_false_chapters = true
+
+# Make the hyphen spacing in numbered chapter titles consistent
+# ("9 - The Lull" vs "9-The Lull"), in the chapter heading and in
+# every table of contents.
+standardize_title_separators = true
+
+# Which spacing to standardize on. "auto" follows whichever style most
+# titles in the book already use (a tie goes to spaced). "spaced"
+# forces "9 - The Lull". "tight" forces "9-The Lull".
+separator_style = "auto"
 
 # ---------------------------------------------------------------------
 # TOC Generation
