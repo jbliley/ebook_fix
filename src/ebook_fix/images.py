@@ -67,8 +67,18 @@ class BookImageSummary:
 
 
 def _archive_names(book) -> set:
+    """Every file the book will contain once saved: what is in the
+    original zip, plus files an earlier repair pass has queued to be
+    added (book.new_files), minus files it has queued to be removed
+    (book.removed_files). Reading only the original zip made a file
+    that Cover Repair had just renamed look missing on the next pass,
+    and Image Repair then deleted the cover <img> that Cover Repair
+    had correctly repointed."""
     with zipfile.ZipFile(book.source, "r") as archive:
-        return set(archive.namelist())
+        names = set(archive.namelist())
+    names |= set(getattr(book, "new_files", {}) or {})
+    names -= set(getattr(book, "removed_files", set()) or set())
+    return names
 
 
 def _resolve(base, href) -> str:

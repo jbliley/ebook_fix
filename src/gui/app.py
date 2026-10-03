@@ -81,6 +81,7 @@ from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.linebreak_repair import LineBreakRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.chapter_title_cleanup import ChapterTitleCleanupRepair
+from ebook_fix.modules.toc_cleanup import TocCleanupRepair
 from ebook_fix.modules.toc_generation import TocGenerationRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.cover_repair import CoverRepair
@@ -132,6 +133,7 @@ _REPAIR_MODULES = [
     ("paragraph_repair", "Paragraph Repair"),
     ("chapter_markup", "Chapter Markup"),
     ("chapter_title_cleanup", "Chapter Title Cleanup"),
+    ("toc_cleanup", "TOC Cleanup"),
     ("epub3_upgrade", "EPUB 3 Upgrade"),
     ("toc_generation", "TOC Generation"),
     ("scene_break_repair", "Scene Break Normalizer"),
@@ -162,6 +164,7 @@ _REPAIR_MODULE_CLASSES = {
     "paragraph_repair": ParagraphRepair,
     "chapter_markup": ChapterMarkupRepair,
     "chapter_title_cleanup": ChapterTitleCleanupRepair,
+    "toc_cleanup": TocCleanupRepair,
     "epub3_upgrade": EPUB3UpgradeRepair,
     "toc_generation": TocGenerationRepair,
     "scene_break_repair": SceneBreakRepair,

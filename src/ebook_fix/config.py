@@ -74,6 +74,19 @@ class ChapterTitleCleanupConfig:
 
 
 @dataclass(slots=True)
+class TocCleanupConfig:
+    enabled: bool = True
+    # A file in the reading order with nothing in it at all, that
+    # nothing links to. Dropped, along with its contents entries.
+    remove_empty_pages: bool = True
+    # An entry nested under an identical entry for the same file
+    # ("Contents" inside "Contents").
+    collapse_duplicate_entries: bool = True
+    # An entry with no label, which readers show as a raw file path.
+    fill_blank_labels: bool = True
+
+
+@dataclass(slots=True)
 class TocGenerationConfig:
     enabled: bool = True
 
@@ -262,6 +275,7 @@ class Config:
     linebreak_repair: LineBreakRepairConfig = field(default_factory=LineBreakRepairConfig)
     chapter_markup: ChapterMarkupConfig = field(default_factory=ChapterMarkupConfig)
     chapter_title_cleanup: ChapterTitleCleanupConfig = field(default_factory=ChapterTitleCleanupConfig)
+    toc_cleanup: TocCleanupConfig = field(default_factory=TocCleanupConfig)
     toc_generation: TocGenerationConfig = field(default_factory=TocGenerationConfig)
     image_repair: ImageRepairConfig = field(default_factory=ImageRepairConfig)
     whitespace_repair: WhitespaceRepairConfig = field(default_factory=WhitespaceRepairConfig)
@@ -317,6 +331,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.linebreak_repair, modules, "linebreak_repair")
     _apply_module_toggle(config.chapter_markup, modules, "chapter_markup")
     _apply_module_toggle(config.chapter_title_cleanup, modules, "chapter_title_cleanup")
+    _apply_module_toggle(config.toc_cleanup, modules, "toc_cleanup")
     _apply_module_toggle(config.toc_generation, modules, "toc_generation")
     _apply_module_toggle(config.image_repair, modules, "image_repair")
     _apply_module_toggle(config.whitespace_repair, modules, "whitespace_repair")
@@ -337,6 +352,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.linebreak_repair, "linebreak_repair", data.get("linebreak_repair", {}))
     _apply_section(config.chapter_markup, "chapter_markup", data.get("chapter_markup", {}))
     _apply_section(config.chapter_title_cleanup, "chapter_title_cleanup", data.get("chapter_title_cleanup", {}))
+    _apply_section(config.toc_cleanup, "toc_cleanup", data.get("toc_cleanup", {}))
     _apply_section(config.toc_generation, "toc_generation", data.get("toc_generation", {}))
     _apply_section(config.image_repair, "image_repair", data.get("image_repair", {}))
     _apply_section(config.whitespace_repair, "whitespace_repair", data.get("whitespace_repair", {}))
@@ -415,6 +431,7 @@ paragraph_repair = true
 linebreak_repair = true
 chapter_markup = true
 chapter_title_cleanup = true
+toc_cleanup = true
 toc_generation = true
 image_repair = true
 whitespace_repair = true
@@ -501,6 +518,28 @@ standardize_title_separators = true
 # titles in the book already use (a tie goes to spaced). "spaced"
 # forces "9 - The Lull". "tight" forces "9-The Lull".
 separator_style = "auto"
+
+# ---------------------------------------------------------------------
+# TOC Cleanup
+# ---------------------------------------------------------------------
+[toc_cleanup]
+
+# Drop a file from the reading order when it holds nothing at all (no
+# text, no pictures) and nothing links to it, along with its table of
+# contents entries. If that empty file stood in for the cover and the
+# book has a real cover page outside the reading order, the cover page
+# takes its place. Anything blocked is left alone and reported.
+remove_empty_pages = true
+
+# Remove a contents entry nested under an identical entry for the same
+# file ("Contents" inside "Contents"). Anything nested under the
+# duplicate moves up to the parent.
+collapse_duplicate_entries = true
+
+# Give a contents entry with no label a readable one (the first heading
+# in the file, or "Parent (Part 2)", or "Section 3") instead of leaving
+# readers to show a raw file path.
+fill_blank_labels = true
 
 # ---------------------------------------------------------------------
 # TOC Generation

@@ -2648,3 +2648,86 @@ tight under `auto`; `separator_style = "tight"` forces tight; both
 toggles off reports nothing. Regression run across every EPUB in
 `examples/`: no crashes, and the module found nothing to do in any of
 them.
+
+## Done: empty pages and messy contents lists, plus a cover image bug (2026-10-03)
+
+Jacob uploaded "Sandman Slim" (Richard Kadrey) as another test book and
+asked what else needed fixing. The first two items on the list, which
+turned out to be the same damage, were built together. The list also
+holds six more items that are not started: filename-style title and
+author metadata, dead links inside the book text, scene breaks that use
+a small-caps class instead of a marker, a 42 KB stylesheet pasted into
+twelve files, leftover junk files (a Calibre bookmarks file, an unused
+copy of the cover, a duplicate logo), and mid-word hyphens left over
+from old line wraps.
+
+What the book contains:
+
+1. The first file in the reading order (`part1.xhtml`) is completely
+   empty. The real cover page (`cover.html`) is in the manifest and the
+   OPF guide but not in the reading order.
+2. The contents list has an entry "Cover" pointing into the empty file,
+   five nested duplicates ("Contents" inside "Contents", and the same
+   for Begin Reading, Acknowledgments, About the Author and Copyright),
+   and three entries with no label at all. Because the book already has
+   a contents list, the tool left it alone, and EPUB 3 Upgrade copied
+   all of it into the new `nav.xhtml`, labelling the blank entries with
+   raw file paths like `text/part7.xhtml#chapter10`.
+
+One new repair module, `modules/toc_cleanup.py` ("TOC Cleanup"), with a
+checkbox in the Repair tab and a `[toc_cleanup]` section in the config
+file, each fix with its own switch.
+
+- Empty pages (`remove_empty_pages`). A file in the reading order with
+  no text and no elements at all (not even an empty wrapper) is dropped,
+  along with its contents entries and any OPF guide reference to it.
+  It is kept, and the reason reported, if another file links to it, or
+  it is the book's declared cover page. When the empty page is the very
+  first file, the guide's cover page (a real page with a picture on it,
+  outside the reading order) takes its place at the front, and the
+  "Cover" contents entry is repointed at it. Without such a cover page
+  the entries are just removed. A file whose text could not be parsed is
+  only treated as empty if the raw file really holds nothing but an XML
+  declaration.
+- Duplicate entries (`collapse_duplicate_entries`). A nested entry with
+  the same label and the same file as the entry it sits under is
+  removed, and anything nested under it moves up to the parent.
+- Blank labels (`fill_blank_labels`). Only an entry that links somewhere
+  is given a label. The first heading in the file is used when it is the
+  first entry for that file and the heading has text. Otherwise an
+  entry under a labeled parent reads "Parent (Part 2)", "Parent (Part
+  3)" and so on (the parent's own file counts as part 1), and a
+  top-level entry reads "Section N".
+- The same rules are applied to the NCX and to the EPUB 3 navigation
+  document through one shared reader, and the in-memory contents list is
+  rebuilt afterwards.
+- Ordering. Runs right after Chapter Title Cleanup and before EPUB 3
+  Upgrade, because the nav document that module generates is built from
+  the contents list this one corrects.
+
+Also fixed, found during this work: Image Repair deleted the cover
+picture from the cover page of `OmnibusExample.epub`. Cover Repair
+renames the cover file to `cover.jpg` and correctly repoints the cover
+page's `<img>`, but the file is only queued to be added to the saved
+archive. On the second repair pass the image check read only the
+original zip, decided `cover.jpg` did not exist, and Image Repair then
+removed the tag it had just been handed. `images.py` now counts files
+queued to be added and ignores files queued to be removed. This
+happened with TOC Cleanup switched off, so it was an existing bug.
+
+Verified on the real book. The first page is gone, the cover page opens
+the book, the "Cover" entry points at it, the five duplicates are gone,
+the three blank entries read "Begin Reading (Part 2)", "(Part 3)" and
+"(Part 4)", and the `nav.xhtml` and `toc.ncx` contain no file paths as
+labels. A second pass makes zero changes. Every file passes strict XML
+parsing and the manifest check, and word count is identical with the
+module on and off. Also tested with modified copies of the book: no
+cover entry in the guide (empty page removed, nothing takes its place),
+a link from another file to the empty page (kept and reported), a
+second empty file in the middle of the book (dropped with its entry),
+and a nav document with its own blank and duplicate entries (fixed, and
+stable on a second run). Two bugs were caught by the regression run and
+fixed before delivery: a blank nav entry with no link looped forever,
+and a cover page that Image Repair had just emptied was dropped as
+empty. Regression run across every EPUB in `examples/`: no crashes, and
+the only book the module changed was Sandman Slim.

@@ -13,6 +13,7 @@ paragraph_repair = true
 linebreak_repair = true
 chapter_markup = true
 chapter_title_cleanup = true
+toc_cleanup = true
 toc_generation = true
 image_repair = true
 whitespace_repair = true
@@ -96,6 +97,28 @@ standardize_title_separators = true
 # titles in the book already use (a tie goes to spaced). "spaced"
 # forces "9 - The Lull". "tight" forces "9-The Lull".
 separator_style = "auto"
+
+# ---------------------------------------------------------------------
+# TOC Cleanup
+# ---------------------------------------------------------------------
+[toc_cleanup]
+
+# Drop a file from the reading order when it holds nothing at all (no
+# text, no pictures) and nothing links to it, along with its table of
+# contents entries. If that empty file stood in for the cover and the
+# book has a real cover page outside the reading order, the cover page
+# takes its place. Anything blocked is left alone and reported.
+remove_empty_pages = true
+
+# Remove a contents entry nested under an identical entry for the same
+# file ("Contents" inside "Contents"). Anything nested under the
+# duplicate moves up to the parent.
+collapse_duplicate_entries = true
+
+# Give a contents entry with no label a readable one (the first heading
+# in the file, or "Parent (Part 2)", or "Section 3") instead of leaving
+# readers to show a raw file path.
+fill_blank_labels = true
 
 # ---------------------------------------------------------------------
 # TOC Generation

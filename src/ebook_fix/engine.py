@@ -37,6 +37,7 @@ from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.linebreak_repair import LineBreakRepair
 from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.chapter_title_cleanup import ChapterTitleCleanupRepair
+from ebook_fix.modules.toc_cleanup import TocCleanupRepair
 from ebook_fix.modules.toc_generation import TocGenerationRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.cover_repair import CoverRepair
@@ -77,6 +78,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     LineBreakRepair,
     ChapterMarkupRepair,
     ChapterTitleCleanupRepair,
+    TocCleanupRepair,
     TocGenerationRepair,
     SceneBreakRepair,
     RunningTitleRepair,
@@ -123,6 +125,12 @@ class Engine:
         # spacing made consistent).
         if getattr(self.config, "chapter_title_cleanup", None) and getattr(self.config.chapter_title_cleanup, "enabled", True):
             modules.append(ChapterTitleCleanupRepair(self.config.chapter_title_cleanup))
+        # Runs right after Chapter Title Cleanup and before EPUB 3
+        # Upgrade, for the same reason: the nav document that module
+        # generates is built from the contents list, so empty pages and
+        # blank or duplicate entries need to be dealt with first.
+        if getattr(self.config, "toc_cleanup", None) and getattr(self.config.toc_cleanup, "enabled", True):
+            modules.append(TocCleanupRepair(self.config.toc_cleanup))
         # Runs after Gutenberg/Paragraph/Chapter Markup rather than
         # first, even though it used to run first: this module's own
         # nav-document generation (see modules/epub3_upgrade.py) reuses
