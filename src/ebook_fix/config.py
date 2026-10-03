@@ -185,6 +185,20 @@ class IdentifierRepairConfig:
 
 
 @dataclass(slots=True)
+class TitleCleanupConfig:
+    enabled: bool = True
+    # Drop the author (and any series number) from a title that is really
+    # a leftover filename, like "Kadrey, Richard - 01 Sandman Slim - Sandman Slim".
+    strip_author_from_title: bool = True
+    # Record the series name and number that title spelled out, when the
+    # book has no series set yet.
+    read_series_from_title: bool = True
+    # Rewrite a "Last, First" author as "First Last" when something else
+    # confirms it is a sort name stored as a display name.
+    fix_author_order: bool = True
+
+
+@dataclass(slots=True)
 class AuthorInitialsConfig:
     enabled: bool = True
 
@@ -291,6 +305,7 @@ class Config:
     running_title_repair: RunningTitleRepairConfig = field(default_factory=RunningTitleRepairConfig)
     metadata_repair: MetadataRepairConfig = field(default_factory=MetadataRepairConfig)
     identifier_repair: IdentifierRepairConfig = field(default_factory=IdentifierRepairConfig)
+    title_cleanup: TitleCleanupConfig = field(default_factory=TitleCleanupConfig)
     author_initials: AuthorInitialsConfig = field(default_factory=AuthorInitialsConfig)
     color_repair: ColorRepairConfig = field(default_factory=ColorRepairConfig)
     font_repair: FontRepairConfig = field(default_factory=FontRepairConfig)
@@ -346,6 +361,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.cover_repair, modules, "cover_repair")
     _apply_module_toggle(config.running_title_repair, modules, "running_title_repair")
     _apply_module_toggle(config.metadata_repair, modules, "metadata_repair")
+    _apply_module_toggle(config.title_cleanup, modules, "title_cleanup")
     _apply_module_toggle(config.identifier_repair, modules, "identifier_repair")
     _apply_module_toggle(config.color_repair, modules, "color_repair")
     _apply_module_toggle(config.font_repair, modules, "font_repair")
@@ -367,6 +383,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.cover_repair, "cover_repair", data.get("cover_repair", {}))
     _apply_section(config.running_title_repair, "running_title_repair", data.get("running_title_repair", {}))
     _apply_section(config.metadata_repair, "metadata_repair", data.get("metadata_repair", {}))
+    _apply_section(config.title_cleanup, "title_cleanup", data.get("title_cleanup", {}))
     _apply_section(config.identifier_repair, "identifier_repair", data.get("identifier_repair", {}))
     _apply_section(config.color_repair, "color_repair", data.get("color_repair", {}))
     _apply_section(config.font_repair, "font_repair", data.get("font_repair", {}))
@@ -446,6 +463,7 @@ scene_break_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
+title_cleanup = true
 identifier_repair = true
 color_repair = true
 font_repair = true
@@ -778,6 +796,30 @@ sync_calibre_opf = true
 # against a real Calibre library. Turn this on once that's confirmed
 # to work well on your machine -- see docs/metadata_plan.md.
 sync_calibre_db = false
+
+# ---------------------------------------------------------------------
+# Title Cleanup
+# ---------------------------------------------------------------------
+[title_cleanup]
+
+# Drop the author (and any series number) from a title that is really a
+# leftover filename, like "Kadrey, Richard - 01 Sandman Slim - Sandman
+# Slim", which becomes "Sandman Slim". Only done when the first or last
+# " - " piece of the title is the book's own author, so an ordinary
+# title that happens to contain a dash is never touched. A sort title
+# holding the same junk is cleaned to match.
+strip_author_from_title = true
+
+# When that title spelled out a series name and number ("01 Sandman
+# Slim"), record it as the book's series (in both the Calibre and EPUB 3
+# forms), but only if the book has no series set yet.
+read_series_from_title = true
+
+# Rewrite a "Last, First" author as "First Last". Only done when the
+# OPF's own sort name matches the same text, or the title started with
+# it. The sort name keeps the comma form. Several authors, suffixes
+# like "Jr." and company names are left alone.
+fix_author_order = true
 
 # ---------------------------------------------------------------------
 # Identifier Standardize

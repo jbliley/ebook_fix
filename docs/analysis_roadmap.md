@@ -2802,3 +2802,70 @@ how consistent they are. A book that spaces out paragraphs inconsistently
 could get a marker where the author did not intend one; turning
 `convert_spacers_to_scene_breaks` off restores the old behavior of
 removing them all.
+
+## Done: filename-style titles and "Last, First" authors (2026-10-03)
+
+Item 3 of the Sandman Slim list. That book's title was literally "Kadrey,
+Richard - 01 Sandman Slim - Sandman Slim", its sort title was the same
+junk, and its author was stored as "Kadrey, Richard". Metadata Sync
+reported nothing wrong, because it only acts on Calibre-managed books
+and only on a field where a second source disagrees.
+
+Checking the example books showed this is not a one-off: eight of the
+twenty-two have a title that is a leftover filename ("Clancy, Tom - Op
+Center 01 - Op Center", "Twain, Mark - Adventures of Tom Sawyer",
+"Reichert, Mickey - Renshai 03", and so on), and nearly all of them have
+the author stored as "Last, First".
+
+One new repair module, `modules/title_cleanup_repair.py` ("Title
+Cleanup"), with the pure logic in `metadata/title_cleanup.py`, a
+checkbox in the Repair tab and a `[title_cleanup]` section in the config
+file. It runs right before Metadata Sync, touches only the title and
+author in the OPF, needs no Calibre sidecar, and has three separate
+switches.
+
+- `strip_author_from_title`. The one rule that makes it safe: the title
+  is only changed when its first or last " - " piece IS the book's own
+  author, in either "Last, First" or "First Last" order. A title that
+  merely contains a dash ("Wolf Hall - A Novel") never matches, because
+  nothing in it is the author's name. A separator is a hyphen, en dash
+  or em dash with a space on each side, so hyphenated words are never
+  split. With the author taken off: "Author - Title" and "Title -
+  Author" become "Title"; "Author - 01 Series - Title" (also "Series
+  01", "Series #1", "Series, Book 1", "Series Vol. 1") becomes "Title"
+  with the series noted; "Author - 1 - Title" drops the bare number; and
+  "Author - Something - Title" becomes "Something - Title", because
+  whether "Something" is a series is a guess. If `calibre:title_sort`
+  held the same junk as the title, it is updated to the clean title.
+- `read_series_from_title`. When the title spelled out a series name and
+  number and the book has no series yet, it is recorded through
+  `ebook_fix.series`, which writes both the Calibre and EPUB 3
+  conventions. A book that already has a series is never overwritten.
+- `fix_author_order`. A single "Last, First" author becomes "First Last"
+  (Jacob's preferred form), only when something confirms the comma form
+  was a sort name stored as a display name: the OPF's own `file-as` value
+  is the same text, or the title started with it. The `file-as` sort
+  name keeps the comma form, and is added if missing. More than one
+  creator, more than three words on a side, an "and" or "&", a suffix
+  like "Jr." and a company suffix like "Inc." all leave the author alone.
+
+Verified on the real book: title "Sandman Slim", sort title "Sandman
+Slim", author "Richard Kadrey" with the sort name still "Kadrey,
+Richard", series "Sandman Slim" number 1 in both conventions. Across the
+twenty-two example books, eight changed and every change reads right
+("Op Center" book 1 for the Clancy book, "Mark Twain" for both Twain
+books, and so on); the fourteen others, including the ones with
+ordinary titles, are untouched. A second repair pass makes zero changes
+in every book, and every file passes strict XML parsing and the
+manifest check. A parse test of fifteen title patterns, including
+titles that must not match, ran before the module was wired in.
+
+Known limits: "Reichert, Mickey - Renshai 03" becomes "Renshai 03",
+since a number with no second piece to put the series in cannot be told
+apart from a real title that ends in a number, so it is left as is. An
+author given as "Johnstone, William W." with no `file-as` and no title
+match (the First Mountain Man example had a `file-as`) would be left
+alone. Not yet tested against a real Calibre library: for a
+Calibre-managed book, the cleaned title is written into the EPUB, but
+Metadata Sync never pushes it into Calibre's own record, so Calibre may
+still show the old title until it is corrected there.

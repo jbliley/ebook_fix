@@ -89,6 +89,7 @@ from ebook_fix.modules.running_title_repair import RunningTitleRepair
 from ebook_fix.modules.metadata_repair import MetadataSyncRepair
 from ebook_fix.modules.identifier_repair import IdentifierStandardizeRepair
 from ebook_fix.modules.author_initials_repair import AuthorInitialsRepair
+from ebook_fix.modules.title_cleanup_repair import TitleCleanupRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.gutenberg_repair import GutenbergRepair
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
@@ -144,6 +145,7 @@ _REPAIR_MODULES = [
     ("ellipsis_repair", "Ellipsis Normalizer"),
     ("apostrophe_repair", "Apostrophe Repair"),
     ("whitespace_repair", "Whitespace Normalizer"),
+    ("title_cleanup", "Title Cleanup"),
     ("metadata_repair", "Metadata Sync (Calibre-managed books only)"),
     ("identifier_repair", "Identifier Standardize"),
     ("author_initials", "Author Initials"),
@@ -175,6 +177,7 @@ _REPAIR_MODULE_CLASSES = {
     "ellipsis_repair": EllipsisRepair,
     "apostrophe_repair": ApostropheRepair,
     "whitespace_repair": WhitespaceRepair,
+    "title_cleanup": TitleCleanupRepair,
     "metadata_repair": MetadataSyncRepair,
     "identifier_repair": IdentifierStandardizeRepair,
     "author_initials": AuthorInitialsRepair,

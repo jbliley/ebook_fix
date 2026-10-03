@@ -24,6 +24,7 @@ scene_break_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
+title_cleanup = true
 identifier_repair = true
 
 # ---------------------------------------------------------------------
@@ -353,6 +354,30 @@ sync_calibre_opf = true
 # against a real Calibre library. Turn this on once that's confirmed
 # to work well on your machine -- see docs/metadata_plan.md.
 sync_calibre_db = true
+
+# ---------------------------------------------------------------------
+# Title Cleanup
+# ---------------------------------------------------------------------
+[title_cleanup]
+
+# Drop the author (and any series number) from a title that is really a
+# leftover filename, like "Kadrey, Richard - 01 Sandman Slim - Sandman
+# Slim", which becomes "Sandman Slim". Only done when the first or last
+# " - " piece of the title is the book's own author, so an ordinary
+# title that happens to contain a dash is never touched. A sort title
+# holding the same junk is cleaned to match.
+strip_author_from_title = true
+
+# When that title spelled out a series name and number ("01 Sandman
+# Slim"), record it as the book's series (in both the Calibre and EPUB 3
+# forms), but only if the book has no series set yet.
+read_series_from_title = true
+
+# Rewrite a "Last, First" author as "First Last". Only done when the
+# OPF's own sort name matches the same text, or the title started with
+# it. The sort name keeps the comma form. Several authors, suffixes
+# like "Jr." and company names are left alone.
+fix_author_order = true
 
 # ---------------------------------------------------------------------
 # Identifier Standardize

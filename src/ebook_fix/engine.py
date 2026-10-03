@@ -45,6 +45,7 @@ from ebook_fix.modules.running_title_repair import RunningTitleRepair
 from ebook_fix.modules.metadata_repair import MetadataSyncRepair
 from ebook_fix.modules.identifier_repair import IdentifierStandardizeRepair
 from ebook_fix.modules.author_initials_repair import AuthorInitialsRepair
+from ebook_fix.modules.title_cleanup_repair import TitleCleanupRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMappingEntry, load_mapping_file, MappingError
 from ebook_fix.modules.color_strip import ColorStripRepair
@@ -223,6 +224,13 @@ class Engine:
             modules.append(ApostropheRepair(self.config.apostrophe_repair))
         if getattr(self.config, "whitespace_repair", None) and getattr(self.config.whitespace_repair, "enabled", True):
             modules.append(WhitespaceRepair(self.config.whitespace_repair))
+        # Runs just before Metadata Sync and, like it, touches only OPF
+        # metadata (title and author), never chapter text. Needs no
+        # second source: the title is only changed when it starts or
+        # ends with the book's own author -- see
+        # modules/title_cleanup_repair.py.
+        if getattr(self.config, "title_cleanup", None) and getattr(self.config.title_cleanup, "enabled", True):
+            modules.append(TitleCleanupRepair(self.config.title_cleanup))
         # Runs last: only ever touches OPF metadata fields (title,
         # author, etc.), completely independent of every chapter-text
         # module above. Only acts on a Calibre-managed book, and only
