@@ -2731,3 +2731,74 @@ fixed before delivery: a blank nav entry with no link looped forever,
 and a cover page that Image Repair had just emptied was dropped as
 empty. Regression run across every EPUB in `examples/`: no crashes, and
 the only book the module changed was Sandman Slim.
+
+## Fixed: blank-paragraph scene breaks were being deleted (2026-10-03)
+
+Jacob uploaded "Rules of Prey" (John Sandford) after noticing a blank
+line between two scenes in Chapter 2 and asking whether the spacing
+cleanup would break it, and whether such blank lines could be turned
+into a scene marker ("* * *") when they do not appear between every
+paragraph.
+
+What the book contains: scene changes are marked with a paragraph that
+holds only a non-breaking space (`<p class="pause-space">&nbsp;</p>`),
+170 of them across the book. Paragraph Repair treats any paragraph with
+no real content as a conversion leftover and removes it, so repairing
+the book silently joined every one of those scenes together. This was
+an existing behavior, not caused by the TOC Cleanup module added the
+same day.
+
+The fix is in `modules/paragraph.py`, with one new switch,
+`convert_spacers_to_scene_breaks` (on by default, in
+`[paragraph_repair]`; it has no effect when `fix_empty_paragraphs` is
+off). Instead of deleting a blank paragraph that marks a scene change,
+the module turns it into a centered `<p>* * *</p>`, the same marker
+Scene Break Normalizer uses for a horizontal rule. A blank paragraph is
+treated as a scene break only when all of these are true:
+
+1. It was written to show as a gap: it holds a non-breaking space or a
+   line break. A bare `<p></p>`, a paragraph of plain whitespace, or an
+   empty classed paragraph is the kind of leftover a converter makes,
+   and is removed as before.
+2. It sits between two paragraphs of story text. A blank paragraph next
+   to a heading, a horizontal rule, a watermark line, or an existing
+   marker such as "* * *" or "• • •" is spacing around that item and is
+   removed. Several blank paragraphs in a row count as one break.
+3. Blank gaps are rare in the book: no more than one per seven
+   paragraphs across the whole book (0.15), and at least 40 paragraphs
+   of text to judge by. A book with a blank paragraph between most
+   paragraphs is just padded for spacing, and those are removed as
+   before (BrokenSentences.epub, at 32 percent, is the example).
+4. The chapter is not mostly padding itself: under 30 percent, and at
+   least five paragraphs. This keeps the spaced-out lines of a copyright
+   page or title page from turning into markers.
+
+The thresholds sit at the top of the module. The analysis report calls
+a paragraph that will be converted "Blank paragraph marking a scene
+break" so the count matches what repair does.
+
+Checked against every example book. Rules of Prey: 170 converted, the 7
+blank lines on the copyright page still removed, and Chapter 2's two
+breaks land in the right places (after the woman walks past the plaza,
+and after "A photograph."). Of the other examples, three more books
+convert some: ChaptersNotAligned-New (85, each a change of scene),
+MM21 (28) and War and Peace (50, each a blank line in the Gutenberg text
+where the scene shifts inside a chapter). Every other book, including
+the ones whose empty paragraphs are conversion leftovers, is unchanged.
+Word count differs by exactly three words per converted break ("* * *")
+and nothing else, every file passes strict XML parsing and the manifest
+check, and a second repair pass makes zero changes in every book.
+
+Two false positives found while tuning and fixed before delivery: empty
+classed paragraphs from PDF-style conversions (ChaptersMisaligned,
+Watermarks-SmallChapterNumbers) were being marked next to watermark
+lines like "PDF Transform", so condition 1 was tightened to require a
+non-breaking space or line break, and watermark paragraphs are now never
+counted as story text.
+
+Known limit: this cannot tell a blank line that marks a scene change
+from one that was just a typesetter's gap, only judge by how rare and
+how consistent they are. A book that spaces out paragraphs inconsistently
+could get a marker where the author did not intend one; turning
+`convert_spacers_to_scene_breaks` off restores the old behavior of
+removing them all.
