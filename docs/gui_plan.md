@@ -1415,6 +1415,18 @@ author/title value.
   stylesheet-level counts should have moved to Overview -- flagged in
   the Phase 6 build write-up, not yet confirmed either way.
 
+## Planned -- GUI redesign (2026-10-03)
+
+Phase 4's single Repair tab (metadata, cover, and every repair checkbox
+on one page) did not work out in use, and the Analysis tab is more
+detail than most people need. A redesign is planned: one Overview page
+with a short summary and red flags, categorized collapsed boxes, a single
+Fix This Book button, automatic saving instead of staging buttons, and a
+Details tab for metadata and the cover. Full design, build order, and
+acceptance checks are in `docs/gui_redesign_plan.md`, which replaces the
+Repair-tab design in Phase 4 above once built. Nothing in this doc
+changes until then.
+
 ## Continuity note
 This file is the source of truth for the GUI's scope and phase order,
 more reliable than relying on conversation memory across sessions.
