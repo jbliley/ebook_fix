@@ -180,3 +180,56 @@ def author_first_last(author: str, file_as: str = "", title_confirms: bool = Fal
     if not confirmed:
         return None
     return f"{first} {last}"
+
+
+@dataclass(slots=True)
+class FilenameSuggestion:
+    """What a filename-style title and a "Last, First" author should
+    become. Each field is None when it needs no change."""
+    title: str | None = None
+    author: str | None = None
+    series: str | None = None
+    series_index: float | None = None
+    # The parse the title suggestion came from, if the title matched.
+    parse: TitleParse | None = None
+
+    @property
+    def has_any(self) -> bool:
+        return any(v is not None for v in (self.title, self.author, self.series))
+
+
+def suggest_from_filename_title(
+    title: str,
+    author: str,
+    file_as: str = "",
+    single_author: bool = True,
+    has_series: bool = False,
+    fix_title: bool = True,
+    fix_series: bool = True,
+    fix_author: bool = True,
+) -> FilenameSuggestion:
+    """The single place that decides what a filename-style title and a
+    "Last, First" author should become, so the Title Cleanup repair and
+    the Metadata form's suggestion buttons can never disagree.
+
+    `single_author` is False when the book lists more than one author
+    (an author is then never rearranged). `has_series` is True when the
+    book already has a series, which is never overwritten. The three
+    fix_ flags mirror the Title Cleanup switches."""
+    suggestion = FilenameSuggestion()
+    parse = parse_filename_title(title, author)
+
+    if parse is not None and fix_title:
+        suggestion.title = parse.title
+        suggestion.parse = parse
+        if parse.series and fix_series and not has_series:
+            suggestion.series = parse.series
+            suggestion.series_index = parse.series_index
+
+    if fix_author and author and single_author:
+        confirmed_by_title = bool(parse and parse.author_was_comma_form)
+        new_author = author_first_last(author, file_as, confirmed_by_title)
+        if new_author is not None:
+            suggestion.author = new_author
+
+    return suggestion

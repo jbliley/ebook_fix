@@ -2973,3 +2973,40 @@ is display only. To confirm, each of those 23 books was repaired once with
 the old analyzer and once with the new one: all 23 output files are
 identical, ignoring the `dcterms:modified` timestamp that changes on
 every run.
+
+## Done: suggested metadata buttons and one shared decision (2026-10-03)
+
+Jacob saw the Overview tab announce "'Kadrey, Richard - 01 Sandman Slim -
+Sandman Slim' -> 'Sandman Slim'", the series, and the author fix under
+"What the repairs would change", while the Metadata form said nothing
+about it. He wanted the form to say so before anyone types in what the
+repair will do anyway, and asked for a button like the mismatch ones to
+make it easier.
+
+The decision about what a filename-style title and a "Last, First" author
+should become used to live inside the Title Cleanup module. It is now one
+function, `suggest_from_filename_title` in `metadata/title_cleanup.py`,
+used both by the module and by the Repair tab's metadata form, so the two
+can never disagree. The module's behavior did not change: the old and new
+module were run on every example book (23) under four settings (all on,
+and each of the three switches off in turn), 92 cases, and the reports and
+the resulting metadata are identical in all of them. The module found
+something to do in 31 of those cases.
+
+On the Metadata form, a book with a filename-style title now gets a banner
+listing the suggested title, author and series with a "Use all
+suggestions" button, plus a "Suggested:" button beside each field. The
+buttons fill the fields; Save Metadata keeps them. Worked out from the
+book's own title and author, so the series is still offered after the
+title has been fixed and saved. A title or author suggestion goes away
+once the form holds anything other than the book's own value, so a title
+someone typed themselves is not nagged about, and a series is only
+suggested while the series box is empty. Tested through the form routes in
+five situations (nothing saved, title saved, own title typed, all three
+saved, own series typed), and the page's script passes a syntax check and
+a stub-page test of the two new helper functions. The banner appears on
+eight books, the ones with filename-style titles.
+
+Along with it, the Analysis tab was removed (see
+`docs/gui_redesign_plan.md`), after every line it showed was found on the
+Overview tab.

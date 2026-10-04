@@ -103,6 +103,7 @@ from gui import overview_view
 from metadata.core_fields import write_core_field
 from metadata import calibre_detect
 from metadata.language_codes import language_options
+from metadata.title_cleanup import suggest_from_filename_title
 
 app = Flask(__name__)
 
@@ -734,25 +735,10 @@ def book_overview(session_id):
 @app.route("/book/<session_id>")
 @_handle_missing_source
 def book_analysis(session_id):
-    session_dir = _session_dir(session_id)
-    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
-
-    book, analysis_report = _load_analysis(session_dir)
-    overview = analysis_view.build_overview(analysis_report)
-    issues = analysis_view.build_issues(analysis_report)
-    manual_review = analysis_view.build_manual_review(analysis_report)
-    issue_count = sum(len(section.lines) for section in issues)
-
-    return render_template(
-        "book.html",
-        active_tab="analysis",
-        session_id=session_id,
-        filename=filename,
-        overview=overview,
-        issues=issues,
-        manual_review=manual_review,
-        issue_count=issue_count,
-    )
+    """The old Analysis tab is gone: everything it showed is on the
+    Overview tab (checked line by line against it). This stays only so an
+    old bookmark or link to /book/<id> lands somewhere useful."""
+    return redirect(url_for("book_overview", session_id=session_id))
 
 
 def _cover_preview(data: bytes, media_type: str) -> dict:
@@ -1204,6 +1190,47 @@ def book_repair(session_id):
     # own field is simply blank.
     current_language = (staged_metadata.get("language") if staged_metadata else None) or merged.language.epub_value or merged.language.display_value
 
+    # --- FILENAME-STYLE TITLE SUGGESTION ---
+    # Same rules Title Cleanup applies at repair time (one shared
+    # function, metadata.title_cleanup.suggest_from_filename_title),
+    # worked out from the book's OWN title and author, so a suggestion
+    # (the series, say) is still available after another field has been
+    # fixed and saved. Shown as "Suggested" buttons beside the fields,
+    # so a person can see and adjust the change before saving. A field
+    # only gets a suggestion while the form still shows the book's own
+    # value: once someone has typed or saved something else there, it is
+    # their decision and is not nagged about. A series is only suggested
+    # while the series box is empty.
+    filename_suggestion = None
+    form_values = {f["name"]: (f["value"] or "").strip() for f in fields}
+    shown_series_name = ((staged_metadata.get("series_name") if staged_metadata else (series_info.name or "")) or "").strip()
+    opf_doc = getattr(book, "opf_document", None)
+    creators = opf_doc.findall(".//{http://purl.org/dc/elements/1.1/}creator") if opf_doc is not None else []
+    creator_file_as = ""
+    if len(creators) == 1:
+        creator_file_as = creators[0].get("{http://www.idpf.org/2007/opf}file-as") or ""
+    epub_title = (getattr(book.metadata, "title", "") or "").strip()
+    epub_author = (getattr(book.metadata, "creator", "") or "").strip()
+    suggestion = suggest_from_filename_title(
+        epub_title,
+        epub_author,
+        file_as=creator_file_as,
+        single_author=len(creators) == 1,
+        has_series=bool(shown_series_name),
+    )
+    if suggestion.has_any:
+        suggested = {
+            "title": suggestion.title if suggestion.title and form_values.get("title") == epub_title else None,
+            "author": suggestion.author if suggestion.author and form_values.get("author") == epub_author else None,
+            "series": suggestion.series if not shown_series_name else None,
+            "series_index": (
+                series_metadata.format_index(suggestion.series_index)
+                if suggestion.series is not None and suggestion.series_index is not None else ""
+            ),
+        }
+        if any(suggested[k] for k in ("title", "author", "series")):
+            filename_suggestion = suggested
+
     # --- REPAIR MODULES SECTION (original code from book_repair) ---
     modules = []
     for attr, label in _REPAIR_MODULES:
@@ -1276,6 +1303,7 @@ def book_repair(session_id):
         series_name=staged_metadata.get("series_name") if staged_metadata else (series_info.name or ""),
         series_index=staged_metadata.get("series_index") if staged_metadata else series_info.index,
         is_calibre_managed=calibre_ctx.is_calibre_managed,
+        filename_suggestion=filename_suggestion,
     )
 
 

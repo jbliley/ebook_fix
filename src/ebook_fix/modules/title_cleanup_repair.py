@@ -37,7 +37,7 @@ from ebook_fix import series as series_metadata
 from ebook_fix.config import TitleCleanupConfig
 from ebook_fix.report import Report
 from metadata.core_fields import write_core_field
-from metadata.title_cleanup import author_first_last, parse_filename_title
+from metadata.title_cleanup import suggest_from_filename_title
 
 OPF_NS = "http://www.idpf.org/2007/opf"
 DC_NS = "http://purl.org/dc/elements/1.1/"
@@ -72,33 +72,45 @@ class TitleCleanupRepair:
         if not title and not author:
             return report
 
-        parse = parse_filename_title(title, author)
+        creators = self._creator_elements(book)
+        file_as = ""
+        if len(creators) == 1:
+            file_as = creators[0].get(f"{{{OPF_NS}}}file-as", "") or ""
+
+        suggestion = suggest_from_filename_title(
+            title,
+            author,
+            file_as=file_as,
+            single_author=len(creators) == 1,
+            has_series=bool(series_metadata.read(book).name),
+            fix_title=self.config.strip_author_from_title,
+            fix_series=self.config.read_series_from_title,
+            fix_author=self.config.fix_author_order,
+        )
         verb = "" if write else " will be"
 
-        if parse is not None and self.config.strip_author_from_title:
-            if not write or write_core_field(book, "title", parse.title):
+        if suggestion.title is not None:
+            if not write or write_core_field(book, "title", suggestion.title):
                 report.add(
                     "content.opf",
                     f"Filename-style title{verb} cleaned",
-                    f"{title!r} -> {parse.title!r}",
+                    f"{title!r} -> {suggestion.title!r}",
                 )
                 if write:
-                    self._fix_title_sort(book, title, parse.title, report)
+                    self._fix_title_sort(book, title, suggestion.title, report)
 
-            if parse.series and self.config.read_series_from_title:
-                existing = series_metadata.read(book)
-                if not existing.name:
-                    if write:
-                        series_metadata.write(book, parse.series, parse.series_index)
-                    number = series_metadata.format_index(parse.series_index)
-                    report.add(
-                        "content.opf",
-                        f"Series{verb} read from the title",
-                        f"{parse.series!r}, book {number}",
-                    )
+            if suggestion.series is not None:
+                if write:
+                    series_metadata.write(book, suggestion.series, suggestion.series_index)
+                number = series_metadata.format_index(suggestion.series_index)
+                report.add(
+                    "content.opf",
+                    f"Series{verb} read from the title",
+                    f"{suggestion.series!r}, book {number}",
+                )
 
-        if self.config.fix_author_order and author:
-            self._fix_author(book, author, parse, write, verb, report)
+        if suggestion.author is not None:
+            self._fix_author(book, author, suggestion.author, creators[0], write, verb, report)
 
         return report
 
@@ -110,18 +122,7 @@ class TitleCleanupRepair:
             return []
         return opf.findall(f".//{{{DC_NS}}}creator")
 
-    def _fix_author(self, book, author, parse, write, verb, report):
-        creators = self._creator_elements(book)
-        if len(creators) != 1:
-            # No OPF to write to, or several authors: never rearranged.
-            return
-        element = creators[0]
-        file_as = element.get(f"{{{OPF_NS}}}file-as", "") or ""
-        confirmed_by_title = bool(parse and parse.author_was_comma_form)
-        new_author = author_first_last(author, file_as, confirmed_by_title)
-        if new_author is None:
-            return
-
+    def _fix_author(self, book, author, new_author, element, write, verb, report):
         if write:
             if not write_core_field(book, "author", new_author):
                 return

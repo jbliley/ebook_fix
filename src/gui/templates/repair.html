@@ -80,6 +80,23 @@
   </div>
 </div>
 
+{% if filename_suggestion %}
+<div class="staged-banner" id="filename-suggestion">
+  {% if filename_suggestion.title %}<strong>This book's title looks like a leftover filename.</strong> Suggested:{% else %}<strong>Suggested:</strong>{% endif %}
+  <ul style="margin:0.4rem 0 0.6rem; padding-left:1.2rem;">
+    {% if filename_suggestion.title %}<li>Title: <em>{{ filename_suggestion.title }}</em></li>{% endif %}
+    {% if filename_suggestion.author %}<li>Author: <em>{{ filename_suggestion.author }}</em></li>{% endif %}
+    {% if filename_suggestion.series %}<li>Series: <em>{{ filename_suggestion.series }}</em>{% if filename_suggestion.series_index %}, book {{ filename_suggestion.series_index }}{% endif %}</li>{% endif %}
+  </ul>
+  <button type="button" class="button secondary" style="margin-top:0;" onclick='applyFilenameSuggestions({{ filename_suggestion|tojson }});'>Use all suggestions</button>
+  <div class="mismatch-note" style="margin-top:0.5rem;">
+    This fills in the fields below; click Save Metadata to keep it. The "Title Cleanup" repair
+    in the list further down makes the same changes automatically when you apply repairs, so
+    use these buttons only if you want to look at or adjust the result first.
+  </div>
+</div>
+{% endif %}
+
 <form method="post" id="metadata-form" action="{{ url_for('save_metadata', session_id=session_id) }}">
   {% for f in fields %}
   <div class="field-block">
@@ -95,6 +112,18 @@
     {% if f.name == 'author' %}
     <div class="author-swap">
       <button type="button" id="swap-btn" class="button secondary" style="margin-top:0.4rem; padding:0.3rem 0.7rem; font-size:0.8rem; display:none;" onclick="swapAuthorName()">Swap to "First Last"</button>
+    </div>
+    {% endif %}
+    {% if filename_suggestion and f.name == 'title' and filename_suggestion.title %}
+    <div class="mismatch-choices">
+      Suggested:
+      <button type="button" onclick='setFilenameField("field-title", {{ filename_suggestion.title|tojson }});'>{{ filename_suggestion.title }}</button>
+    </div>
+    {% endif %}
+    {% if filename_suggestion and f.name == 'author' and filename_suggestion.author %}
+    <div class="mismatch-choices">
+      Suggested:
+      <button type="button" onclick='setFilenameField("field-author", {{ filename_suggestion.author|tojson }});'>{{ filename_suggestion.author }}</button>
     </div>
     {% endif %}
     {% if f.mismatch %}
@@ -128,6 +157,12 @@
 
   <label for="field-series-index">Series Position</label>
   <input type="text" id="field-series-index" name="series_index" value="{{ series_index if series_index is not none else '' }}" placeholder="e.g. 3 or 3.5">
+  {% if filename_suggestion and filename_suggestion.series %}
+  <div class="mismatch-choices">
+    Suggested:
+    <button type="button" onclick='setFilenameField("field-series-name", {{ filename_suggestion.series|tojson }}); setFilenameField("field-series-index", {{ filename_suggestion.series_index|tojson }});'>{{ filename_suggestion.series }}{% if filename_suggestion.series_index %}, book {{ filename_suggestion.series_index }}{% endif %}</button>
+  </div>
+  {% endif %}
 
   <!-- ISBN LOOKUP SECTION -->
   <div style="border:1px solid #e2e8f0; border-radius:6px; padding:1rem; margin:1.5rem 0; background:#f7fafc;">
@@ -275,6 +310,24 @@
       e.returnValue = "";
     }
   });
+
+  // Fill one field with a suggested value. Fires an input event so the
+  // unsaved-changes warning and the Swap button both notice.
+  window.setFilenameField = function(id, value) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
+  window.applyFilenameSuggestions = function(s) {
+    if (s.title) window.setFilenameField("field-title", s.title);
+    if (s.author) window.setFilenameField("field-author", s.author);
+    if (s.series) {
+      window.setFilenameField("field-series-name", s.series);
+      window.setFilenameField("field-series-index", s.series_index || "");
+    }
+  };
 
   // Swap author name - only show button when there's a comma
   window.swapAuthorName = function() {

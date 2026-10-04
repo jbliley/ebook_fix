@@ -264,6 +264,33 @@ sketch above:
   books with the old and new analyzer gives identical output files (apart
   from the `dcterms:modified` timestamp).
 
+**Follow-up, same day, after Jacob tried it.** The layout was approved
+and the first load took about five seconds. Two changes came out of that:
+
+- The old **Analysis tab is gone.** Every `<li>` line it showed (323 lines
+  across seven books, including Sandman Slim, Rules of Prey and the
+  largest examples) was checked against the Overview page and all of them
+  are there. The tab bar is now Overview, Review, Repair, Before / After.
+  The `/book/<id>` address redirects to the Overview so old links still
+  work, and `templates/book.html` is no longer used.
+- **Suggested buttons on the Metadata form** (in the Repair tab until the
+  Details tab exists). Jacob noticed the Overview announced "Kadrey,
+  Richard - 01 Sandman Slim - Sandman Slim" becoming a clean title, author
+  and series, but the Metadata form said nothing, so someone could retype
+  what the repair was about to do anyway. When a book has a filename-style
+  title, a banner above the form lists the suggested title, author and
+  series with a **Use all suggestions** button, and each field gets a
+  "Suggested:" button in the style of the existing "Pick a value" buttons.
+  Clicking fills the field; Save Metadata keeps it. The banner says the
+  Title Cleanup repair does the same thing automatically, so the buttons
+  are only for looking at or adjusting the result first. The decision is
+  made by one shared function (`suggest_from_filename_title` in
+  `metadata/title_cleanup.py`) that Title Cleanup now also uses, so the
+  form and the repair cannot disagree. Rules: worked out from the book's
+  own title and author; a title or author suggestion disappears once the
+  form holds anything else there (someone's own choice is not nagged
+  about); a series is only suggested while the series box is empty.
+
 Not done in this phase, on purpose: checkboxes in the boxes, the Fix
 This Book button, auto-saving, and the Details tab.
 
@@ -289,6 +316,15 @@ and the renamed file exactly as today; Fix is disabled when there is
 nothing to do.
 
 ### Phase 3 -- Details tab and polish
+
+Requirement carried over from Jacob's 2026-10-03 feedback: every field on
+the Details tab must show what the repairs are going to do to it. Where
+Title Cleanup, Identifier Standardize, Author Initials or Metadata Sync
+will change a field, the field carries a short note ("Fix This Book will
+change this to: Sandman Slim") with a one-click "Use it now" button, so no
+one retypes what will be done anyway. The Suggested buttons added to the
+Repair tab's form are the first version of this, and the Details tab
+generalizes them to every metadata field a repair touches.
 
 Move the metadata form and the cover handling into the Details tab, with
 the "Change cover" fold-out. Also in this phase: swap Flask's built-in
