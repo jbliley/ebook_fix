@@ -29,6 +29,11 @@ real job (a visual pause):
 - A trailing <br/> in the paragraph right before an <hr> or a marker
   paragraph, and a leading <br/> in the paragraph right after one.
 
+Breaks that make up the blank space under a chapter header are kept
+too (see ebook_fix.headings): a trailing <br/> inside the header, and a
+leading <br/> at the top of the paragraph right after it. A leading
+<br/> at the start of the header itself is still flagged.
+
 A <br clear="..."/> is never flagged (that's a float-clearing layout
 instruction, not an empty line). A paragraph whose only content is a <br/> is not flagged here either;
 it's an empty paragraph, which Paragraph Repair already owns (and it
@@ -47,6 +52,8 @@ JSON cache (see serialize.py), only used within a single run.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+from ebook_fix.headings import is_chapter_header
 
 # The only containers a stray break is looked for in: paragraphs and
 # headings. Breaks sitting directly in <body>, a <div>, a table cell or a
@@ -154,6 +161,17 @@ def _is_scene_divider(el) -> bool:
     return el is not None and (_local(el) == "hr" or is_scene_break_marker(el))
 
 
+def _is_spacing_after_header(block, kind: str, markers) -> bool:
+    """True when a <br/> is part of the blank space *under* a chapter
+    header and should be kept: a trailing break inside the header itself
+    ("Chapter One<br/><br/>"), or a leading break at the top of the
+    paragraph right after the header. A leading break at the start of
+    the header (a gap above the title) is not covered."""
+    if kind == "trailing":
+        return is_chapter_header(block, markers)
+    return is_chapter_header(_neighbor(block, "previous"), markers)
+
+
 def _belongs_to_scene_break(block, kind: str) -> bool:
     """True when a leading/trailing <br/> in `block` is part of a scene
     break and should be kept."""
@@ -219,10 +237,14 @@ def breaks_in_block(block) -> list:
 # ---------------------------------------------------------------------
 
 
-def analyze_book_linebreaks(book, frontmatter_summary=None) -> BookLineBreakSummary:
+def analyze_book_linebreaks(book, frontmatter_summary=None, chapter_markers=None) -> BookLineBreakSummary:
     """`frontmatter_summary` should be the analysis the caller already
     computed for this book (see analyzer.py), passed in so this doesn't
-    have to re-run it itself. Falls back to computing it if not given."""
+    have to re-run it itself. Falls back to computing it if not given.
+
+    `chapter_markers` is the set of confirmed chapter-title elements
+    (ebook_fix.headings.chapter_marker_elements); without it only
+    heading tags count as chapter headers."""
     summary = BookLineBreakSummary()
 
     if frontmatter_summary is None:
@@ -255,6 +277,8 @@ def analyze_book_linebreaks(book, frontmatter_summary=None) -> BookLineBreakSumm
             seen_blocks.add(block)
             for element, kind in breaks_in_block(block):
                 if _belongs_to_scene_break(block, kind):
+                    continue
+                if _is_spacing_after_header(block, kind, chapter_markers):
                     continue
                 chapter_summary.stray_breaks.append(
                     StrayLineBreak(

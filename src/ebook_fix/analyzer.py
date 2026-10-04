@@ -19,6 +19,7 @@ from ebook_fix.fonts import BookFontSummary, analyze_book_font_usage
 from ebook_fix.chapters import BookChapterSummary, analyze_book_chapters
 from ebook_fix.images import BookImageSummary, analyze_book_images
 from ebook_fix.packaging import BookPackagingSummary, analyze_book_packaging
+from ebook_fix.headings import chapter_marker_elements
 from ebook_fix.paragraphs import BookParagraphSummary, analyze_book_paragraphs
 from ebook_fix.linebreaks import BookLineBreakSummary, analyze_book_linebreaks
 from ebook_fix.whitespace import BookWhitespaceSummary, analyze_book_whitespace
@@ -321,8 +322,9 @@ class EPUBAnalyzer:
         r.fonts=analyze_book_font_usage(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
         r.images=analyze_book_images(book)
         r.packaging=analyze_book_packaging(book)
-        r.paragraphs=analyze_book_paragraphs(book,frontmatter_summary=r.frontmatter)
-        r.linebreaks=analyze_book_linebreaks(book,frontmatter_summary=r.frontmatter)
+        header_markers=chapter_marker_elements(r.chapters)
+        r.paragraphs=analyze_book_paragraphs(book,frontmatter_summary=r.frontmatter,chapter_markers=header_markers)
+        r.linebreaks=analyze_book_linebreaks(book,frontmatter_summary=r.frontmatter,chapter_markers=header_markers)
         r.whitespace=analyze_book_whitespace(book)
         r.ellipsis=analyze_book_ellipsis(book)
         r.scene_breaks=analyze_book_scene_breaks(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)

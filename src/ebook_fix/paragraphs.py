@@ -8,6 +8,10 @@ doesn't have to scan the book itself to find what needs fixing.
 Three things get flagged, per chapter:
 
 1. Empty paragraphs -- leftover <p></p> tags with no real content.
+   One kind is deliberately NOT flagged: a blank paragraph that shows as
+   a gap (a non-breaking space or a <br/>) directly under a chapter
+   header. That spacing is part of the book's look and is left alone
+   (see ebook_fix.headings).
 2. Watermark / junk paragraphs -- promotional text left behind by
    whatever tool originally converted the file.
 3. Mid-sentence splits -- a paragraph cut off before the end of a
@@ -36,6 +40,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+
+from ebook_fix.headings import is_chapter_header
 
 SENTENCE_ENDINGS = ('.', '!', '?', '"', "'", ')', '\u201d', '\u2019')
 MIN_WORDS_FOR_MERGE = 4
@@ -131,6 +137,36 @@ def _is_empty(element) -> bool:
     if element.findall(".//{*}img"):
         return False
     return _text(element) == ""
+
+
+def _renders_gap(element) -> bool:
+    """True for an empty paragraph written to show as a blank line: it
+    holds a non-breaking space or a line break. A bare <p></p> shows
+    nothing, so it is not a gap."""
+    if element.findall(".//{*}br"):
+        return True
+    return "\u00a0" in "".join(element.itertext())
+
+
+def _is_spacing_after_header(p, markers) -> bool:
+    """True for a blank, gap-showing paragraph sitting directly under a
+    chapter header (see ebook_fix.headings), including when several
+    blanks follow in a row. That spacing is part of how the book looks
+    and is kept, not reported and not removed."""
+    if not _renders_gap(p):
+        return False
+    node = p.getprevious()
+    while node is not None:
+        if not isinstance(node.tag, str):
+            node = node.getprevious()
+            continue
+        if is_chapter_header(node, markers):
+            return True
+        if node.tag.rsplit("}", 1)[-1].lower() == "p" and _is_empty(node):
+            node = node.getprevious()
+            continue
+        return False
+    return False
 
 
 def _referenced_fragments(book) -> set:
@@ -412,11 +448,16 @@ def _tag_name(element) -> str:
     return tag if isinstance(tag, str) else ""
 
 
-def analyze_book_paragraphs(book, frontmatter_summary=None) -> BookParagraphSummary:
+def analyze_book_paragraphs(book, frontmatter_summary=None, chapter_markers=None) -> BookParagraphSummary:
     """`frontmatter_summary` should be the analysis the caller already
     computed for this book (see engine.py's AnalysisReport), passed
     in so this doesn't have to re-run it itself. Falls back to
     computing it if not given.
+
+    `chapter_markers` is the set of confirmed chapter-title elements
+    (ebook_fix.headings.chapter_marker_elements), so the blank space
+    under a chapter title written as a styled <p> is kept too; without
+    it only heading tags count as headers.
 
     Only used to scope the dangling-ending check (see "Dangling
     paragraph endings" above) to confirmed main-matter chapters --
@@ -465,7 +506,10 @@ def analyze_book_paragraphs(book, frontmatter_summary=None) -> BookParagraphSumm
             junk = _is_junk(p)
             empty = _is_empty(p)
 
-            if not junk and empty and not _holds_link_target(p, referenced):
+            if (
+                not junk and empty and not _holds_link_target(p, referenced)
+                and not _is_spacing_after_header(p, chapter_markers)
+            ):
                 chapter_summary.empty_paragraphs.append(
                     EmptyParagraph(href=chapter.href, element=p)
                 )

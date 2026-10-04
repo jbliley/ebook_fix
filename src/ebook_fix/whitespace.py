@@ -568,12 +568,30 @@ class BookWhitespaceSummary:
 # Book-level entry point
 # ---------------------------------------------------------------------
 
+def _is_blank_line_paragraph(host) -> bool:
+    """True for a <p> whose whole content is non-breaking spaces (and
+    nothing else): <p>&#160;</p>. That is a deliberate blank line, the
+    way many books put a gap under a chapter title. Turning its
+    non-breaking space into an ordinary space makes the paragraph render
+    as nothing, which silently removes the gap (and lets Paragraph Repair
+    delete the now-bare paragraph on the next pass), so it is left alone.
+    """
+    if _local_tag(host) != "p":
+        return False
+    text = "".join(host.itertext())
+    if "\u00a0" not in text or text.replace("\u00a0", "").strip():
+        return False
+    return not host.findall(".//{*}img")
+
+
 def analyze_chapter_whitespace(href: str, tree) -> ChapterWhitespaceSummary:
     summary = ChapterWhitespaceSummary(href=href)
     if tree is None:
         return summary
 
     for host, attr, text, protected in iter_text_slots(tree):
+        if attr == "text" and _is_blank_line_paragraph(host):
+            continue
         if protected:
             # PERFORMANCE FIX: Avoid running full normalize_fragment() on large protected nodes.
             # Fast check if text has any non-standard or collapseable whitespace.

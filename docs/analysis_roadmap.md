@@ -3010,3 +3010,81 @@ eight books, the ones with filename-style titles.
 Along with it, the Analysis tab was removed (see
 `docs/gui_redesign_plan.md`), after every line it showed was found on the
 Overview tab.
+
+## Fixed: blank space under chapter headers was being removed (2026-10-04)
+
+Jacob noticed that repair was reducing the blank lines after chapter
+headers and asked that this spacing be left alone: many books put a
+deliberate gap under each chapter title, and removing it changes the look
+of the whole book. His rule: do not remove or reduce whitespace after a
+chapter header.
+
+Cause, found by running the repairs one at a time on `MM21.epub` (every
+one of its 40 chapter headings is followed by a spacer paragraph,
+`<p>&#160;</p>`): two repairs were removing it, plus a third that undid
+the fix.
+
+- Paragraph Repair treats any paragraph with no real text as a leftover
+  and deletes it. A non-breaking-space paragraph looks empty to it, even
+  though it renders as a blank line.
+- Stray Line Break Removal deletes a `<br/>` at the very start or end of a
+  heading or paragraph, which includes `Chapter One<br/><br/>` inside a
+  heading and `<br/><br/>` at the top of the paragraph right after one.
+- Whitespace Normalizer turned the non-breaking space inside
+  `<p>&#160;</p>` into an ordinary space. A paragraph holding only an
+  ordinary space renders as nothing, so the gap vanished even when the
+  paragraph survived, and Paragraph Repair then deleted the now-bare
+  paragraph on the second pass.
+
+The fix, in the analysis (so the repairs and every report agree):
+
+- New `ebook_fix/headings.py` answers "is this element a chapter header?"
+  in one place: a heading tag (`h1` to `h6`), an element Chapter Markup
+  has already marked, or an element the chapter analysis confirmed as a
+  chapter marker. The last matters because Chapter Markup runs after
+  Paragraph Repair and Stray Line Break Removal, so a chapter title
+  written as a styled `<p>` is not yet a heading when they look at the
+  space under it. `analyzer.py` hands the confirmed markers to the two
+  detectors.
+- `paragraphs.py` no longer flags a blank paragraph that shows as a gap (a
+  non-breaking space or a `<br/>`) directly under a chapter header,
+  including several in a row. A bare `<p></p>` still goes, because it
+  renders nothing.
+- `linebreaks.py` no longer flags a trailing `<br/>` inside a chapter
+  header or a leading `<br/>` at the top of the paragraph right after
+  one. A leading `<br/>` at the start of the header itself (a gap above
+  the title) is still removed, since the rule is about space after a
+  header.
+- `whitespace.py` leaves a paragraph whose whole content is non-breaking
+  spaces alone, so a deliberate blank line is neither flattened to an
+  ordinary space nor reported.
+
+This is an always-on rule with no switch, since it is a preference about
+what never to remove rather than a repair.
+
+Verified with a purpose-built test book with eight ways of spacing after a
+heading, run through the full two-pass repair, with the structure under
+each heading compared before and after: two non-breaking-space paragraphs,
+two `<br/>` paragraphs, two `<br/>` inside the heading, two `<br/>` at the
+top of the next paragraph, two loose `<br/>` between the heading and the
+text, and one non-breaking-space paragraph are all kept exactly as they
+were; only a bare `<p></p>` is removed (it shows nothing). A second test
+book whose chapter titles are styled paragraphs instead of heading tags
+keeps both blank paragraphs under every title. A second repair pass makes
+zero changes on both.
+
+Regression: all 23 books (the 21 in `examples/` plus Sandman Slim and
+Rules of Prey) were repaired with the old code and the new code and
+the outputs compared file by file, ignoring the `dcterms:modified`
+timestamp. Twenty-two are identical. The one that differs is `MM21.epub`:
+its 40 chapter headings now keep their spacer paragraph (the old output
+had none), the word count is the same, every file passes strict XML
+parsing and the manifest check, and a second pass makes zero changes.
+
+Known limits: a chapter title the analysis cannot confirm as a chapter
+marker, and that is not a heading tag, is not recognized as a header, so
+spacing under it is treated like any other blank paragraph. The spacing
+under a header written as an ordinary paragraph in a book whose chapters
+the tool could not detect at all would still be removed. Jacob's own book
+(where he first saw this) was not available for this fix, so whether it
+uses one of the eight patterns tested here is not confirmed.
