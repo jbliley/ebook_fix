@@ -1,7 +1,7 @@
 # GUI Redesign -- Planning Doc
 
-**Status:** Planned (2026-10-03), not started. Jacob has approved the
-direction below. This doc is the source of truth for what the redesign
+**Status:** Phase 1 built (2026-10-03); Phases 2 and 3 not started.
+Jacob has approved the direction below. This doc is the source of truth for what the redesign
 is, why it is shaped this way, and what order it gets built in. It
 replaces the Repair-tab-as-everything design from Phase 4 of
 `docs/gui_plan.md`; that doc stays as the record of how the GUI got
@@ -219,6 +219,60 @@ problem (Sandman Slim for filename-style title, broken contents, empty
 page and dead links; the synthetic cross-reference book for a dead
 anchor; a book with no table of contents for the missing-TOC flag).
 
+**Built 2026-10-03.** What shipped, and where it differs from the
+sketch above:
+
+- New first tab, **Overview** (`gui/overview_view.py`,
+  `templates/overview.html`, route `/book/<id>/overview`). Opening a book
+  now lands there. The old Analysis, Review, Repair and Before / After
+  tabs are untouched. A short note on the page says repairs are still
+  applied from the Repair tab until Phase 2.
+- The summary strip shows title and author, format, word count and page
+  count, then fact cards: Cover, Table of contents, Chapters, Title and
+  author, Language, Library, plus Series and a fixed-layout note when they
+  apply. A card turns red for: no cover or a broken cover declaration, no
+  table of contents or one with broken links or blank or duplicate
+  entries, no chapters found, a filename-style title or a "Last, First"
+  author, a Calibre record that disagrees, dead links, empty pages in the
+  reading order, broken image references, possible truncation, and
+  garbled text. The totals line counts problems, ready repairs, and
+  items waiting on the Review tab.
+- Six collapsed boxes in the order above. A box header shows a red dot
+  and "N problems" when it holds a red card, otherwise "N fixes" or
+  "nothing found", plus "N to review". Opening a box shows What was
+  found, What the repairs would change (plain-English names, each with a
+  "What's being fixed?" fold-out capped at 25 lines with an "and N more"
+  note), a link to the Review tab, and About this book (the old
+  Overview facts). The Advanced box lists all 22 repairs with their real
+  names, a check mark for the ones that will run, and the same fold-outs.
+- Repairs the fixed-layout guard would skip are shown as skipped and are
+  left out of the "ready" totals, so the page never promises a fix that
+  will not run.
+- The page's data is cached as `overview_cache.json` in the session
+  folder, keyed on the book file and which repairs are turned on. Opening
+  Sandman Slim takes about five seconds the first time and is instant
+  after; War and Peace (570,000 words) takes about half a minute the
+  first time.
+- Review counts come from the same lists the Review tab renders, with
+  chapter boundaries already pre-checked as safe left out.
+- Found while building it and fixed in `analyzer.py`: the analysis counted
+  the text inside `<style>`, `<script>` and `<title>` as book text.
+  Sandman Slim showed 134,521 words instead of 99,691, because 35,000
+  words' worth of CSS is pasted into its pages. This also skewed the
+  thin-page count and the quote, apostrophe and hyphen counts. Nothing in
+  the repair pipeline reads those numbers, and repairing all 23 example
+  books with the old and new analyzer gives identical output files (apart
+  from the `dcterms:modified` timestamp).
+
+Not done in this phase, on purpose: checkboxes in the boxes, the Fix
+This Book button, auto-saving, and the Details tab.
+
+Checked on 23 books (the 21 in `examples/` plus Sandman Slim and Rules of
+Prey): every Overview renders, the red cards
+appear where expected (Sandman Slim shows five: table of contents,
+chapters, title and author, dead links, empty pages), and the other tabs
+still render.
+
 ### Phase 2 -- One action, no staging
 
 Add Fix This Book and the Replace-original checkbox to the sticky bar,
@@ -237,7 +291,10 @@ nothing to do.
 ### Phase 3 -- Details tab and polish
 
 Move the metadata form and the cover handling into the Details tab, with
-the "Change cover" fold-out. Add the Review count badge and hide the tab
+the "Change cover" fold-out. Also in this phase: swap Flask's built-in
+server for Waitress when it is installed (falling back to the current
+server when it is not) so the "development server" warning goes away, and
+add a small tab icon so the browser stops asking for `favicon.ico`. Add the Review count badge and hide the tab
 when empty. Remove the old Analysis template and any dead code. Update
 `gui_plan.md` with a pointer to this doc as the current design.
 

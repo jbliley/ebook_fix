@@ -59,7 +59,7 @@ from flask import Flask, Response, abort, jsonify, redirect, render_template, re
 from ebook_fix import series as series_metadata
 from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.config import load_config
-from ebook_fix.engine import Engine
+from ebook_fix.engine import Engine, FIXED_LAYOUT_RISKY_MODULE_TYPES
 from ebook_fix.parser import EPUBParser
 from ebook_fix.splitter import SplitMarker, marker_number
 from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, iter_chapter_nodes, _walk_structure_nodes, NodeKind
@@ -99,6 +99,7 @@ from ebook_fix.modules.apostrophe_repair import ApostropheRepair
 from ebook_fix.modules.color_strip import ColorStripRepair
 from ebook_fix.modules.font_strip import FontStripRepair
 from gui import analysis_view
+from gui import overview_view
 from metadata.core_fields import write_core_field
 from metadata import calibre_detect
 from metadata.language_codes import language_options
@@ -637,7 +638,97 @@ def upload():
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "real_path.txt").write_text(str(path_obj.resolve()), encoding="utf-8")
     (session_dir / "original_filename.txt").write_text(path_obj.name, encoding="utf-8")
-    return redirect(url_for("book_analysis", session_id=session_id))
+    return redirect(url_for("book_overview", session_id=session_id))
+
+
+def _overview_cache_path(session_dir: Path) -> Path:
+    return session_dir / "overview_cache.json"
+
+
+def _overview_cache_key(session_dir: Path, config) -> str:
+    """Changes whenever the book file or which repairs are turned on
+    changes, so a stale Overview is never shown. Staged choices don't
+    affect the Overview (it is read-only), so they are not part of it."""
+    stat = _source_path(session_dir).stat()
+    enabled = ",".join(
+        f"{attr}={int(bool(getattr(getattr(config, attr), 'enabled', True)))}"
+        for attr, _label in _REPAIR_MODULES
+    )
+    return f"{stat.st_mtime_ns}-{stat.st_size}-{enabled}"
+
+
+def _review_counts(book) -> dict:
+    """How many items a person has to decide on, by Overview box. Same
+    lists the Review tab renders. Chapter-start boundaries the project
+    already treats as safe (pre-checked) are not counted."""
+    groups = _split_candidate_groups(book)
+    structure = sum(1 for g in groups for c in g["candidates"] if not c.get("auto_checked"))
+    structure += len(_frontmatter_review_groups(book))
+    text = sum(len(g["candidates"]) for g in _possessive_groups(book))
+    styling = sum(len(g["findings"]) for g in _color_review_groups(book))
+    styling += sum(len(g["findings"]) for g in _font_review_groups(book))
+    return {"structure": structure, "text": text, "styling": styling}
+
+
+def _overview_data(session_dir: Path, filename: str) -> dict:
+    """The Overview page's data, cached in the session folder as JSON
+    (it is built from a full analysis plus every repair module's own
+    analyze(), which is slow on a big book)."""
+    config = load_config(None)
+    key = _overview_cache_key(session_dir, config)
+    cache_path = _overview_cache_path(session_dir)
+    cached = _read_staged(cache_path)
+    if cached is not None and cached.get("key") == key:
+        return cached["data"]
+
+    book, analysis_report = _load_analysis(session_dir)
+    module_reports = {}
+    module_enabled = {}
+    for attr, _label in _REPAIR_MODULES:
+        module_config = getattr(config, attr)
+        report = _REPAIR_MODULE_CLASSES[attr](module_config).analyze(book, analysis_report)
+        module_reports[attr] = {
+            "count": report.count,
+            "issues": [
+                {"location": i.location, "category": i.category, "description": i.description}
+                for i in report.issues
+            ],
+        }
+        module_enabled[attr] = bool(getattr(module_config, "enabled", True))
+
+    # Repairs the engine will skip on this book: the same fixed-layout
+    # guard Engine._apply_fixed_layout_guard() applies at repair time,
+    # so the Overview never promises a fix that will not run.
+    module_skipped = set()
+    guard = getattr(config, "fixed_layout_guard", None)
+    guard_on = guard is None or getattr(guard, "enabled", True)
+    layout = getattr(analysis_report, "layout", None)
+    if guard_on and layout is not None and getattr(layout, "confirmed_fixed_layout", False):
+        module_skipped = {
+            attr for attr, _label in _REPAIR_MODULES
+            if issubclass(_REPAIR_MODULE_CLASSES[attr], FIXED_LAYOUT_RISKY_MODULE_TYPES)
+        }
+
+    data = overview_view.build_overview_page(
+        book, analysis_report, module_reports, _REPAIR_MODULES,
+        module_enabled, _review_counts(book), filename, module_skipped,
+    )
+    cache_path.write_text(json.dumps({"key": key, "data": data}), encoding="utf-8")
+    return data
+
+
+@app.route("/book/<session_id>/overview")
+@_handle_missing_source
+def book_overview(session_id):
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    return render_template(
+        "overview.html",
+        active_tab="overview",
+        session_id=session_id,
+        filename=filename,
+        ov=_overview_data(session_dir, filename),
+    )
 
 
 @app.route("/book/<session_id>")

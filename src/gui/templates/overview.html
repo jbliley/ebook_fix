@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .ov-head { margin-bottom: 1rem; }
+  .ov-title { font-size: 1.35rem; font-weight: 700; margin: 0; word-break: break-word; }
+  .ov-author { color: #555; margin-top: 0.15rem; }
+  .ov-line { color: #777; font-size: 0.88rem; margin-top: 0.3rem; }
+  .ov-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.5rem 1rem; margin: 1rem 0 0.8rem; }
+  .ov-fact { border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.5rem 0.8rem; background: #fafbfc; }
+  .ov-fact .ov-label { font-size: 0.75rem; color: #777; text-transform: uppercase; letter-spacing: 0.03em; }
+  .ov-fact .ov-value { font-size: 0.95rem; margin-top: 0.1rem; }
+  .ov-fact.bad { border-color: #feb2b2; background: #fff5f5; }
+  .ov-fact.bad .ov-value { color: #c53030; font-weight: 600; }
+  .ov-totals { font-size: 0.95rem; margin: 0.4rem 0 1.2rem; }
+  .ov-totals .red { color: #c53030; font-weight: 600; }
+  .ov-totals .blue { color: #2c5282; }
+  .ov-note { font-size: 0.85rem; color: #555; background: #ebf8ff; border: 1px solid #90cdf4; border-radius: 8px; padding: 0.6rem 0.9rem; margin-bottom: 1.2rem; }
+  details.ov-box { border: 1px solid #ddd; border-radius: 10px; margin-bottom: 0.6rem; background: #fff; }
+  details.ov-box.red { border-color: #feb2b2; }
+  details.ov-box > summary { cursor: pointer; padding: 0.8rem 1.1rem; display: flex; align-items: center; gap: 0.7rem; list-style: none; }
+  details.ov-box > summary::-webkit-details-marker { display: none; }
+  details.ov-box > summary::before { content: "\25B8"; color: #888; font-size: 0.9rem; transition: transform 0.1s; }
+  details.ov-box[open] > summary::before { transform: rotate(90deg); }
+  .ov-dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: #cbd5e0; flex-shrink: 0; }
+  details.ov-box.red .ov-dot { background: #e53e3e; }
+  .ov-box-title { font-weight: 600; flex: 1; }
+  .ov-box-summary { font-size: 0.85rem; color: #666; }
+  details.ov-box.red .ov-box-summary { color: #c53030; font-weight: 600; }
+  .ov-box-body { padding: 0 1.2rem 1rem 2.3rem; font-size: 0.9rem; }
+  .ov-box-body h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #777; margin: 1rem 0 0.35rem; }
+  .ov-box-body h5 { font-size: 0.9rem; margin: 0.6rem 0 0.2rem; color: #333; }
+  .ov-box-body ul { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; line-height: 1.5; }
+  .ov-fix { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-top: 1px solid #f0f0f0; }
+  .ov-fix:first-of-type { border-top: none; }
+  .ov-fix .ov-off { color: #888; font-size: 0.8rem; }
+  .ov-review { color: #2c5282; margin-top: 0.8rem; }
+  details.ov-inner { margin: 0.1rem 0 0.4rem 0; }
+  details.ov-inner > summary { cursor: pointer; font-size: 0.82rem; color: #3182ce; }
+  details.ov-inner ul { font-size: 0.82rem; color: #444; }
+  .ov-adv-row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.3rem 0; border-top: 1px solid #f0f0f0; }
+  .ov-adv-row:first-of-type { border-top: none; }
+  .ov-adv-row .ov-real { color: #888; font-size: 0.8rem; }
+  .ov-adv-mark { display: inline-block; width: 1.1rem; }
+</style>
+
+<div class="ov-head">
+  <div class="ov-title">{{ ov.header.title }}</div>
+  {% if ov.header.author %}<div class="ov-author">{{ ov.header.author }}</div>{% endif %}
+  <div class="ov-line">{{ ov.header.line }}</div>
+</div>
+
+<div class="ov-facts">
+  {% for f in ov.facts %}
+  <div class="ov-fact {{ 'bad' if f.bad else '' }}">
+    <div class="ov-label">{{ f.label }}</div>
+    <div class="ov-value">{{ f.value }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="ov-totals">
+  {% if ov.red_count %}<span class="red">{{ ov.red_count }} problem{{ '' if ov.red_count == 1 else 's' }} to look at.</span>{% else %}No problems found.{% endif %}
+  {% if ov.ready_modules %}
+    {{ ov.ready_modules }} repair{{ '' if ov.ready_modules == 1 else 's' }} ready ({{ ov.ready_changes }} individual change{{ '' if ov.ready_changes == 1 else 's' }}).
+  {% else %}
+    Nothing for the repairs to do.
+  {% endif %}
+  {% if ov.review_total %}<span class="blue">{{ ov.review_total }} item{{ '' if ov.review_total == 1 else 's' }} need{{ 's' if ov.review_total == 1 else '' }} your review (Review tab).</span>{% endif %}
+</div>
+
+<div class="ov-note">
+  This is the new Overview, shown read-only while the redesign is built. Repairs are still applied
+  from the <a href="{{ url_for('book_repair', session_id=session_id) }}">Repair</a> tab, and the
+  full original report is still on the <a href="{{ url_for('book_analysis', session_id=session_id) }}">Analysis</a> tab.
+</div>
+
+{% for box in ov.boxes %}
+<details class="ov-box {{ 'red' if box.red else '' }}">
+  <summary>
+    <span class="ov-dot"></span>
+    <span class="ov-box-title">{{ box.title }}</span>
+    <span class="ov-box-summary">{{ box.summary }}</span>
+  </summary>
+  <div class="ov-box-body">
+    {% if box.found %}
+      <h4>What was found</h4>
+      {% for sec in box.found %}
+        <h5>{{ sec.title }}</h5>
+        <ul>{% for line in sec.lines %}<li>{{ line }}</li>{% endfor %}</ul>
+      {% endfor %}
+    {% endif %}
+
+    {% if box.fixes %}
+      <h4>What the repairs would change</h4>
+      {% for fix in box.fixes %}
+      <div class="ov-fix">
+        <div>
+          {{ fix.name }}{% if fix.skipped %} <span class="ov-off">(skipped on fixed-layout books)</span>{% elif not fix.enabled %} <span class="ov-off">(turned off in your settings)</span>{% endif %}
+          <details class="ov-inner">
+            <summary>What's being fixed?</summary>
+            <ul>{% for issue in fix.issues %}<li><code>{{ issue.location }}</code>: {{ issue.description }}</li>{% endfor %}{% if fix.more %}<li><em>...and {{ fix.more }} more</em></li>{% endif %}</ul>
+          </details>
+        </div>
+        <div>{{ fix.count }}</div>
+      </div>
+      {% endfor %}
+    {% endif %}
+
+    {% if box.review %}
+      <div class="ov-review">{{ box.review }} item{{ '' if box.review == 1 else 's' }} need{{ 's' if box.review == 1 else '' }} your decision on the <a href="{{ url_for('book_review', session_id=session_id) }}">Review</a> tab.</div>
+    {% endif %}
+
+    {% if box.details %}
+      <h4>About this book</h4>
+      {% for sec in box.details %}
+        <h5>{{ sec.title }}</h5>
+        <ul>{% for line in sec.lines %}<li>{{ line }}</li>{% endfor %}</ul>
+      {% endfor %}
+    {% endif %}
+
+    {% if not box.found and not box.fixes and not box.review and not box.details %}
+      <p class="empty-state">Nothing found.</p>
+    {% endif %}
+  </div>
+</details>
+{% endfor %}
+
+<details class="ov-box">
+  <summary>
+    <span class="ov-dot"></span>
+    <span class="ov-box-title">Advanced: every repair</span>
+    <span class="ov-box-summary">the full list</span>
+  </summary>
+  <div class="ov-box-body">
+    <p class="details-toggle">Every repair the tool has, in the order it runs them. A check mark means it has something to do on this book and will run.</p>
+    {% for m in ov.advanced %}
+    <div class="ov-adv-row">
+      <div>
+        <span class="ov-adv-mark">{{ '\u2713' if (m.enabled and m.count) else '' }}</span>{{ m.plain }}
+        <span class="ov-real">({{ m.label }}){% if m.skipped %} skipped on fixed-layout books{% endif %}</span>
+        {% if m.issues %}
+        <details class="ov-inner" style="margin-left:1.1rem;">
+          <summary>What's being fixed?</summary>
+          <ul>{% for issue in m.issues %}<li><code>{{ issue.location }}</code>: {{ issue.description }}</li>{% endfor %}{% if m.more %}<li><em>...and {{ m.more }} more</em></li>{% endif %}</ul>
+        </details>
+        {% endif %}
+      </div>
+      <div>{{ m.count if m.count else '' }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endblock %}

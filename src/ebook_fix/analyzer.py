@@ -51,6 +51,11 @@ from metadata.merge import MergedCoreFields, MergedIdentifierSummary, merge_core
 # below for how those get told apart from an actually broken chapter.
 THIN_CHAPTER_WORD_THRESHOLD = 50
 
+_BOOK_TEXT_XPATH=(
+    "//text()[not(ancestor::*[local-name()='style' or local-name()='script' "
+    "or local-name()='title'])]"
+)
+
 @dataclass
 class ChapterAnalysis:
     href:str=""
@@ -224,7 +229,13 @@ class EPUBAnalyzer:
                     i=e.get("id")
                     if i: c.ids.append(i)
                     if e.get("style"): c.inline_style_count+=1
-                full_text="".join(tree.itertext())
+                # Book text only: the contents of <style>, <script> and
+                # <title> are page machinery, not words a reader sees.
+                # A stylesheet pasted into every file (Sandman Slim has
+                # 35,000 words' worth of CSS across its pages) inflated
+                # the word count and skewed thin-page and typography
+                # counts before this.
+                full_text="".join(tree.xpath(_BOOK_TEXT_XPATH))
                 c.word_count=len(full_text.split())
                 c.typography=analyze_text(full_text)
             c.is_thin = c.paragraphs==0 or c.word_count<THIN_CHAPTER_WORD_THRESHOLD

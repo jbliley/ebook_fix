@@ -73,6 +73,7 @@
       <a class="button secondary top-bar-action" href="/">Analyze another book</a>
     </div>
     <div class="tabs">
+      <a href="{{ url_for('book_overview', session_id=session_id) }}" class="{{ 'active' if active_tab == 'overview' else '' }}">Overview</a>
       <a href="{{ url_for('book_analysis', session_id=session_id) }}" class="{{ 'active' if active_tab == 'analysis' else '' }}">Analysis</a>
       <a href="{{ url_for('book_review', session_id=session_id) }}" class="{{ 'active' if active_tab == 'review' else '' }}">Review</a>
       <a href="{{ url_for('book_repair', session_id=session_id) }}" class="{{ 'active' if active_tab == 'repair' else '' }}">Repair</a>

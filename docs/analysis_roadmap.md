@@ -2940,3 +2940,36 @@ return-to-Contents link cannot be told from a dead link by its text.
 Matching is by label only, so a Contents page whose link text differs from
 the table of contents ("Chapter One" against "1. The Beginning") is
 cleaned by removing the links, not repointing them.
+
+## Fixed: style and script text counted as book text (2026-10-03)
+
+Found while building the Overview page (Phase 1 of
+`docs/gui_redesign_plan.md`), which shows the word count at the top.
+Sandman Slim reported 134,521 words, but its actual text is about 99,700.
+The analyzer built each page's text from everything in the document,
+including the contents of `<style>`, `<script>` and `<title>`, and that
+book has the same 42 KB stylesheet pasted into twelve pages, about 35,000
+words of CSS.
+
+The word count was not the only number affected. The same text feeds the
+thin-page check (a page holding only a pasted stylesheet looked like it
+had plenty of words) and the typography counts (CSS hyphens and quote
+marks were counted as text hyphens and quotes). In Sandman Slim the
+hyphen count dropped from 12,155 to 694 and the thin-page count rose from
+2 to 6, which is the right answer: the empty and near-empty pages were
+being hidden by the CSS.
+
+`analyzer.py` now builds the page text from the text nodes that are not
+inside a `<style>`, `<script>` or `<title>` element. Every one of the 23
+books tested (the 21 in `examples/` plus Sandman Slim and Rules of Prey) drops a little (every book has a page title, and the ones
+with embedded styles drop more: War and Peace by about 4,000 words, the
+Images-PageNumbers book by about 4,000). Thin-page counts rose in three
+books (ChaptersMisaligned 6 to 8, Images-PageNumbers 175 to 177, Sandman
+Slim 2 to 6) and nothing else in the thin-page numbers moved.
+
+Nothing in the repair pipeline reads these numbers. Everything that uses
+them (the Analysis tab, the Overview tab, and the CLI's analyze report)
+is display only. To confirm, each of those 23 books was repaired once with
+the old analyzer and once with the new one: all 23 output files are
+identical, ignoring the `dcterms:modified` timestamp that changes on
+every run.
