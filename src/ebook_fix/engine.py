@@ -55,6 +55,7 @@ from ebook_fix.modules.gutenberg_repair import GutenbergRepair
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.ellipsis import normalize_ellipsis_text
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
+from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair, resolve_target_apostrophe_char
 from ebook_fix.apostrophes import normalize_apostrophes_text
 from ebook_fix import series as series_metadata
@@ -84,6 +85,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     DeadLinkRepair,
     TocGenerationRepair,
     SceneBreakRepair,
+    SceneOpenerRepair,
     RunningTitleRepair,
 )
 
@@ -165,6 +167,14 @@ class Engine:
         # the same way Chapter Markup's own placement does.
         if getattr(self.config, "scene_break_repair", None) and getattr(self.config.scene_break_repair, "enabled", True):
             modules.append(SceneBreakRepair(self.config.scene_break_repair))
+        # Right after Scene Break Normalizer: it adds a "* * *" before a
+        # scene change that has no marker (an opening in capitals), so
+        # it needs any existing marker or rule already normalized, and
+        # any chapter boundary already marked, to know what counts as
+        # unmarked. Skipped on fixed-layout books like the other markup
+        # repairs.
+        if getattr(self.config, "scene_opener_repair", None) and getattr(self.config.scene_opener_repair, "enabled", True):
+            modules.append(SceneOpenerRepair(self.config.scene_opener_repair))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
         # Runs right after Image Repair, the other module that deals

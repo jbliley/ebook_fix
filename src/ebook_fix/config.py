@@ -167,6 +167,11 @@ class SceneBreakRepairConfig:
 
 
 @dataclass(slots=True)
+class SceneOpenerConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class RunningTitleRepairConfig:
     enabled: bool = True
 
@@ -312,6 +317,7 @@ class Config:
     ellipsis_repair: EllipsisRepairConfig = field(default_factory=EllipsisRepairConfig)
     apostrophe_repair: ApostropheRepairConfig = field(default_factory=ApostropheRepairConfig)
     scene_break_repair: SceneBreakRepairConfig = field(default_factory=SceneBreakRepairConfig)
+    scene_opener_repair: SceneOpenerConfig = field(default_factory=SceneOpenerConfig)
     cover_repair: CoverRepairConfig = field(default_factory=CoverRepairConfig)
     running_title_repair: RunningTitleRepairConfig = field(default_factory=RunningTitleRepairConfig)
     metadata_repair: MetadataRepairConfig = field(default_factory=MetadataRepairConfig)
@@ -370,6 +376,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.ellipsis_repair, modules, "ellipsis_repair")
     _apply_module_toggle(config.apostrophe_repair, modules, "apostrophe_repair")
     _apply_module_toggle(config.scene_break_repair, modules, "scene_break_repair")
+    _apply_module_toggle(config.scene_opener_repair, modules, "scene_opener_repair")
     _apply_module_toggle(config.cover_repair, modules, "cover_repair")
     _apply_module_toggle(config.running_title_repair, modules, "running_title_repair")
     _apply_module_toggle(config.metadata_repair, modules, "metadata_repair")
@@ -393,6 +400,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.ellipsis_repair, "ellipsis_repair", data.get("ellipsis_repair", {}))
     _apply_section(config.apostrophe_repair, "apostrophe_repair", data.get("apostrophe_repair", {}))
     _apply_section(config.scene_break_repair, "scene_break_repair", data.get("scene_break_repair", {}))
+    _apply_section(config.scene_opener_repair, "scene_opener_repair", data.get("scene_opener_repair", {}))
     _apply_section(config.cover_repair, "cover_repair", data.get("cover_repair", {}))
     _apply_section(config.running_title_repair, "running_title_repair", data.get("running_title_repair", {}))
     _apply_section(config.metadata_repair, "metadata_repair", data.get("metadata_repair", {}))
@@ -417,6 +425,16 @@ def load_config(path: str | Path | None = None) -> Config:
             f"Invalid apostrophe_repair.target_style: {config.apostrophe_repair.target_style!r} "
             '(must be "auto", "straight", or "curly")'
         )
+
+    # A module switched off in [modules] stays off, even if its own
+    # section also carries `enabled = true` (a dozen sections do, and the
+    # section is applied after the [modules] table, so it used to win and
+    # the master switch silently did nothing). A module is on only if
+    # neither place says off.
+    for key, value in modules.items():
+        section_config = getattr(config, key, None)
+        if section_config is not None and hasattr(section_config, "enabled") and not value:
+            section_config.enabled = False
 
     return config
 
@@ -474,6 +492,7 @@ gutenberg_repair = true
 ellipsis_repair = true
 apostrophe_repair = true
 scene_break_repair = true
+scene_opener_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
@@ -725,6 +744,20 @@ target_style = "unicode"
 
 # ---------------------------------------------------------------------
 # Apostrophe Repair
+# ---------------------------------------------------------------------
+# Scene Opener Markers
+# ---------------------------------------------------------------------
+[scene_opener_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# When on, a scene change that has no visible marker, only an opening in
+# capitals ("THERE'S AN UNLIT parking lot behind ..."), gets a centered
+# "* * *" in front of it. It only acts when the book clearly uses such
+# openers as scene markers (at least five, rare among the paragraphs, all
+# styled alike and unlike ordinary paragraphs), and never on the first
+# thing in a file or right under a chapter header, rule, marker or blank
+# spacer line.
+
 # ---------------------------------------------------------------------
 [apostrophe_repair]
 

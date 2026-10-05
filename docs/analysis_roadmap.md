@@ -3088,3 +3088,93 @@ under a header written as an ordinary paragraph in a book whose chapters
 the tool could not detect at all would still be removed. Jacob's own book
 (where he first saw this) was not available for this fix, so whether it
 uses one of the eight patterns tested here is not confirmed.
+
+## Done: scene changes marked only by capitals, and a config switch bug (2026-10-04)
+
+Item 5 of the Sandman Slim list, brought back by Jacob with a question: the
+sections of that book that start with capitals ("THERE'S AN UNLIT parking
+lot behind an out-of-business movie multiplex") look like new sections, and
+given their length he wondered whether they are chapters, and whether the
+chapter splitter considers them, or at least whether they could get a
+"* * *" scene break.
+
+What the book contains. The book has no chapter headings, no rules and no
+"* * *". Each section opener is a paragraph styled `separator` (the book's
+own stylesheet gives that class extra space above and no indent), with its
+first words in a `smallCaps` span written in capitals. There are 56 of
+them, between 78 and over 6,000 words apart (median about 1,400; 15 of
+the 56 run under 500 words). Five other paragraphs, styled
+`chapterOpenerText`, are the publisher's own chapter starts, one at the
+top of each big file; those are chapters, and they are left alone. So the
+evidence says scene changes: the publisher's own class name, and sections
+as short as 78 words.
+
+The answer to the question. The chapter splitter does not consider them: a
+chapter has to be recognized by a label or number (Chapter 7, VII, a
+title) or a confirmed sequence of them, and these carry neither, which is
+why the Overview shows "Chapters: none found". They are now handled as
+scene breaks instead.
+
+New: `ebook_fix/scene_openers.py` (the finder) and
+`modules/scene_opener_repair.py` ("Scene Opener Markers"), which put a
+centered `<p>* * *</p>` in front of each. The opener's own text, capitals
+and styling are untouched. It sits right after Scene Break Normalizer, is
+in the fixed-layout guard list, and shows in the Repair tab and the
+Overview's Text and Typography box ("Mark scene changes that open with
+capitals").
+
+What counts as an opener. A paragraph that starts with at least two
+capitalized words (at least five letters in all) followed by at least
+three more words of ordinary text. A paragraph too short for that, such as
+"I WAS DEAD." or "A FEW DAYS later.", counts too, but only if it has
+exactly the same distinctive look as openers that pass the rule.
+
+When a book is left alone. The book as a whole has to pass four checks, so
+ordinary prose is never touched: at least five openers; no more than one
+in ten paragraphs; at least three quarters of them look alike (same
+paragraph class and the same kind of wrapper around the capitals); and
+that look has to be distinctive, meaning their paragraph class is used by
+little else in the book or the wrapper around the capital words is. The
+last check was added after testing on the example books: two of them have
+capitals at the start of many paragraphs that are styled exactly like every
+other paragraph (letter datelines such as "SAN FRANCISCO, 18--. DEAR
+CHING-FOO:" and boilerplate in one, the capitalized first words of each
+chapter and a copyright line in the other), and without it a marker would
+have gone in front of a letter and the copyright page. Plain capitals with
+no distinctive styling can't be told apart from those and are never marked.
+Within a qualifying book, an opener is not marked if it is the first thing
+in its file, or sits right under a chapter header, a rule, an existing
+marker or a blank spacer line, since those already show the change.
+
+Verified on the real book: exactly 56 markers (15, 15, 13 and 13 across the
+four body files), the same 56 `separator` paragraphs, none at the five
+chapter starts, none in the front or back matter. Removing the markers
+from the repaired file gives back the file produced with the module off,
+exactly, so the markers are the only change. The repaired book passes
+strict XML and manifest checks and a second repair pass makes zero changes.
+On the other 22 books (the 21 in `examples/` plus Rules of Prey), the
+module changes nothing: the output files are identical with it on or off.
+
+Found while testing, and fixed: the on/off check for this module exposed a
+bug that was already in the config loader. For twelve modules (EPUB 3
+Upgrade, Chapter Markup, TOC Generation, Whitespace Normalizer, Ellipsis,
+Apostrophe, Scene Break Normalizer, Cover Repair, Running Title Removal,
+Metadata Sync, Identifier Standardize, and this one as first written),
+setting the module to `false` in the config file's `[modules]` list did
+nothing, because the module's own section also says `enabled = true`, the
+sections are read after the `[modules]` list, and the section won. The
+loader now treats a module as on only if neither place says off. All twenty
+switches in `[modules]` were tested and each turns its module off; the
+default file leaves everything on; and a module switched off in its own
+section still stays off. This only affects people who edit the config file
+(the GUI's checkboxes were not affected). The Scene Opener Markers section
+no longer carries its own `enabled` line, so `[modules]` is its one switch.
+
+Known limits. A section opener that is the first thing in a file is not
+marked (Sandman Slim's four body files each begin with a chapter opener, so
+none were missed here). Books whose scene openers are plain capitals with
+no distinctive styling are not marked, because they cannot be told apart
+from datelines, headings and chapter starts. And turning these into
+chapters was deliberately not done: it would need a title for each, and
+sections this short do not read as chapters; if Jacob later wants an
+opt-in "treat these as chapters" setting, it would be a separate decision.

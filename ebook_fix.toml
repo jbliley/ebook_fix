@@ -22,6 +22,7 @@ gutenberg_repair = true
 ellipsis_repair = true
 apostrophe_repair = true
 scene_break_repair = true
+scene_opener_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
@@ -270,6 +271,20 @@ target_style = "unicode"
 
 # ---------------------------------------------------------------------
 # Apostrophe Repair
+# ---------------------------------------------------------------------
+# Scene Opener Markers
+# ---------------------------------------------------------------------
+[scene_opener_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# When on, a scene change that has no visible marker, only an opening in
+# capitals ("THERE'S AN UNLIT parking lot behind ..."), gets a centered
+# "* * *" in front of it. It only acts when the book clearly uses such
+# openers as scene markers (at least five, rare among the paragraphs, all
+# styled alike and unlike ordinary paragraphs), and never on the first
+# thing in a file or right under a chapter header, rule, marker or blank
+# spacer line.
+
 # ---------------------------------------------------------------------
 [apostrophe_repair]
 

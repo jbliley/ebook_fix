@@ -55,7 +55,7 @@ BOXES = [
         ],
         "modules": [
             "gutenberg_repair", "running_title_repair", "linebreak_repair", "paragraph_repair",
-            "scene_break_repair", "ellipsis_repair", "apostrophe_repair", "whitespace_repair",
+            "scene_break_repair", "scene_opener_repair", "ellipsis_repair", "apostrophe_repair", "whitespace_repair",
         ],
     },
     {
@@ -93,6 +93,7 @@ PLAIN_NAMES = {
     "epub3_upgrade": "Upgrade to EPUB 3",
     "toc_generation": "Build a table of contents",
     "scene_break_repair": "Standardize scene breaks",
+    "scene_opener_repair": "Mark scene changes that open with capitals",
     "image_repair": "Fix broken images",
     "cover_repair": "Fix the cover declaration",
     "color_repair": "Remove decorative text colors",
