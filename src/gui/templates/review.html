@@ -5,35 +5,15 @@
   kind below &mdash; not just chapter splits.
 </p>
 
-{% if is_staged %}
-<div class="staged-banner">
-  Selections staged. Go to the <a href="{{ url_for('book_repair', session_id=session_id) }}">Repair tab</a> to actually apply anything.
+<div id="review-status" class="save-status" style="margin-bottom:0.6rem;">
+  {% if has_candidates or has_possessive_candidates or has_color_findings or has_font_findings or has_frontmatter_items %}Your choices here are saved as you make them and applied when you click Fix This Book.{% endif %}
 </div>
-{% endif %}
-
-{% if split_result %}
-  {% if split_result.would_split %}
-  <div class="staged-banner" style="background:#f0fff4;border-color:#9ae6b4;color:#22543d;">
-    {{ split_result.would_split }} file{{ 's' if split_result.would_split != 1 else '' }} will split once applied on the Repair tab.
-    {% if split_result.skipped_hrefs %}{{ split_result.skipped_hrefs|length }} file(s) only have one boundary picked and won't split &mdash; select at least two in the same file.{% endif %}
-  </div>
-  {% else %}
-  <div class="staged-banner" style="background:#fffaf0;border-color:#fbd38d;color:#7b341e;">
-    Nothing will split with this selection.
-    {% if split_result.skipped_hrefs %}
-    You picked only one boundary in {{ split_result.skipped_hrefs|length }} file(s) &mdash;
-    select at least two in the same file to split it.
-    {% else %}
-    Select at least two boundaries in the same file, then try again.
-    {% endif %}
-  </div>
-  {% endif %}
-{% endif %}
+<div id="review-split-note" style="display:none;"></div>
 
 {% if not has_candidates and not has_possessive_candidates and not has_color_findings and not has_font_findings and not has_frontmatter_items %}
 <p class="empty-state">Nothing here needs review right now.</p>
 {% else %}
-<form method="post" action="{{ url_for('save_review', session_id=session_id) }}">
+<form method="post" id="review-form" action="{{ url_for('save_review', session_id=session_id) }}">
 
   <h2>Chapter-Start Boundaries</h2>
   {% if not has_candidates %}
@@ -209,7 +189,6 @@
   {% endfor %}
   {% endif %}
 
-  <button type="submit" class="button">Stage Selected</button>
 </form>
 {% endif %}
 
@@ -218,6 +197,78 @@
     document.querySelectorAll('input[name="' + name + '"]').forEach(function (box) {
       box.checked = checked;
     });
+    // The Select All / Unselect All buttons change many boxes at once
+    // without firing a change event on the form.
+    if (window.scheduleReviewSave) window.scheduleReviewSave();
   }
+
+  (function () {
+    var form = document.getElementById("review-form");
+    if (!form) return;
+    var statusEl = document.getElementById("review-status");
+    var noteEl = document.getElementById("review-split-note");
+    var timer = null, inflight = null, queued = false, pending = false;
+
+    function setStatus(text, isError) {
+      statusEl.textContent = text;
+      statusEl.className = "save-status" + (isError ? " error" : "");
+    }
+
+    function showSplitNote(r) {
+      if (!r.picked) { noteEl.style.display = "none"; return; }
+      var box = "padding:0.8rem 1rem; border-radius:8px; margin-bottom:1rem; border:1px solid ";
+      if (r.would_split) {
+        noteEl.style.cssText = box + "#9ae6b4; background:#f0fff4; color:#22543d;";
+        noteEl.textContent = r.would_split + " file" + (r.would_split === 1 ? "" : "s") + " will split when you click Fix This Book." +
+          (r.skipped ? " " + r.skipped + " file(s) only have one boundary picked and won't split; select at least two in the same file." : "");
+      } else {
+        noteEl.style.cssText = box + "#fbd38d; background:#fffaf0; color:#7b341e;";
+        noteEl.textContent = "Nothing will split with this selection. " + (r.skipped
+          ? "You picked only one boundary in " + r.skipped + " file(s); select at least two in the same file to split it."
+          : "Select at least two boundaries in the same file to split it.");
+      }
+      noteEl.style.display = "block";
+    }
+
+    function save() {
+      pending = false;
+      clearTimeout(timer);
+      if (inflight) { queued = true; return inflight; }
+      setStatus("Saving...");
+      inflight = fetch(form.action, { method: "POST", body: new FormData(form), headers: { "X-Requested-With": "fetch" } })
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(function (r) {
+          setStatus("All choices saved.");
+          showSplitNote(r);
+          document.dispatchEvent(new Event("ebook:state-changed"));
+        })
+        .catch(function (err) { setStatus("Could not save: " + err.message, true); })
+        .then(function () {
+          inflight = null;
+          if (queued) { queued = false; return save(); }
+        });
+      return inflight;
+    }
+
+    function schedule() {
+      pending = true;
+      setStatus("Saving...");
+      clearTimeout(timer);
+      timer = setTimeout(save, 400);
+    }
+
+    window.scheduleReviewSave = schedule;
+    form.addEventListener("change", schedule);
+    form.addEventListener("submit", function (event) { event.preventDefault(); save(); });
+    window.flushPendingSaves = function () { return pending ? save() : (inflight || Promise.resolve()); };
+    window.addEventListener("pagehide", function () {
+      if (pending && navigator.sendBeacon) navigator.sendBeacon(form.action, new FormData(form));
+    });
+
+    // What is shown is what gets applied: if nothing has been saved yet
+    // (the pre-checked safe boundaries are showing as ticked), save the
+    // starting state once so Fix This Book uses exactly what is on screen.
+    {% if not is_staged %}save();{% endif %}
+  })();
 </script>
 {% endblock %}

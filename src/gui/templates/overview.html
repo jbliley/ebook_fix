@@ -30,6 +30,7 @@
   .ov-box-body h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #777; margin: 1rem 0 0.35rem; }
   .ov-box-body h5 { font-size: 0.9rem; margin: 0.6rem 0 0.2rem; color: #333; }
   .ov-box-body ul { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; line-height: 1.5; }
+  .ov-check { margin: 0 0.5rem 0 0; vertical-align: middle; }
   .ov-fix { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-top: 1px solid #f0f0f0; }
   .ov-fix:first-of-type { border-top: none; }
   .ov-fix .ov-off { color: #888; font-size: 0.8rem; }
@@ -60,17 +61,8 @@
 
 <div class="ov-totals">
   {% if ov.red_count %}<span class="red">{{ ov.red_count }} problem{{ '' if ov.red_count == 1 else 's' }} to look at.</span>{% else %}No problems found.{% endif %}
-  {% if ov.ready_modules %}
-    {{ ov.ready_modules }} repair{{ '' if ov.ready_modules == 1 else 's' }} ready ({{ ov.ready_changes }} individual change{{ '' if ov.ready_changes == 1 else 's' }}).
-  {% else %}
-    Nothing for the repairs to do.
-  {% endif %}
-  {% if ov.review_total %}<span class="blue">{{ ov.review_total }} item{{ '' if ov.review_total == 1 else 's' }} need{{ 's' if ov.review_total == 1 else '' }} your review (Review tab).</span>{% endif %}
-</div>
-
-<div class="ov-note">
-  This is the new Overview, shown read-only while the redesign is built. Repairs are still applied
-  from the <a href="{{ url_for('book_repair', session_id=session_id) }}">Repair</a> tab.
+  <span id="ov-ready"></span>
+  {% if ov.review_total %}<span class="blue">{{ ov.review_total }} item{{ '' if ov.review_total == 1 else 's' }} need{{ 's' if ov.review_total == 1 else '' }} your review (<a href="{{ url_for('book_review', session_id=session_id) }}">Review tab</a>).</span>{% endif %}
 </div>
 
 {% for box in ov.boxes %}
@@ -94,7 +86,8 @@
       {% for fix in box.fixes %}
       <div class="ov-fix">
         <div>
-          {{ fix.name }}{% if fix.skipped %} <span class="ov-off">(skipped on fixed-layout books)</span>{% elif not fix.enabled %} <span class="ov-off">(turned off in your settings)</span>{% endif %}
+          <label style="display:inline; font-weight:normal; margin:0;">
+            <input type="checkbox" class="ov-check mod-check" data-module="{{ fix.attr }}" data-count="{{ fix.count }}" {% if fix.attr in selected_modules %}checked{% endif %} {% if fix.skipped %}disabled{% endif %}>{{ fix.name }}</label>{% if fix.skipped %} <span class="ov-off">(skipped on fixed-layout books)</span>{% elif not fix.enabled and fix.attr not in selected_modules %} <span class="ov-off">(turned off in your settings)</span>{% endif %}
           <details class="ov-inner">
             <summary>What's being fixed?</summary>
             <ul>{% for issue in fix.issues %}<li><code>{{ issue.location }}</code>: {{ issue.description }}</li>{% endfor %}{% if fix.more %}<li><em>...and {{ fix.more }} more</em></li>{% endif %}</ul>
@@ -131,11 +124,11 @@
     <span class="ov-box-summary">the full list</span>
   </summary>
   <div class="ov-box-body">
-    <p class="details-toggle">Every repair the tool has, in the order it runs them. A check mark means it has something to do on this book and will run.</p>
+    <p class="details-toggle">Every repair the tool has, in the order it runs them. Ticked repairs run when you click Fix This Book; a number on the right is how many changes that repair found in this book. Your choices are remembered as you make them.</p>
     {% for m in ov.advanced %}
     <div class="ov-adv-row">
       <div>
-        <span class="ov-adv-mark">{{ '\u2713' if (m.enabled and m.count) else '' }}</span>{{ m.plain }}
+        <label style="display:inline; font-weight:normal; margin:0;"><input type="checkbox" class="ov-check mod-check" data-module="{{ m.attr }}" data-count="{{ m.count }}" {% if m.attr in selected_modules %}checked{% endif %} {% if m.skipped %}disabled{% endif %}>{{ m.plain }}</label>
         <span class="ov-real">({{ m.label }}){% if m.skipped %} skipped on fixed-layout books{% endif %}</span>
         {% if m.issues %}
         <details class="ov-inner" style="margin-left:1.1rem;">
@@ -149,4 +142,61 @@
     {% endfor %}
   </div>
 </details>
+<script>
+(function() {
+  var boxes = Array.prototype.slice.call(document.querySelectorAll(".mod-check"));
+  var readyEl = document.getElementById("ov-ready");
+  var url = "{{ url_for('save_modules', session_id=session_id) }}";
+  var timer = null, inflight = null, queued = false, pending = false;
+
+  function checkedModules() {
+    var seen = {};
+    boxes.forEach(function(b) { if (b.checked) seen[b.dataset.module] = Number(b.dataset.count) || 0; });
+    return seen;
+  }
+
+  function updateTotals() {
+    var seen = checkedModules(), repairs = 0, changes = 0;
+    Object.keys(seen).forEach(function(k) { if (seen[k]) { repairs += 1; changes += seen[k]; } });
+    readyEl.textContent = repairs
+      ? repairs + " repair" + (repairs === 1 ? "" : "s") + " selected (" + changes + " individual change" + (changes === 1 ? "" : "s") + ")."
+      : "No repairs selected.";
+  }
+
+  function save() {
+    pending = false;
+    if (inflight) { queued = true; return inflight; }
+    var fd = new FormData();
+    Object.keys(checkedModules()).forEach(function(k) { fd.append("modules", k); });
+    inflight = fetch(url, { method: "POST", body: fd, headers: { "X-Requested-With": "fetch" } })
+      .then(function() { document.dispatchEvent(new Event("ebook:state-changed")); })
+      .catch(function() {})
+      .then(function() {
+        inflight = null;
+        if (queued) { queued = false; return save(); }
+      });
+    return inflight;
+  }
+
+  boxes.forEach(function(box) {
+    box.addEventListener("change", function() {
+      // The same repair can be ticked in its category box and in the
+      // Advanced list: keep every copy in step, they are one setting.
+      boxes.forEach(function(other) {
+        if (other !== box && other.dataset.module === box.dataset.module) other.checked = box.checked;
+      });
+      updateTotals();
+      pending = true;
+      clearTimeout(timer);
+      timer = setTimeout(save, 300);
+    });
+  });
+
+  window.flushPendingSaves = function() {
+    clearTimeout(timer);
+    return pending ? save() : (inflight || Promise.resolve());
+  };
+  updateTotals();
+})();
+</script>
 {% endblock %}

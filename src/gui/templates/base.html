@@ -8,6 +8,13 @@
     .top-bar { position: sticky; top: 0; z-index: 10; background: #fff; padding-top: 1rem; margin: 0 -1rem; padding-left: 1rem; padding-right: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
     .top-bar-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
     h1 { font-size: 0.95rem; font-weight: 600; color: #555; word-break: break-word; margin: 0; flex: 1; min-width: 0; }
+    .top-bar-actions { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; justify-content: flex-end; }
+    form.fix-form { display: flex; align-items: center; gap: 0.7rem; margin: 0; }
+    form.fix-form label.fix-replace { display: flex; align-items: center; gap: 0.3rem; margin: 0; font-size: 0.8rem; font-weight: 400; color: #555; white-space: nowrap; cursor: pointer; }
+    button.button.fix-button { margin-top: 0; padding: 0.45rem 1rem; font-size: 0.9rem; font-weight: 600; white-space: nowrap; }
+    button.button.fix-button:disabled { background: #cbd5e0; color: #718096; cursor: not-allowed; }
+    .save-status { font-size: 0.8rem; color: #718096; }
+    .save-status.error { color: #c53030; font-weight: 600; }
     .content { margin-top: 1.5rem; padding-bottom: 2rem; }
     .tabs { display: flex; gap: 0.25rem; border-bottom: 2px solid #ddd; margin: 0.6rem 0 0; }
     .tabs a { padding: 0.6rem 1rem; text-decoration: none; color: #555; border-bottom: 2px solid transparent; margin-bottom: -2px; }
@@ -70,17 +77,73 @@
   <div class="top-bar">
     <div class="top-bar-row">
       <h1>{{ filename }}</h1>
-      <a class="button secondary top-bar-action" href="/">Analyze another book</a>
+      <div class="top-bar-actions">
+        {% if session_id %}
+        <form method="post" id="fix-form" class="fix-form" action="{{ url_for('fix_book', session_id=session_id) }}">
+          <label class="fix-replace" title="After fixing, put the repaired book where the original was. The original is kept as a backup named &lt;name&gt;_original.epub.">
+            <input type="checkbox" id="fix-replace" name="replace_original" value="1"> Replace original (keeps a backup)
+          </label>
+          <button type="submit" id="fix-button" class="button fix-button" disabled>Fix This Book</button>
+        </form>
+        {% endif %}
+        <a class="button secondary top-bar-action" href="/">Analyze another book</a>
+      </div>
     </div>
     <div class="tabs">
       <a href="{{ url_for('book_overview', session_id=session_id) }}" class="{{ 'active' if active_tab == 'overview' else '' }}">Overview</a>
+      <a href="{{ url_for('book_details', session_id=session_id) }}" class="{{ 'active' if active_tab == 'details' else '' }}">Details</a>
       <a href="{{ url_for('book_review', session_id=session_id) }}" class="{{ 'active' if active_tab == 'review' else '' }}">Review</a>
-      <a href="{{ url_for('book_repair', session_id=session_id) }}" class="{{ 'active' if active_tab == 'repair' else '' }}">Repair</a>
       <a href="{{ url_for('book_before_after', session_id=session_id) }}" class="{{ 'active' if active_tab == 'before_after' else '' }}">Before / After</a>
     </div>
   </div>
   <div class="content">
     {% block content %}{% endblock %}
   </div>
+  {% if session_id %}
+  <script>
+  // Fix This Book: asks the server in the background whether there is
+  // anything to do (a ticked repair with something to change, or a waiting
+  // metadata edit, cover or review choice) and enables or disables itself
+  // to match. Any page that saves in the background defines
+  // window.flushPendingSaves(), which Fix waits on so a change typed a
+  // moment ago is never left out.
+  (function() {
+    var form = document.getElementById("fix-form");
+    if (!form) return;
+    var button = document.getElementById("fix-button");
+    var replace = document.getElementById("fix-replace");
+    var KEY = "ebookfix.replaceOriginal";
+    try { replace.checked = localStorage.getItem(KEY) === "1"; } catch (e) {}
+    replace.addEventListener("change", function() {
+      try { localStorage.setItem(KEY, replace.checked ? "1" : "0"); } catch (e) {}
+    });
+
+    var busy = false;
+    function refresh() {
+      if (busy) return;
+      fetch("{{ url_for('fix_state', session_id=session_id) }}", { headers: { "X-Requested-With": "fetch" } })
+        .then(function(r) { return r.json(); })
+        .then(function(state) {
+          button.disabled = !state.can_fix;
+          button.title = state.summary;
+        })
+        .catch(function() { button.disabled = false; button.title = ""; });
+    }
+    window.refreshFixState = refresh;
+    document.addEventListener("ebook:state-changed", refresh);
+    refresh();
+
+    form.addEventListener("submit", function(event) {
+      event.preventDefault();
+      if (button.disabled || busy) return;
+      busy = true;
+      button.disabled = true;
+      button.textContent = "Fixing... this can take a minute";
+      var go = function() { form.submit(); };
+      if (window.flushPendingSaves) { window.flushPendingSaves().then(go, go); } else { go(); }
+    });
+  })();
+  </script>
+  {% endif %}
 </body>
 </html>

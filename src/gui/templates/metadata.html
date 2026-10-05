@@ -2,7 +2,7 @@
 {% block content %}
 {% if is_staged %}
 <div class="staged-banner">
-  These values are staged. Go to the <a href="{{ url_for('book_repair', session_id=session_id) }}">Repair tab</a> to actually apply them.
+  These values are staged. Go to the <a href="{{ url_for('book_details', session_id=session_id) }}">Details tab</a> to actually apply them.
 </div>
 {% endif %}
 

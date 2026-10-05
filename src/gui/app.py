@@ -301,6 +301,30 @@ def _staged_review_path(session_dir: Path) -> Path:
     return session_dir / "staged_review.json"
 
 
+def _is_background_request() -> bool:
+    """True when a page saved something in the background (fetch) rather
+    than by submitting a form, so the route should answer with a small
+    JSON reply instead of a redirect or a whole page."""
+    return request.headers.get("X-Requested-With") == "fetch"
+
+
+def _review_index_path(session_dir: Path) -> Path:
+    """{href: [candidate ids]} for the chapter-start boundaries the Review
+    tab last showed. Written when the tab loads so a background save can
+    work out "N files will split" without re-analysing the whole book on
+    every click."""
+    return session_dir / "review_index.json"
+
+
+def _staged_modules_path(session_dir: Path) -> Path:
+    """Which repairs the person has ticked on the Overview tab (a list of
+    module attrs). Absent until they change a checkbox, in which case
+    the defaults apply: every repair that is on in the config file, has
+    something to do on this book, and is not skipped by the fixed-layout
+    guard."""
+    return session_dir / "staged_modules.json"
+
+
 def _split_mapping_path(session_dir: Path) -> Path:
     """Original href -> list of resulting hrefs, written by
     apply_repair() whenever a staged split actually runs -- see the
@@ -674,10 +698,24 @@ def _review_counts(book) -> dict:
     return {"structure": structure, "text": text, "styling": styling}
 
 
+_overview_locks: dict = {}
+_overview_locks_guard = threading.Lock()
+
+
+def _overview_lock(session_dir: Path) -> threading.Lock:
+    with _overview_locks_guard:
+        return _overview_locks.setdefault(str(session_dir), threading.Lock())
+
+
 def _overview_data(session_dir: Path, filename: str) -> dict:
     """The Overview page's data, cached in the session folder as JSON
     (it is built from a full analysis plus every repair module's own
-    analyze(), which is slow on a big book)."""
+    analyze(), which is slow on a big book).
+
+    The Fix This Book button asks for this in the background from every
+    tab, so two requests can arrive at once on a cold cache; a lock per
+    session makes the second one wait for the first's result instead of
+    repeating the whole analysis."""
     config = load_config(None)
     key = _overview_cache_key(session_dir, config)
     cache_path = _overview_cache_path(session_dir)
@@ -685,6 +723,14 @@ def _overview_data(session_dir: Path, filename: str) -> dict:
     if cached is not None and cached.get("key") == key:
         return cached["data"]
 
+    with _overview_lock(session_dir):
+        cached = _read_staged(cache_path)
+        if cached is not None and cached.get("key") == key:
+            return cached["data"]
+        return _compute_overview_data(session_dir, filename, config, key, cache_path)
+
+
+def _compute_overview_data(session_dir: Path, filename: str, config, key: str, cache_path: Path) -> dict:
     book, analysis_report = _load_analysis(session_dir)
     module_reports = {}
     module_enabled = {}
@@ -721,18 +767,93 @@ def _overview_data(session_dir: Path, filename: str) -> dict:
     return data
 
 
+def _default_module_selection(ov: dict) -> set:
+    """Repairs ticked until the person changes a checkbox: on in the
+    config file, something to do on this book, and not skipped by the
+    fixed-layout guard (the same pre-check the old Repair tab used)."""
+    return {m["attr"] for m in ov["advanced"] if m["enabled"] and m["count"]}
+
+
+def _selected_modules(session_dir: Path, filename: str) -> set:
+    valid = {attr for attr, _label in _REPAIR_MODULES}
+    staged = _read_staged(_staged_modules_path(session_dir))
+    if staged is not None:
+        return set(staged.get("selected", [])) & valid
+    return _default_module_selection(_overview_data(session_dir, filename))
+
+
 @app.route("/book/<session_id>/overview")
 @_handle_missing_source
 def book_overview(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    ov = dict(_overview_data(session_dir, filename))
+    selected = _selected_modules(session_dir, filename)
+
+    # The totals line follows what is ticked, not just the defaults.
+    counts = {m["attr"]: m["count"] for m in ov["advanced"]}
+    ov["ready_modules"] = sum(1 for attr in selected if counts.get(attr))
+    ov["ready_changes"] = sum(counts.get(attr, 0) for attr in selected)
     return render_template(
         "overview.html",
         active_tab="overview",
         session_id=session_id,
         filename=filename,
-        ov=_overview_data(session_dir, filename),
+        ov=ov,
+        selected_modules=sorted(selected),
     )
+
+
+@app.route("/book/<session_id>/modules", methods=["POST"])
+@_handle_missing_source
+def save_modules(session_id):
+    """Remembers which repairs are ticked (the Overview tab saves this in
+    the background whenever a checkbox changes), so Fix This Book on any
+    tab uses the same choices."""
+    session_dir = _session_dir(session_id)
+    valid = {attr for attr, _label in _REPAIR_MODULES}
+    selected = [m for m in request.form.getlist("modules") if m in valid]
+    _staged_modules_path(session_dir).write_text(json.dumps({"selected": selected}), encoding="utf-8")
+    return jsonify({"ok": True, "selected": len(selected)})
+
+
+@app.route("/book/<session_id>/fix-state")
+@_handle_missing_source
+def fix_state(session_id):
+    """What the Fix This Book button needs to know, asked for in the
+    background by every tab: is there anything for it to do? There is if
+    a ticked repair has something to change on this book, or a metadata
+    edit, a cover replacement or a review choice is waiting."""
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    ov = _overview_data(session_dir, filename)
+    selected = _selected_modules(session_dir, filename)
+    counts = {m["attr"]: m["count"] for m in ov["advanced"]}
+    repairs = sum(1 for attr in selected if counts.get(attr))
+    changes = sum(counts.get(attr, 0) for attr in selected)
+
+    staged_metadata = _staged_metadata_path(session_dir).exists()
+    staged_cover = _read_staged(_staged_cover_path(session_dir))
+    has_cover = bool(staged_cover and (staged_cover.get("cover_source") or staged_cover.get("cover_url")))
+    staged_review = _read_staged(_staged_review_path(session_dir)) or {}
+    has_review = any(
+        staged_review.get(key)
+        for key in ("accepted_ids", "possessive_resolutions", "accepted_color_ids", "accepted_font_ids", "frontmatter_labels")
+    )
+
+    parts = []
+    if repairs:
+        parts.append(f"{repairs} repair{'s' if repairs != 1 else ''} ({changes} change{'s' if changes != 1 else ''})")
+    if staged_metadata:
+        parts.append("your metadata edits")
+    if has_cover:
+        parts.append("a new cover")
+    if has_review:
+        parts.append("your review choices")
+    return jsonify({
+        "can_fix": bool(repairs or staged_metadata or has_cover or has_review),
+        "summary": "Will apply: " + ", ".join(parts) if parts else "Nothing to fix",
+    })
 
 
 @app.route("/book/<session_id>")
@@ -800,7 +921,9 @@ def save_metadata(session_id):
     }
     _staged_metadata_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
 
-    return redirect(url_for("book_repair", session_id=session_id))
+    if _is_background_request():
+        return jsonify({"ok": True})
+    return redirect(url_for("book_details", session_id=session_id))
 
 
 @app.route("/book/<session_id>/metadata/cover", methods=["POST"])
@@ -825,13 +948,13 @@ def save_cover(session_id):
             if calibre_cover_path.is_file():
                 staged = {"cover_source": str(calibre_cover_path)}
                 _staged_cover_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
-        return redirect(url_for("book_repair", session_id=session_id))
+        return redirect(url_for("book_details", session_id=session_id))
 
     if cover_url:
         # Store the URL for fetching during apply_repair
         staged = {"cover_url": cover_url}
         _staged_cover_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
-        return redirect(url_for("book_repair", session_id=session_id))
+        return redirect(url_for("book_details", session_id=session_id))
 
     if upload is not None and upload.filename:
         data = upload.read()
@@ -851,7 +974,7 @@ def save_cover(session_id):
             staged = {"cover_source": str(saved_path)}
             _staged_cover_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
 
-    return redirect(url_for("book_repair", session_id=session_id))
+    return redirect(url_for("book_details", session_id=session_id))
 
 
 @app.route("/book/<session_id>/metadata/cover/clear", methods=["POST"])
@@ -862,7 +985,7 @@ def clear_cover(session_id):
     _staged_cover_path(session_dir).unlink(missing_ok=True)
     for old in _staged_cover_dir(session_dir).glob("staged_cover.*"):
         old.unlink(missing_ok=True)
-    return redirect(url_for("book_repair", session_id=session_id))
+    return redirect(url_for("book_details", session_id=session_id))
 
 
 @app.route("/book/<session_id>/lookup", methods=["POST"])
@@ -950,6 +1073,11 @@ def book_review(session_id):
     font_groups = _font_review_groups(book)
     frontmatter_items = _frontmatter_review_groups(book)
 
+    _review_index_path(session_dir).write_text(
+        json.dumps({group["href"]: [item["id"] for item in group["candidates"]] for group in groups}),
+        encoding="utf-8",
+    )
+
     staged = _read_staged(_staged_review_path(session_dir))
     staged_possessive_resolutions = {}
     staged_color_ids = set()
@@ -998,10 +1126,56 @@ def book_review(session_id):
     )
 
 
+def _save_review_in_background(session_dir: Path):
+    """The Review tab saves every change as it is made. Same staged file
+    as the full-page save below, but built straight from the posted form
+    (no re-analysis of the book on every click): the apply step re-derives
+    candidates fresh and ignores any id that no longer matches, so there
+    is nothing to validate here beyond the small fixed choices. The
+    split preview comes from the index the tab wrote when it loaded."""
+    form = request.form
+    valid_labels = {value for value, _display in FRONTMATTER_LABEL_CHOICES}
+
+    accepted_ids = set(form.getlist("accept"))
+    possessive_resolutions = {
+        key[len("poss_"):]: value
+        for key, value in form.items()
+        if key.startswith("poss_") and value in ("possessive", "plural")
+    }
+    frontmatter_labels = {
+        key[len("fm_"):]: value
+        for key, value in form.items()
+        if key.startswith("fm_") and value in valid_labels
+    }
+    staged = {
+        "accepted_ids": sorted(accepted_ids),
+        "possessive_resolutions": possessive_resolutions,
+        "accepted_color_ids": sorted(set(form.getlist("color_accept"))),
+        "accepted_font_ids": sorted(set(form.getlist("font_accept"))),
+        "frontmatter_labels": frontmatter_labels,
+    }
+    _staged_review_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
+
+    index = _read_staged(_review_index_path(session_dir)) or {}
+    would_split = 0
+    skipped = 0
+    for _href, ids in index.items():
+        picked = [i for i in ids if i in accepted_ids]
+        if not picked:
+            continue
+        if len(picked) < 2:
+            skipped += 1
+        else:
+            would_split += 1
+    return jsonify({"ok": True, "would_split": would_split, "skipped": skipped, "picked": len(accepted_ids)})
+
+
 @app.route("/book/<session_id>/review", methods=["POST"])
 @_handle_missing_source
 def save_review(session_id):
     session_dir = _session_dir(session_id)
+    if _is_background_request():
+        return _save_review_in_background(session_dir)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
     book = EPUBParser().load(_source_path(session_dir))
     groups = _split_candidate_groups(book)
@@ -1092,11 +1266,19 @@ def save_review(session_id):
 
 
 @app.route("/book/<session_id>/repair")
-@_handle_missing_source
 def book_repair(session_id):
+    """The old Repair tab is gone (the Overview tab now holds the repair
+    choices and the Fix This Book button, the Details tab holds the
+    metadata and cover). Kept only so an old bookmark lands somewhere
+    useful."""
+    return redirect(url_for("book_details", session_id=session_id))
+
+
+@app.route("/book/<session_id>/details")
+@_handle_missing_source
+def book_details(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
-    config = load_config(None)
 
     # A book's own analysis, so each module's checkbox can show how
     # many issues it actually found in THIS book (not just whether
@@ -1234,68 +1416,11 @@ def book_repair(session_id):
         if any(suggested[k] for k in ("title", "author", "series")):
             filename_suggestion = suggested
 
-    # --- REPAIR MODULES SECTION (original code from book_repair) ---
-    modules = []
-    for attr, label in _REPAIR_MODULES:
-        module_config = getattr(config, attr)
-        module_cls = _REPAIR_MODULE_CLASSES[attr]
-        report = module_cls(module_config).analyze(book, analysis_report)
-        modules.append({
-            "attr": attr,
-            "label": label,
-            "count": report.count,
-            # Full per-finding detail (location + description, same
-            # text the CLI's own --details flag prints), so the Repair
-            # tab can show exactly what a module found rather than
-            # just how many -- Jacob's ask, prompted by wanting to see
-            # what Cover Repair specifically does to a book before
-            # running it. Only ever read by the template when count >
-            # 0 (see repair.html's {% if m.issues %} guard), so an
-            # empty list here for a no-op module costs nothing.
-            "issues": [
-                {"location": issue.location, "description": issue.description}
-                for issue in report.issues
-            ],
-            # Pre-checked from config, same as before -- but only when
-            # there's actually something for it to do against this
-            # book. A module config-enabled but with nothing to fix
-            # (e.g. EPUB 3 Upgrade on a book that's already EPUB 3)
-            # starts unchecked instead of running a no-op pass; still
-            # toggleable by hand either way.
-            "checked": module_config.enabled and report.count > 0,
-        })
-
-    staged_review = _read_staged(_staged_review_path(session_dir))
-    staged_field_count = len(staged_metadata.get("fields", {})) if staged_metadata else 0
-    staged_boundary_count = len(staged_review.get("accepted_ids", [])) if staged_review else 0
-    staged_possessive_count = len(staged_review.get("possessive_resolutions", {})) if staged_review else 0
-    staged_color_count = len(staged_review.get("accepted_color_ids", [])) if staged_review else 0
-    staged_font_count = len(staged_review.get("accepted_font_ids", [])) if staged_review else 0
-    has_staged_cover = bool(staged_cover and staged_cover.get("cover_source"))
-
-    replaced_flag = _replaced_flag_path(session_dir)
-    already_replaced = replaced_flag.exists()
-
     return render_template(
-        "repair.html",
-        active_tab="repair",
+        "details.html",
+        active_tab="details",
         session_id=session_id,
         filename=filename,
-        # Repair module variables (original)
-        modules=modules,
-        has_staged_metadata=staged_metadata is not None,
-        has_staged_review=staged_review is not None,
-        has_staged_cover=has_staged_cover,
-        staged_field_count=staged_field_count,
-        staged_boundary_count=staged_boundary_count,
-        staged_possessive_count=staged_possessive_count,
-        staged_color_count=staged_color_count,
-        staged_font_count=staged_font_count,
-        result=None,
-        has_fixed=_fixed_output_path(session_dir).exists(),
-        already_replaced=already_replaced,
-        replaced_backup=replaced_flag.read_text(encoding="utf-8") if already_replaced else None,
-        # Metadata variables (merged from book_metadata)
         fields=fields,
         current_cover_preview=current_cover_preview,
         calibre_cover_preview=calibre_cover_preview,
@@ -1310,14 +1435,19 @@ def book_repair(session_id):
     )
 
 
-
-@app.route("/book/<session_id>/repair", methods=["POST"])
+@app.route("/book/<session_id>/fix", methods=["POST"])
 @_handle_missing_source
-def apply_repair(session_id):
+def fix_book(session_id):
+    """Fix This Book: the one action that applies everything -- staged
+    metadata, a staged cover, staged review choices and the repairs
+    ticked on the Overview tab -- in a single pass into one output
+    file, and, if asked, replaces the original with it. (Formerly the
+    Repair tab's Apply Everything.)"""
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
 
-    selected = set(request.form.getlist("modules"))
+    selected = _selected_modules(session_dir, filename)
+    replace_requested = request.form.get("replace_original") == "1"
     config = load_config(None)
     # metadata_repair's config-file `enabled` value controls a second,
     # unrelated thing besides whether MetadataSyncRepair runs against
@@ -1509,33 +1639,32 @@ def apply_repair(session_id):
     # an earlier run that a person has since re-applied differently.
     _split_mapping_path(session_dir).write_text(json.dumps(new_hrefs_by_origin), encoding="utf-8")
 
-    _staged_metadata_path(session_dir).unlink(missing_ok=True)
-    _staged_review_path(session_dir).unlink(missing_ok=True)
-
     module_summaries = [
         {"name": name, "count": report.count}
         for name, report in reports_by_module.items()
         if report.count > 0
     ]
 
-    modules = [
-        {"attr": attr, "label": label, "checked": attr in selected}
-        for attr, label in _REPAIR_MODULES
-    ]
+    # Replace the original now if the person asked for that up front (the
+    # checkbox next to the Fix button). Staged choices are only cleared
+    # once the original has been replaced: a plain Fix leaves the original
+    # file untouched, so a second Fix has to start from the same choices
+    # or it would silently drop the person's edits. After a replace, the
+    # file on disk already contains them (and the staged review ids refer
+    # to a book that no longer exists), so they are cleared then.
+    replace_outcome = None
+    if replace_requested:
+        replace_outcome = _replace_original_files(session_dir)
+        if replace_outcome["ok"]:
+            _staged_metadata_path(session_dir).unlink(missing_ok=True)
+            _staged_review_path(session_dir).unlink(missing_ok=True)
 
+    already_replaced = _replaced_flag_path(session_dir).exists()
     return render_template(
-        "repair.html",
-        active_tab="repair",
+        "fix_result.html",
+        active_tab="overview",
         session_id=session_id,
         filename=filename,
-        modules=modules,
-        has_staged_metadata=False,
-        has_staged_review=False,
-        staged_field_count=0,
-        staged_boundary_count=0,
-        staged_possessive_count=0,
-        staged_color_count=0,
-        staged_font_count=0,
         result={
             "output_path": str(output_path),
             "split_count": split_count,
@@ -1549,18 +1678,19 @@ def apply_repair(session_id):
             "db_sync": db_sync_status,
         },
         has_fixed=True,
-        already_replaced=_replaced_flag_path(session_dir).exists(),
+        already_replaced=already_replaced,
+        replace_outcome=replace_outcome,
+        replaced_backup=_replaced_flag_path(session_dir).read_text(encoding="utf-8") if already_replaced else None,
     )
 
 
-@app.route("/book/<session_id>/replace-original", methods=["POST"])
-def replace_original(session_id):
+def _replace_original_files(session_dir: Path) -> dict:
     """Swaps a repaired book back onto its own original filename, so
     Calibre (or anything else pointed at that exact path) picks up the
     fix without a person manually renaming anything themselves. Two
     plain os-level renames, in this order: the untouched original ->
-    "<name>_original.epub" (a backup, never deleted automatically),
-    then "<name>_fixed.epub" -> the original filename. Both files
+    "<n>_original.epub" (a backup, never deleted automatically),
+    then "<n>_fixed.epub" -> the original filename. Both files
     already live in the same folder, so each rename is a same-
     filesystem move -- atomic on every OS this project supports,
     never a copy-then-delete that could leave things half-done if
@@ -1571,40 +1701,26 @@ def replace_original(session_id):
     this session already replaced once before, and silently
     overwriting it would throw away whichever version came before
     that. A person can rename or delete the old backup by hand and
-    retry if that's genuinely what they want."""
-    session_dir = _session_dir(session_id)
-    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    retry if that's genuinely what they want.
 
+    Returns {"ok": bool, "error": str | None, "source": str, "backup": str}.
+    Used by both the Replace original button on the result page and the
+    Replace original checkbox next to Fix This Book."""
     fixed_path = _fixed_output_path(session_dir)
-    if not fixed_path.exists():
-        abort(404)
-
-    def _replace_error(message: str):
-        return render_template(
-            "repair.html",
-            active_tab="repair",
-            session_id=session_id,
-            filename=filename,
-            modules=[
-                {"attr": attr, "label": label, "checked": False}
-                for attr, label in _REPAIR_MODULES
-            ],
-            has_staged_metadata=False,
-            has_staged_review=False,
-            staged_field_count=0,
-            staged_boundary_count=0,
-            result=None,
-            has_fixed=True,
-            replace_error=message,
-        )
-
     source_path = _source_path(session_dir)
     backup_path = _original_backup_path(session_dir)
+    outcome = {"ok": False, "error": None, "source": str(source_path), "backup": str(backup_path)}
+
+    if not fixed_path.exists():
+        outcome["error"] = "There is no repaired file to put in place yet."
+        return outcome
+
     if backup_path.exists():
-        return _replace_error(
+        outcome["error"] = (
             f"A backup already exists at {backup_path} -- not overwriting it. "
             "Move or delete that file first if you're sure you want to replace again."
         )
+        return outcome
 
     # Both renames are same-filesystem moves and should be near-instant,
     # but a book file can still be locked by something else on Windows
@@ -1617,12 +1733,13 @@ def replace_original(session_id):
     try:
         source_path.rename(backup_path)
     except OSError as exc:
-        return _replace_error(
+        outcome["error"] = (
             f"Couldn't rename the original file to make a backup: {exc}. "
             "This usually means something else has the book open -- Calibre's "
             "own viewer, another reader, or an antivirus scan -- close it and "
             "try again. Nothing was changed."
         )
+        return outcome
 
     try:
         fixed_path.rename(source_path)
@@ -1639,32 +1756,43 @@ def replace_original(session_id):
                 f"failed ({rollback_exc}) -- the original is safe at that path, "
                 "but needs to be renamed back by hand."
             )
-        return _replace_error(
+        outcome["error"] = (
             f"Couldn't move the repaired file into place: {exc}.{rollback_note} "
             "This usually means something else has the book open -- close it and "
             "try again."
         )
+        return outcome
 
     _replaced_flag_path(session_dir).write_text(str(backup_path), encoding="utf-8")
+    outcome["ok"] = True
+    return outcome
 
+
+@app.route("/book/<session_id>/replace-original", methods=["POST"])
+def replace_original(session_id):
+    """The Replace original button on the result page (for someone who
+    did not tick the checkbox beside Fix This Book first)."""
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    if not _fixed_output_path(session_dir).exists():
+        abort(404)
+
+    outcome = _replace_original_files(session_dir)
+    if outcome["ok"]:
+        _staged_metadata_path(session_dir).unlink(missing_ok=True)
+        _staged_review_path(session_dir).unlink(missing_ok=True)
+
+    already_replaced = _replaced_flag_path(session_dir).exists()
     return render_template(
-        "repair.html",
-        active_tab="repair",
+        "fix_result.html",
+        active_tab="overview",
         session_id=session_id,
         filename=filename,
-        modules=[
-            {"attr": attr, "label": label, "checked": False}
-            for attr, label in _REPAIR_MODULES
-        ],
-        has_staged_metadata=False,
-        has_staged_review=False,
-        staged_field_count=0,
-        staged_boundary_count=0,
         result=None,
-        has_fixed=False,
-        already_replaced=True,
-        replaced_path=str(source_path),
-        replaced_backup=str(backup_path),
+        has_fixed=_fixed_output_path(session_dir).exists(),
+        already_replaced=already_replaced,
+        replace_outcome=outcome,
+        replaced_backup=_replaced_flag_path(session_dir).read_text(encoding="utf-8") if already_replaced else None,
     )
 
 

@@ -1,0 +1,555 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="details-toggle">
+  Edit the book's title, author, series, cover and other details here. Changes are saved as you
+  make them and applied when you click <strong>Fix This Book</strong> (top right). The repairs
+  themselves are chosen on the <a href="{{ url_for('book_overview', session_id=session_id) }}">Overview</a> tab.
+</p>
+
+{% if not is_calibre_managed %}
+<p style="font-size:0.85rem; color:#888; margin-top:-0.5rem;">
+  This book is showing as standalone, not Calibre-managed. If it's actually in your Calibre
+  library, double check the path you opened it from points at the real copy inside your library
+  folder, not a copy elsewhere.
+</p>
+{% endif %}
+
+<!-- METADATA SECTION -->
+<h2 style="margin-top:1.5rem; margin-bottom:1rem;">Metadata</h2>
+
+<div class="field-block" style="border:1px solid #eee; border-radius:8px; padding:1rem;">
+  <label style="margin-bottom:0.6rem; display:block;">Cover</label>
+  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start;">
+    <div>
+      <div style="font-size:0.8rem; color:#666; margin-bottom:0.3rem;">Current</div>
+      {% if current_cover_preview %}
+      <img src="{{ current_cover_preview.data_uri }}" alt="Current cover" style="max-width:120px; max-height:180px; border:1px solid #ddd; border-radius:4px; display:block;">
+      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+        {% if current_cover_preview.dimensions %}{{ current_cover_preview.dimensions }}<br>{% endif %}
+        {{ current_cover_preview.size_label }}
+      </div>
+      {% else %}
+      <div style="font-size:0.82rem; color:#888; max-width:120px;">No usable cover found.</div>
+      {% endif %}
+    </div>
+
+    {% if staged_cover_preview %}
+    <div>
+      <div style="font-size:0.8rem; color:#2f855a; margin-bottom:0.3rem;">Pending replacement</div>
+      <img src="{{ staged_cover_preview.data_uri }}" alt="Staged replacement cover" style="max-width:120px; max-height:180px; border:2px solid #68d391; border-radius:4px; display:block;">
+      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+        {% if staged_cover_preview.dimensions %}{{ staged_cover_preview.dimensions }}<br>{% endif %}
+        {{ staged_cover_preview.size_label }}
+      </div>
+      <form method="post" action="{{ url_for('clear_cover', session_id=session_id) }}" style="margin-top:0.4rem;" onsubmit="return guardedSubmit(this)">
+        <button type="submit" class="button secondary" style="padding:0.25rem 0.6rem; font-size:0.78rem;">Cancel</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if calibre_cover_preview %}
+    <div>
+      <div style="font-size:0.8rem; color:#666; margin-bottom:0.3rem;">Calibre folder's cover</div>
+      <img src="{{ calibre_cover_preview.data_uri }}" alt="Calibre folder's cover" style="max-width:120px; max-height:180px; border:1px solid #ddd; border-radius:4px; display:block;">
+      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+        {% if calibre_cover_preview.dimensions %}{{ calibre_cover_preview.dimensions }}<br>{% endif %}
+        {{ calibre_cover_preview.size_label }}
+      </div>
+      <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" style="margin-top:0.4rem;" onsubmit="return guardedSubmit(this)">
+        <input type="hidden" name="use_calibre_cover" value="1">
+        <button type="submit" class="button secondary" style="padding:0.25rem 0.6rem; font-size:0.78rem;">Use this instead</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <div style="margin-top:0.8rem;">
+    <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" enctype="multipart/form-data" style="display:flex; gap:0.5rem; align-items:center;">
+      <label for="cover-file" style="margin:0; font-weight:normal; font-size:0.85rem; color:#555;">Replace the cover with a picture from your computer:</label>
+      <input type="file" id="cover-file" name="cover_file" accept="image/jpeg,image/png,image/gif,image/webp" onchange="guardedSubmit(this.form, true)">
+    </form>
+    
+    <div style="margin-top:0.5rem; padding-top:0.8rem; border-top:1px solid #eee;">
+      <label for="cover-url" style="display:block; margin-bottom:0.3rem;">Or use a URL:</label>
+      <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" id="cover-url-form" style="display:flex; gap:0.5rem; align-items:flex-end;">
+        <input type="hidden" name="cover_url" id="cover-url-hidden">
+        <input type="url" id="cover-url" placeholder="https://example.com/image.jpg" style="flex:1; padding:0.4rem; border:1px solid #ccc; border-radius:4px; font-size:0.9rem;">
+        <button type="button" class="button secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem; white-space:nowrap;" onclick="fetchCoverFromUrl()">Fetch cover</button>
+      </form>
+      <div id="url-status" style="margin-top:0.3rem; font-size:0.78rem; color:#888; display:none;"></div>
+    </div>
+  </div>
+</div>
+
+{% if filename_suggestion %}
+<div class="staged-banner" id="filename-suggestion">
+  {% if filename_suggestion.title %}<strong>This book's title looks like a leftover filename.</strong> Suggested:{% else %}<strong>Suggested:</strong>{% endif %}
+  <ul style="margin:0.4rem 0 0.6rem; padding-left:1.2rem;">
+    {% if filename_suggestion.title %}<li>Title: <em>{{ filename_suggestion.title }}</em></li>{% endif %}
+    {% if filename_suggestion.author %}<li>Author: <em>{{ filename_suggestion.author }}</em></li>{% endif %}
+    {% if filename_suggestion.series %}<li>Series: <em>{{ filename_suggestion.series }}</em>{% if filename_suggestion.series_index %}, book {{ filename_suggestion.series_index }}{% endif %}</li>{% endif %}
+  </ul>
+  <button type="button" class="button secondary" style="margin-top:0;" onclick='applyFilenameSuggestions({{ filename_suggestion|tojson }});'>Use all suggestions</button>
+  <div class="mismatch-note" style="margin-top:0.5rem;">
+    This fills in the fields below and saves them. The "Clean up the title and author name" repair
+    on the Overview tab makes the same changes automatically when you click Fix This Book, so
+    use these buttons only if you want to look at or adjust the result first.
+  </div>
+</div>
+{% endif %}
+
+<form method="post" id="metadata-form" action="{{ url_for('save_metadata', session_id=session_id) }}">
+  {% for f in fields %}
+  <div class="field-block">
+    <label for="field-{{ f.name }}">
+      {{ f.label }}
+      {% if f.mismatch %}<span class="mismatch-tag">MISMATCH</span>{% endif %}
+    </label>
+    {% if f.multiline %}
+    <textarea id="field-{{ f.name }}" name="{{ f.name }}">{{ f.value }}</textarea>
+    {% else %}
+    <input type="text" id="field-{{ f.name }}" name="{{ f.name }}" value="{{ f.value }}">
+    {% endif %}
+    {% if f.name == 'author' %}
+    <div class="author-swap">
+      <button type="button" id="swap-btn" class="button secondary" style="margin-top:0.4rem; padding:0.3rem 0.7rem; font-size:0.8rem; display:none;" onclick="swapAuthorName()">Swap to "First Last"</button>
+    </div>
+    {% endif %}
+    {% if filename_suggestion and f.name == 'title' and filename_suggestion.title %}
+    <div class="mismatch-choices">
+      Suggested:
+      <button type="button" onclick='setFilenameField("field-title", {{ filename_suggestion.title|tojson }});'>{{ filename_suggestion.title }}</button>
+    </div>
+    {% endif %}
+    {% if filename_suggestion and f.name == 'author' and filename_suggestion.author %}
+    <div class="mismatch-choices">
+      Suggested:
+      <button type="button" onclick='setFilenameField("field-author", {{ filename_suggestion.author|tojson }});'>{{ filename_suggestion.author }}</button>
+    </div>
+    {% endif %}
+    {% if f.mismatch %}
+    <div class="mismatch-choices">
+      Pick a value:
+      <button type="button" onclick='document.getElementById("field-{{ f.name }}").value = {{ f.epub_value|tojson }};'>EPUB: {{ f.epub_value }}</button>
+      <button type="button" onclick='document.getElementById("field-{{ f.name }}").value = {{ f.calibre_value|tojson }};'>Calibre: {{ f.calibre_value }}</button>
+    </div>
+    {% if f.note %}<div class="mismatch-note">{{ f.note }}</div>{% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <div class="field-block">
+    <label for="field-language">Language</label>
+    <select id="field-language" name="language">
+      {% for code, choice_label in language_choices %}
+      <option value="{{ code }}" {% if code == language_value %}selected{% endif %}>{{ choice_label }}</option>
+      {% endfor %}
+    </select>
+    <div class="mismatch-note">
+      Sets the EPUB's own language directly. Calibre and EPUB use different, both-correct
+      code formats (eng vs en), so this never shows as a mismatch to pick between. Use
+      this dropdown only if the language itself is actually wrong.
+      {% if language_note %}{{ language_note }}{% endif %}
+    </div>
+  </div>
+
+  <label for="field-series-name">Series</label>
+  <input type="text" id="field-series-name" name="series_name" value="{{ series_name }}" placeholder="Series name (leave blank for none)">
+
+  <label for="field-series-index">Series Position</label>
+  <input type="text" id="field-series-index" name="series_index" value="{{ series_index if series_index is not none else '' }}" placeholder="e.g. 3 or 3.5">
+  {% if filename_suggestion and filename_suggestion.series %}
+  <div class="mismatch-choices">
+    Suggested:
+    <button type="button" onclick='setFilenameField("field-series-name", {{ filename_suggestion.series|tojson }}); setFilenameField("field-series-index", {{ filename_suggestion.series_index|tojson }});'>{{ filename_suggestion.series }}{% if filename_suggestion.series_index %}, book {{ filename_suggestion.series_index }}{% endif %}</button>
+  </div>
+  {% endif %}
+
+  <!-- ISBN LOOKUP SECTION -->
+  <div style="border:1px solid #e2e8f0; border-radius:6px; padding:1rem; margin:1.5rem 0; background:#f7fafc;">
+    <label style="display:block; margin-bottom:0.5rem; font-weight:bold;">Look Up Metadata Online</label>
+    <p style="font-size:0.85rem; color:#666; margin:0 0 0.8rem 0;">
+      This will fetch book metadata online from Open Library. Requires internet connection.
+    </p>
+    
+    <div style="display:flex; gap:0.5rem; margin-bottom:0.8rem;">
+      <button type="button" class="button secondary" onclick="initiateIsbnLookup()" style="padding:0.4rem 0.8rem;">Look Up by ISBN</button>
+      <button type="button" class="button secondary" onclick="initiateTitleAuthorLookup()" style="padding:0.4rem 0.8rem;">Look Up by Title/Author</button>
+    </div>
+    
+    <div id="lookup-status" style="font-size:0.85rem; color:#666; margin-bottom:0.8rem; display:none;"></div>
+    
+    <!-- Lookup Results Preview Panel -->
+    <div id="lookup-results" style="display:none; border-top:1px solid #e2e8f0; padding-top:1rem; margin-top:1rem;">
+      <div style="font-size:0.9rem; font-weight:bold; margin-bottom:0.8rem;">Lookup Results</div>
+      
+      <div id="lookup-comparison" style="display:grid; grid-template-columns: 1fr auto 1fr; gap:1rem; margin-bottom:1rem;">
+        <!-- Filled by JavaScript -->
+      </div>
+      
+      <div id="lookup-actions" style="display:flex; gap:0.5rem; margin-top:0.8rem;">
+        <button type="button" class="button secondary" onclick="dismissLookupResults()" style="padding:0.3rem 0.6rem; font-size:0.8rem;">Dismiss</button>
+        <button type="button" class="button" id="apply-lookup-btn" onclick="applyLookupResults()" style="padding:0.3rem 0.6rem; font-size:0.8rem; display:none;">Apply Selected</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="save-status" class="save-status" style="margin-top:1rem;">Changes are saved automatically.</div>
+</form>
+
+<script>
+(function() {
+  // Autosave: every change is saved in the background a moment after it
+  // is made (no Save button, no unsaved-changes warning). Saves are
+  // queued so two never overlap, and anything still waiting is flushed
+  // when the person leaves the page, clicks a cover button, or clicks
+  // Fix This Book (window.flushPendingSaves).
+  var form = document.getElementById("metadata-form");
+  var statusEl = document.getElementById("save-status");
+  var timer = null, inflight = null, queued = false, pending = false;
+
+  function setStatus(text, isError) {
+    statusEl.textContent = text;
+    statusEl.className = "save-status" + (isError ? " error" : "");
+  }
+
+  function save() {
+    pending = false;
+    clearTimeout(timer);
+    if (inflight) { queued = true; return inflight; }
+    setStatus("Saving...");
+    inflight = fetch(form.action, { method: "POST", body: new FormData(form), headers: { "X-Requested-With": "fetch" } })
+      .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function() {
+        setStatus("All changes saved.");
+        document.dispatchEvent(new Event("ebook:state-changed"));
+      })
+      .catch(function(err) { setStatus("Could not save: " + err.message, true); })
+      .then(function() {
+        inflight = null;
+        if (queued) { queued = false; return save(); }
+      });
+    return inflight;
+  }
+
+  function schedule() {
+    pending = true;
+    setStatus("Saving...");
+    clearTimeout(timer);
+    timer = setTimeout(save, 700);
+  }
+
+  form.addEventListener("input", schedule);
+  form.addEventListener("change", schedule);
+  form.addEventListener("submit", function(event) { event.preventDefault(); save(); });
+  document.querySelectorAll(".mismatch-choices button").forEach(function(btn) {
+    btn.addEventListener("click", schedule);
+  });
+
+  window.flushPendingSaves = function() {
+    return pending ? save() : (inflight || Promise.resolve());
+  };
+
+  // Leaving the page (a tab click, closing the window) with a change still
+  // waiting: send it on its way with a beacon, which survives the page going away.
+  window.addEventListener("pagehide", function() {
+    if (pending && navigator.sendBeacon) {
+      navigator.sendBeacon(form.action, new FormData(form));
+    }
+  });
+
+  // Cover buttons submit their own forms (and reload the page), so any
+  // metadata change still waiting is saved first.
+  window.guardedSubmit = function(target, always) {
+    if (!pending && !inflight) return always ? (target.submit(), false) : true;
+    window.flushPendingSaves().then(function() { target.submit(); }, function() { target.submit(); });
+    return false;
+  };
+
+  // Fill one field with a suggested value. Fires an input event so the
+  // unsaved-changes warning and the Swap button both notice.
+  window.setFilenameField = function(id, value) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
+  window.applyFilenameSuggestions = function(s) {
+    if (s.title) window.setFilenameField("field-title", s.title);
+    if (s.author) window.setFilenameField("field-author", s.author);
+    if (s.series) {
+      window.setFilenameField("field-series-name", s.series);
+      window.setFilenameField("field-series-index", s.series_index || "");
+    }
+  };
+
+  // Swap author name - only show button when there's a comma
+  window.swapAuthorName = function() {
+    var el = document.getElementById("field-author");
+    var parts = el.value.split(",");
+    if (parts.length !== 2) return;
+    var last = parts[0].trim();
+    var first = parts[1].trim();
+    if (!last || !first) return;
+    el.value = first + " " + last;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    updateSwapButtonVisibility();
+  };
+
+  // Show/hide the Swap button based on whether there's a comma
+  function updateSwapButtonVisibility() {
+    var authorField = document.getElementById("field-author");
+    var swapBtn = document.getElementById("swap-btn");
+    if (authorField && swapBtn) {
+      swapBtn.style.display = authorField.value.includes(",") ? "inline-block" : "none";
+    }
+  }
+
+  // Update visibility on page load and whenever the author field changes
+  updateSwapButtonVisibility();
+  var authorField = document.getElementById("field-author");
+  if (authorField) {
+    authorField.addEventListener("input", updateSwapButtonVisibility);
+  }
+
+  // Fetch cover from URL with validation
+  window.fetchCoverFromUrl = function() {
+    var urlInput = document.getElementById("cover-url");
+    var urlHidden = document.getElementById("cover-url-hidden");
+    var statusDiv = document.getElementById("url-status");
+    var url = urlInput.value.trim();
+    
+    if (!url) {
+      statusDiv.style.display = "none";
+      return;
+    }
+    
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch (e) {
+      statusDiv.textContent = "Invalid URL format";
+      statusDiv.style.color = "#e53e3e";
+      statusDiv.style.display = "block";
+      return;
+    }
+    
+    statusDiv.textContent = "Validating URL...";
+    statusDiv.style.color = "#666";
+    statusDiv.style.display = "block";
+    
+    // Validate that URL is reachable and is an image
+    fetch(url, { method: "HEAD" })
+      .then(function(response) {
+        if (!response.ok) {
+          throw new Error("HTTP " + response.status);
+        }
+        var contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.startsWith("image/")) {
+          throw new Error("Not an image");
+        }
+        // URL is valid, store it and submit the form
+        urlHidden.value = url;
+        window.guardedSubmit(document.getElementById("cover-url-form"), true);
+      })
+      .catch(function(error) {
+        statusDiv.textContent = "Invalid: " + error.message;
+        statusDiv.style.color = "#e53e3e";
+        statusDiv.style.display = "block";
+      });
+  };
+})();
+
+// ISBN Lookup Functions
+function initiateIsbnLookup() {
+  var isbn = extractIsbnFromFields();
+  if (!isbn) {
+    showLookupStatus("No ISBN found in metadata. Try Title/Author search instead.", "error");
+    return;
+  }
+  performLookup('isbn', { isbn: isbn });
+}
+
+function initiateTitleAuthorLookup() {
+  var title = document.getElementById("field-title").value.trim();
+  var author = document.getElementById("field-author").value.trim();
+  
+  if (!title) {
+    showLookupStatus("Please enter a title to search.", "error");
+    return;
+  }
+  
+  performLookup('title_author', { title: title, author: author || undefined });
+}
+
+function extractIsbnFromFields() {
+  // Try to extract ISBN from a field if it exists
+  // For now, return null as EPUB metadata doesn't expose ISBN in template
+  // The server will extract it from the actual EPUB
+  return null;
+}
+
+function performLookup(searchType, params) {
+  var statusDiv = document.getElementById("lookup-status");
+  statusDiv.textContent = "Searching...";
+  statusDiv.style.color = "#666";
+  statusDiv.style.display = "block";
+  
+  var requestData = { search_type: searchType };
+  Object.assign(requestData, params);
+  
+  fetch("{{ url_for('book_lookup', session_id=session_id) }}", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestData)
+  })
+  .then(function(response) { return response.json(); })
+  .then(function(data) {
+    if (data.status === "success") {
+      displayLookupResults(data.result, data.comparison);
+      statusDiv.style.display = "none";
+    } else if (data.status === "not_found") {
+      showLookupStatus("No metadata found. Try a different search.", "warning");
+    } else if (data.status === "offline") {
+      showLookupStatus("Cannot connect to Open Library. Check your internet connection.", "error");
+    } else {
+      showLookupStatus(data.message || "Lookup failed.", "error");
+    }
+  })
+  .catch(function(error) {
+    showLookupStatus("Error: " + error.message, "error");
+  });
+}
+
+function displayLookupResults(result, comparison) {
+  var resultsDiv = document.getElementById("lookup-results");
+  var comparisonDiv = document.getElementById("lookup-comparison");
+  var applyBtn = document.getElementById("apply-lookup-btn");
+  
+  // Build comparison display
+  var html = "";
+  
+  // Status indicator
+  var statusColor = comparison.status === "exact_match" ? "#2f855a" : 
+                   comparison.status === "partial_match" ? "#ed8936" : "#e53e3e";
+  var statusText = comparison.status === "exact_match" ? "✓ Match" :
+                  comparison.status === "partial_match" ? "⚠ Differs" : "✗ No Match";
+  var statusHtml = '<div style="text-align:center; font-weight:bold; font-size:0.9rem; color:' + statusColor + ';">' + statusText + '</div>';
+  
+  // Field labels for display
+  var fieldLabels = {
+    'title': 'Title',
+    'author': 'Author',
+    'publisher': 'Publisher',
+    'description': 'Description',
+    'publish_date': 'Published Date',
+    'series_name': 'Series'
+  };
+  
+  // Field comparison - show all fields
+  for (var field of ["title", "author", "publisher", "description", "publish_date", "series_name"]) {
+    var data = comparison.all_fields[field];
+    if (!data) continue;
+    
+    var fieldLabel = fieldLabels[field] || field;
+    html += '<div style="border:1px solid #e2e8f0; padding:0.8rem; border-radius:4px; margin-bottom:0.5rem;">';
+    html += '<div style="font-weight:bold; font-size:0.8rem; text-transform:uppercase; margin-bottom:0.5rem;">' + fieldLabel + '</div>';
+    
+    if (data.current) {
+      var preview = data.current.length > 80 ? data.current.substring(0, 80) + "..." : data.current;
+      html += '<div style="margin-bottom:0.3rem;"><span style="font-size:0.75rem; color:#666;">Current:</span> ' + escapeHtml(preview) + '</div>';
+    }
+    if (data.lookup) {
+      var preview = data.lookup.length > 80 ? data.lookup.substring(0, 80) + "..." : data.lookup;
+      html += '<div style="margin-bottom:0.3rem;"><span style="font-size:0.75rem; color:#666;">Lookup:</span> ' + escapeHtml(preview) + '</div>';
+    }
+    if (!data.current && !data.lookup) {
+      html += '<div style="color:#999; font-style:italic;">Not available</div>';
+    }
+    
+    // Checkbox for partial match
+    if (comparison.status === "partial_match" && (data.current || data.lookup)) {
+      html += '<label style="margin-top:0.5rem; display:flex; align-items:center; font-size:0.85rem;"><input type="checkbox" class="field-accept" data-field="' + field + '" style="margin-right:0.4rem;"> Accept lookup value</label>';
+    }
+    
+    html += '</div>';
+  }
+  
+  comparisonDiv.innerHTML = statusHtml + html;
+  
+  // Show/hide apply button based on status
+  if (comparison.status === "exact_match") {
+    applyBtn.style.display = "none";
+    showLookupStatus("Metadata verified — matches current book", "success");
+  } else {
+    applyBtn.style.display = "inline-block";
+  }
+  
+  resultsDiv.style.display = "block";
+}
+
+function dismissLookupResults() {
+  document.getElementById("lookup-results").style.display = "none";
+  document.getElementById("lookup-status").style.display = "none";
+}
+
+function applyLookupResults() {
+  var checkboxes = document.querySelectorAll(".field-accept:checked");
+  if (checkboxes.length === 0) {
+    showLookupStatus("Please select fields to apply.", "warning");
+    return;
+  }
+  
+  checkboxes.forEach(function(checkbox) {
+    var field = checkbox.getAttribute("data-field");
+    var comparisonDiv = document.getElementById("lookup-comparison");
+    
+    // Map comparison fields to form field IDs
+    var fieldMap = {
+      'title': 'field-title',
+      'author': 'field-author',
+      'publisher': 'field-publisher',
+      'description': 'field-description',
+      'publish_date': 'field-publish_date',
+      'series_name': 'field-series-name'
+    };
+    
+    var fieldId = fieldMap[field] || 'field-' + field;
+    var fieldEl = document.getElementById(fieldId);
+    
+    // Find the lookup value from the comparison display
+    var fieldDiv = comparisonDiv.querySelector('[data-field="' + field + '"]')?.parentElement;
+    if (!fieldDiv) return;
+    
+    var lookupText = fieldDiv.textContent;
+    var match = lookupText.match(/Lookup:\s*(.+?)(?=Accept|Not available|$)/);
+    var lookupValue = match ? match[1].trim() : null;
+    
+    if (lookupValue && fieldEl) {
+      fieldEl.value = lookupValue;
+      fieldEl.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+  
+  dismissLookupResults();
+  showLookupStatus("Fields updated and saved.", "success");
+}
+
+function showLookupStatus(message, type) {
+  var statusDiv = document.getElementById("lookup-status");
+  statusDiv.textContent = message;
+  statusDiv.style.color = type === "error" ? "#e53e3e" : 
+                         type === "warning" ? "#ed8936" :
+                         type === "success" ? "#2f855a" : "#666";
+  statusDiv.style.display = "block";
+}
+
+function escapeHtml(text) {
+  var div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+</script>
+{% endblock %}

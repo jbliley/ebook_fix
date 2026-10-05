@@ -1,6 +1,7 @@
 # GUI Redesign -- Planning Doc
 
-**Status:** Phase 1 built (2026-10-03); Phases 2 and 3 not started.
+**Status:** Phases 1 and 2 built (2026-10-03 and 2026-10-05); Phase 3 not
+started.
 Jacob has approved the direction below. This doc is the source of truth for what the redesign
 is, why it is shaped this way, and what order it gets built in. It
 replaces the Repair-tab-as-everything design from Phase 4 of
@@ -315,24 +316,109 @@ switch and a Fix keeps the edit; Replace original produces the backup
 and the renamed file exactly as today; Fix is disabled when there is
 nothing to do.
 
+**Built 2026-10-05.** What shipped, and where it differs from the sketch:
+
+- **Fix This Book** sits in the top bar on every tab, with the **Replace
+  original (keeps a backup)** checkbox beside it (remembered in the
+  browser, off the first time). It runs the same single pass the old Apply
+  Everything did: staged metadata, a staged cover, staged review choices
+  and the ticked repairs, into one output file. With the checkbox ticked
+  it then replaces the original in the same click (the existing backup
+  and rename logic, now shared by the checkbox and the old button on the
+  result page). The button turns itself on or off by asking the server in
+  the background (`/book/<id>/fix-state`) whether there is anything to do:
+  a ticked repair that has something to change on this book, or a waiting
+  metadata edit, cover, or review choice. Hovering shows what it will
+  apply; with nothing to do it is disabled and says "Nothing to fix". After
+  clicking it says "Fixing... this can take a minute".
+- **Repair choices live on the Overview.** Every repair in the category
+  boxes and in the Advanced list has a checkbox. A repair shown in both
+  places is one setting: ticking either ticks both. The choice is saved as
+  it is made (`staged_modules.json`, via `/book/<id>/modules`) and is what
+  Fix uses from any tab. Until someone changes a checkbox the defaults are
+  the old Repair tab's pre-checks (on in the config file, something to do
+  on this book) minus anything the fixed-layout guard would skip. The
+  totals line follows what is ticked.
+- **The Repair tab is gone and the Details tab already exists.** The plan
+  had the Details tab arriving in Phase 3, but retiring the Repair tab
+  left the metadata form and cover with nowhere to live, so the old tab
+  became the **Details** tab now: the metadata form, the ISBN lookup, the
+  Suggested buttons and the cover handling, with the repair list and the
+  Apply button removed. The tab bar is Overview, Details, Review, Before /
+  After. `/book/<id>/repair` redirects to Details.
+- **No save buttons.** Metadata fields save themselves a moment after the
+  last keystroke (changes made in quick succession are one save, saves
+  never overlap, and anything still waiting is saved before Fix, before a
+  cover button, and when leaving the page). The Save Metadata button and
+  the unsaved-changes warning are gone. Picking a cover file saves and
+  stages it at once (no Upload button). The Review tab saves every tick as
+  it is made, shows how many files will split, and no longer has a Stage
+  Selected button.
+- **Result page.** After Fix, a short page shows what was saved and what
+  changed, the Replace original button if the original was not replaced,
+  and links to Before / After and back to the Overview.
+
+Two deliberate behavior changes, both so that what is on screen is what
+gets applied:
+
+1. Opening the Review tab saves its starting state once, so the
+   pre-ticked safe chapter boundaries it shows are really applied by Fix.
+   Before, they showed as ticked but did nothing unless someone clicked
+   Stage Selected. A book whose Review tab is never opened still gets no
+   review-based changes, as before.
+2. After a plain Fix the staged metadata, cover, and review choices are
+   kept, so a second Fix does not silently drop an edit. They are cleared
+   only after the original has been replaced (the file on disk then
+   contains them, and the staged review ids refer to a book that no longer
+   exists). The old Apply cleared metadata and review choices every time.
+
+Verified: the old pushed Repair-tab path and the new Fix path produce the
+same output files for the default choices, for a metadata edit, and for a
+Review selection (compared file by file, ignoring the `dcterms:modified`
+timestamp); the only difference on Sandman Slim is the scene-opener
+markers added since the old copy was taken, and removing them gives back
+the old file exactly. Also checked through the app: a subset of repairs
+applies only that subset, nothing ticked and nothing staged disables the
+button, a metadata edit survives tab changes and is applied (and again on
+a second Fix), Replace original makes the backup, renames the repaired
+file into place and refuses to overwrite an existing backup, a repaired
+book reopens as "Nothing to fix", Review reports the right split counts
+from a background save, and a cover upload and clear work. The pages'
+scripts were run in a simulated browser with 28 checks (checkbox syncing,
+the pause before saving, quick edits collapsing into one save, flushing
+before Fix and before a cover change, the leave-the-page beacon, Review
+autosave and Select All). All 25 books (21 examples, Sandman Slim, Rules
+of Prey and two already-repaired ones) render every tab.
+
+Open question for Jacob: the Overview's "N to review" count leaves out
+chapter boundaries that Review pre-ticks as safe, which reads as if they
+are automatic, but they are only applied once the Review tab has been
+opened (see change 1). Options: apply the safe pre-ticked boundaries
+whenever Fix runs, or count them in "to review". Not changed yet.
+
 ### Phase 3 -- Details tab and polish
 
-Requirement carried over from Jacob's 2026-10-03 feedback: every field on
-the Details tab must show what the repairs are going to do to it. Where
-Title Cleanup, Identifier Standardize, Author Initials or Metadata Sync
-will change a field, the field carries a short note ("Fix This Book will
-change this to: Sandman Slim") with a one-click "Use it now" button, so no
-one retypes what will be done anyway. The Suggested buttons added to the
-Repair tab's form are the first version of this, and the Details tab
-generalizes them to every metadata field a repair touches.
+What remains after Phase 2 (the Details tab itself already exists, see
+above):
 
-Move the metadata form and the cover handling into the Details tab, with
-the "Change cover" fold-out. Also in this phase: swap Flask's built-in
-server for Waitress when it is installed (falling back to the current
-server when it is not) so the "development server" warning goes away, and
-add a small tab icon so the browser stops asking for `favicon.ico`. Add the Review count badge and hide the tab
-when empty. Remove the old Analysis template and any dead code. Update
-`gui_plan.md` with a pointer to this doc as the current design.
+- Requirement carried over from Jacob's 2026-10-03 feedback: every field
+  on the Details tab must show what the repairs are going to do to it.
+  Where Title Cleanup, Identifier Standardize, Author Initials or Metadata
+  Sync will change a field, the field carries a short note ("Fix This Book
+  will change this to: Sandman Slim") with a one-click "Use it now"
+  button, so no one retypes what will be done anyway. The Suggested
+  buttons are the first version of this; Phase 3 generalizes them to every
+  metadata field a repair touches.
+- Put the cover beside the fields, with "Change cover" as a fold-out.
+- Swap Flask's built-in server for Waitress when it is installed (falling
+  back to the current server when it is not) so the "development server"
+  warning goes away, and add a small tab icon so the browser stops asking
+  for `favicon.ico`.
+- Add the Review count badge and hide the tab when empty.
+- Remove dead code: the unused `metadata.html` template and anything else
+  left over. Update `gui_plan.md` with a pointer to this doc as the
+  current design.
+- Settle the open question above about pre-ticked chapter boundaries.
 
 Acceptance: a full run on a Calibre-managed test layout and on a
 standalone book, covering edit, cover replace, review decision, Fix, and
