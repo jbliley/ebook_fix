@@ -1268,7 +1268,7 @@ def save_review(session_id):
 @app.route("/book/<session_id>/repair")
 def book_repair(session_id):
     """The old Repair tab is gone (the Overview tab now holds the repair
-    choices and the Fix This Book button, the Details tab holds the
+    choices and the Fix This Book button, the Metadata tab holds the
     metadata and cover). Kept only so an old bookmark lands somewhere
     useful."""
     return redirect(url_for("book_details", session_id=session_id))

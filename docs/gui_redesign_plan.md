@@ -56,7 +56,7 @@ Four tabs, each with one job:
 
 1. **Overview** (replaces Analysis and the repair half of Repair). The
    summary, the categorized boxes, and the one big button.
-2. **Details.** Title, author, series, language, the other metadata
+2. **Metadata.** Title, author, series, language, the other metadata
    fields, the lookup tools, and the cover (current cover on the left,
    fields on the right, "Change cover" as a fold-out underneath).
 3. **Review.** Only the decisions that need a person: chapter-start
@@ -165,7 +165,7 @@ The choice is remembered in the browser between sessions. It starts
 unchecked, so the first run never touches the original; the backup is
 always made when it is used.
 
-## Details tab
+## Metadata tab
 
 The metadata form from today's Repair tab, with the cover shown beside
 it. Two cover things are kept apart on purpose:
@@ -275,7 +275,7 @@ and the first load took about five seconds. Two changes came out of that:
   The `/book/<id>` address redirects to the Overview so old links still
   work, and `templates/book.html` is no longer used.
 - **Suggested buttons on the Metadata form** (in the Repair tab until the
-  Details tab exists). Jacob noticed the Overview announced "Kadrey,
+  Metadata tab exists). Jacob noticed the Overview announced "Kadrey,
   Richard - 01 Sandman Slim - Sandman Slim" becoming a clean title, author
   and series, but the Metadata form said nothing, so someone could retype
   what the repair was about to do anyway. When a book has a filename-style
@@ -293,7 +293,7 @@ and the first load took about five seconds. Two changes came out of that:
   about); a series is only suggested while the series box is empty.
 
 Not done in this phase, on purpose: checkboxes in the boxes, the Fix
-This Book button, auto-saving, and the Details tab.
+This Book button, auto-saving, and the Metadata tab.
 
 Checked on 23 books (the 21 in `examples/` plus Sandman Slim and Rules of
 Prey): every Overview renders, the red cards
@@ -339,13 +339,15 @@ nothing to do.
   the old Repair tab's pre-checks (on in the config file, something to do
   on this book) minus anything the fixed-layout guard would skip. The
   totals line follows what is ticked.
-- **The Repair tab is gone and the Details tab already exists.** The plan
-  had the Details tab arriving in Phase 3, but retiring the Repair tab
+- **The Repair tab is gone and the Metadata tab already exists.** The plan
+  had the Metadata tab arriving in Phase 3, but retiring the Repair tab
   left the metadata form and cover with nowhere to live, so the old tab
-  became the **Details** tab now: the metadata form, the ISBN lookup, the
+  became the **Metadata** tab now: the metadata form, the ISBN lookup, the
   Suggested buttons and the cover handling, with the repair list and the
-  Apply button removed. The tab bar is Overview, Details, Review, Before /
-  After. `/book/<id>/repair` redirects to Details.
+  Apply button removed. The tab bar is Overview, Metadata, Review, Before /
+  After. (It was first named Details, from the plan; renamed Metadata
+  the same week because metadata and the cover are all it holds, and the
+  cover counts as metadata, as it does in Calibre.) `/book/<id>/repair` redirects to Details.
 - **No save buttons.** Metadata fields save themselves a moment after the
   last keystroke (changes made in quick succession are one save, saves
   never overlap, and anything still waiting is saved before Fix, before a
@@ -396,13 +398,13 @@ are automatic, but they are only applied once the Review tab has been
 opened (see change 1). Options: apply the safe pre-ticked boundaries
 whenever Fix runs, or count them in "to review". Not changed yet.
 
-### Phase 3 -- Details tab and polish
+### Phase 3 -- Metadata tab and polish
 
-What remains after Phase 2 (the Details tab itself already exists, see
+What remains after Phase 2 (the Metadata tab itself already exists, see
 above):
 
 - Requirement carried over from Jacob's 2026-10-03 feedback: every field
-  on the Details tab must show what the repairs are going to do to it.
+  on the Metadata tab must show what the repairs are going to do to it.
   Where Title Cleanup, Identifier Standardize, Author Initials or Metadata
   Sync will change a field, the field carries a short note ("Fix This Book
   will change this to: Sandman Slim") with a one-click "Use it now"
