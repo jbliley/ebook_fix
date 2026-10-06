@@ -3178,3 +3178,63 @@ from datelines, headings and chapter starts. And turning these into
 chapters was deliberately not done: it would need a title for each, and
 sections this short do not read as chapters; if Jacob later wants an
 opt-in "treat these as chapters" setting, it would be a separate decision.
+
+## Fixed: a chapter title written as a paragraph was indented by line break removal (2026-10-06)
+
+Jacob compared Before and After for "Pilgrimage to Hell Chapters" and saw
+the Prologue heading come out indented after repair (flush left before),
+and also noticed it was not split from the copyright page.
+
+Cause of the indent. In this book the Prologue and Epilogue headings are
+paragraphs, not heading tags: `<p class="calibre1"><strong><br/>
+<strong>Prologue</strong></strong></p>`. The book's stylesheet gives that
+paragraph class `text-indent: 1.5em`. A paragraph's indent applies only to
+its first line. With the `<br/>` first, the first line is the empty one and
+"Prologue" sits on the second line, flush left. Stray Line Break Removal
+deletes a `<br/>` at the very start of a paragraph, which moved "Prologue"
+onto the first line, where it picked up the indent (and lost the blank line
+above it). The repair did what it is designed to do; the effect on a title
+is the problem.
+
+There was also a gap in the chapter-header rule added on 2026-10-04: it
+only recognized chapters from the winning numbered sequence ("Chapter One"
+to "Chapter Seventeen"), so a Prologue and Epilogue, which the analysis
+confirms as unnumbered chapters, were not seen as headers at all.
+
+The fix:
+
+- `headings.py`: `chapter_marker_elements` now includes every confirmed
+  chapter start (the confirmed boundaries, unnumbered chapters such as
+  Prologue and Epilogue, and part markers), not just the numbered
+  sequence. This also means the blank space under a Prologue or Epilogue
+  is protected the way it is under any other chapter header.
+- `linebreaks.py`: a leading `<br/>` at the start of a chapter header that
+  is written as an ordinary paragraph is kept. A leading `<br/>` at the
+  start of a real `<h1>` to `<h6>` heading is still removed, as before:
+  that gap above an `<h2>` is the extra space this repair removes, and
+  headings are not indented like body paragraphs (the 17 numbered
+  chapter headings in this book, which are `<h2>` tags, are unchanged).
+
+Verified on the book: the Prologue and Epilogue keep their line break in
+the repaired file (the old code removed both), the repaired file passes
+strict XML and manifest checks, word count is identical, and a second pass
+makes zero changes. Only five of the 24 books tested had a different set
+of recognized chapter headers with the new code (Pilgrimage to Hell,
+Images-PageNumbers, RunTogetherText, War and Peace and the First Mountain
+Man book); repairing each with the old and new code, only Pilgrimage to
+Hell differs, in two files, and only by those two kept line breaks. Rules
+of Prey and the other books are identical.
+
+Not changed, and recorded as an open item: the Prologue is not split from
+the copyright page. In this book the file `..._split_002.html` holds the
+copyright page followed by the Prologue (the original conversion split only
+at the numbered chapters), and the table of contents has no Prologue or
+Epilogue entry. The Review tab offers a file for splitting only when it
+holds two or more chapter starts, because a single chapter start is
+normally the beginning of its own file. Here the one chapter start comes
+after real front matter, so splitting there would give a front-matter file
+and a Prologue file, and Phase 3c would add the missing contents entry.
+Options: offer such a lone chapter start in the Review tab (when
+substantial text precedes it), apply it automatically, or leave it. The
+Epilogue is already offered, since its file holds Chapter Seventeen as well.
+No decision yet.

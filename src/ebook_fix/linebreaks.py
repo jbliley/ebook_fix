@@ -53,7 +53,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ebook_fix.headings import is_chapter_header
+from ebook_fix.headings import HEADING_TAGS, is_chapter_header
 
 # The only containers a stray break is looked for in: paragraphs and
 # headings. Breaks sitting directly in <body>, a <div>, a table cell or a
@@ -162,13 +162,27 @@ def _is_scene_divider(el) -> bool:
 
 
 def _is_spacing_after_header(block, kind: str, markers) -> bool:
-    """True when a <br/> is part of the blank space *under* a chapter
-    header and should be kept: a trailing break inside the header itself
-    ("Chapter One<br/><br/>"), or a leading break at the top of the
-    paragraph right after the header. A leading break at the start of
-    the header (a gap above the title) is not covered."""
+    """True when a <br/> is part of how a chapter header looks and should
+    be kept:
+
+    - a trailing break inside the header itself ("Chapter One<br/><br/>"),
+      which is blank space under the header;
+    - a leading break at the top of the paragraph right after a header;
+    - a leading break at the start of a chapter header that is written as
+      an ordinary paragraph (not an <h1> to <h6> tag). A paragraph's
+      indent applies only to its first line. With a break first, the
+      first line is the empty one and the title sits on the second line,
+      flush left; removing the break moves the title onto the first line,
+      and it picks up the paragraph indent (found in Pilgrimage to Hell,
+      whose Prologue heading is <p><strong><br/>Prologue</strong></p>).
+
+    A leading break at the start of a real heading tag is still flagged:
+    a gap above an <h2> title is the extra space this repair removes, and
+    headings are not indented like body paragraphs."""
     if kind == "trailing":
         return is_chapter_header(block, markers)
+    if is_chapter_header(block, markers) and _local(block) not in HEADING_TAGS:
+        return True
     return is_chapter_header(_neighbor(block, "previous"), markers)
 
 

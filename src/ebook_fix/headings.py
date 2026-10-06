@@ -14,7 +14,9 @@ An element counts as a chapter header when it is:
 
 - a heading tag, <h1> to <h6>;
 - an element Chapter Markup has already marked (data-ebookfix-chapter);
-- an element the chapter analysis confirmed as a chapter marker. This
+- an element the chapter analysis confirmed as a chapter marker (a
+  numbered chapter, an unnumbered one such as a Prologue or Epilogue, or a
+  part marker). This
   matters because Chapter Markup runs after Paragraph Repair and Stray
   Line Break Removal, so a chapter title written as a styled <p> is not
   yet a heading when those two look at the space below it. The analysis
@@ -34,16 +36,25 @@ def _local(el) -> str:
 
 
 def chapter_marker_elements(chapter_summary) -> set:
-    """The live elements of the chapters the chapter analysis confirmed
-    (its winning sequence). Empty when it found none. A set of the
-    elements themselves, never id() values."""
+    """The live elements of every chapter start the chapter analysis
+    confirmed: the winning numbered sequence, plus unnumbered chapters
+    such as a Prologue or Epilogue, plus part markers. (Looking only at
+    the numbered sequence missed a Prologue, which is a chapter start the
+    analysis confirms but that is not one of "Chapter One" to "Chapter
+    Seventeen".) Empty when it found none. A set of the elements
+    themselves, never id() values."""
     found: set = set()
+    groups = []
     sequence = getattr(chapter_summary, "best_sequence", None)
-    if sequence is None:
-        return found
-    for candidate in sequence.candidates:
-        if getattr(candidate, "element", None) is not None:
-            found.add(candidate.element)
+    if sequence is not None:
+        groups.append(sequence.candidates)
+    for name in ("confirmed_boundaries", "unnumbered_chapters", "parts"):
+        groups.append(getattr(chapter_summary, name, None) or [])
+    for candidates in groups:
+        for candidate in candidates:
+            element = getattr(candidate, "element", None)
+            if element is not None:
+                found.add(element)
     return found
 
 
