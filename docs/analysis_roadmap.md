@@ -3238,3 +3238,52 @@ Options: offer such a lone chapter start in the Review tab (when
 substantial text precedes it), apply it automatically, or leave it. The
 Epilogue is already offered, since its file holds Chapter Seventeen as well.
 No decision yet.
+
+## Done: Prologue split from the copyright page, and split chapters missing from nav.xhtml (2026-10-06)
+
+Jacob expected a Prologue sharing a file with the copyright page to be
+handled by chapter detection. Detection does find it: `map-structure` lists
+the Prologue as an unnumbered chapter at "sequence only" confidence (the
+table of contents has no Prologue entry). The gap was in the splitting
+gate. Review offered a file only when it held two or more chapter starts,
+on the reasoning that a single chapter start is just the top of its own
+file. The split command said as much: "No file in this book has 2+ chapter
+boundaries to split." The splitting itself handles a lone boundary fine:
+forced at the Prologue, it gives a copyright file (213 words) and a
+Prologue file, and adds the missing contents entry.
+
+Change (`gui/app.py`, `review.html`): the book's FIRST chapter start is now
+offered on its own when it is alone in its file and at least 15 words of
+text come before it (front matter). It needs only that one boundary
+accepted, carries a note explaining the split, and is never pre-checked,
+even if corroborated, so it always takes an active choice. It counts in the
+Overview's "to review". A first attempt offered any lone boundary that
+followed text; that put 17 items in OmnibusExample and 11 in
+ChaptersMisaligned, because in those books the text before the boundary is
+the tail of the previous chapter (a file cut by size), a different case. The
+rule was narrowed to the first chapter, which leaves exactly one lone group
+across all 24 books tested: this Prologue.
+
+Found while testing, and fixed (`toc_refresh.py`, `engine.py`): splitting
+rewrote the NCX but not the in-memory contents list that EPUB 3 Upgrade
+builds `nav.xhtml` from, so split books ended with a stale nav. With every
+Review boundary accepted and the pushed code, nine of fourteen books had a
+wrong nav: BrokenSentences 1 entry against 78 in the NCX, Watermarks 1
+against 25, RunTogetherText 1 against 6, CrossReferences 1 against 5,
+ChaptersMisaligned 1 against 13, Omnibus 70 against 79, Sidewinders 33
+against 37, PartiallySplit 3 against 5, and ChaptersNotAligned-New had all
+27 entries but pointing at the pre-split file (`main.xhtml#...`) instead of
+the files the chapters moved to. A split now refreshes the in-memory
+contents from the NCX or nav, so nav and NCX agree and link to the right
+files.
+
+Verified: for the 14 books with Review candidates, old and new code give
+identical output with only the pre-ticked boundaries, apart from the two
+Pilgrimage files changed by the earlier line-break fix; with every boundary
+accepted, the only other difference is `nav.xhtml` in those nine books (NCX
+counts and every chapter file identical). Pilgrimage to Hell with the three
+boundaries accepted: copyright page and Prologue in separate files,
+Prologue and Epilogue in the contents (19 entries, no link to a missing
+file), valid XML, a second pass makes zero changes. A 2-word count
+difference against the original is the whitespace repair merging "…" with
+a following quote mark, identical in the old code.

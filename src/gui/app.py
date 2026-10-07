@@ -341,13 +341,47 @@ def _read_staged(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+# A file whose only chapter start comes after at least this many words of
+# other text (a copyright page, a title page, an epigraph) is worth
+# offering for a split: cutting at that chapter separates the front matter
+# from the chapter. Below it, the lone chapter start is simply the top of
+# its own file and there is nothing to cut.
+LONE_BOUNDARY_MIN_PREAMBLE_WORDS = 15
+
+
+def _words_before(element) -> int:
+    """Words of ordinary text that come before `element` in its own
+    document (the contents of <style>, <script> and <title> do not count)."""
+    parts = element.xpath(
+        "preceding::text()[not(ancestor::*[local-name()='style' or local-name()='script' "
+        "or local-name()='title' or local-name()='head'])]"
+    )
+    return len(" ".join(parts).split())
+
+
 def _split_candidate_groups(book):
     """Every chapter and part boundary worth showing a person, grouped by
-    the file it's in. A file needs 2+ candidates to be split at all
-    (a single boundary has nothing to cut it against) -- same gate
-    Engine.split_chapters() already uses -- so a file with just one is
-    left out of the list entirely; there's genuinely nothing to review
-    there yet.
+    the file it's in. A file normally needs 2+ candidates to be split at
+    all (a single boundary is just the top of its own file, with nothing
+    to cut it against) -- the same gate Engine.split_chapters() uses -- so
+    a file with just one is left out of the list.
+
+    The exception is the book's FIRST chapter start when it is alone in
+    its file and comes after real text (at least
+    LONE_BOUNDARY_MIN_PREAMBLE_WORDS words): a copyright page followed by
+    a Prologue, say. That text is front matter, so the single boundary does
+    have something to cut against, and splitting gives the front matter and
+    the chapter a file each (found in Pilgrimage to Hell). Such a group is
+    marked lone=True, needs only that one boundary accepted
+    (min_accept=1), and is never pre-checked, even if corroborated: it
+    always takes an active choice.
+
+    A lone boundary later in the book is deliberately NOT offered, however
+    much text precedes it. There the text before it is the tail of the
+    previous chapter (a file cut by size), a different situation that
+    split_fragments handles, and offering it would put dozens of items in
+    front of a person in books that were never asked about (17 in
+    OmnibusExample alone).
 
     Each item carries the live StructureNode (under "node") alongside
     the template-facing fields, so save_review() below can rebuild the
@@ -363,9 +397,15 @@ def _split_candidate_groups(book):
             continue
         by_href.setdefault(node.start_href, []).append(node)
 
+    first_href = next(iter(by_href), None)   # the book's first chapter start, in reading order
+
     groups = []
     for href, nodes in by_href.items():
-        if len(nodes) < 2:
+        lone = len(nodes) == 1
+        if lone and (
+            href != first_href
+            or _words_before(nodes[0].evidence.candidate.element) < LONE_BOUNDARY_MIN_PREAMBLE_WORDS
+        ):
             continue
         candidates = []
         for i, node in enumerate(nodes):
@@ -380,13 +420,13 @@ def _split_candidate_groups(book):
                 # it's the only one pre-checked. SEQUENCE_ONLY and
                 # NEEDS_REVIEW still show up, but require an active
                 # choice.
-                "auto_checked": confidence == SplitConfidence.CORROBORATED,
+                "auto_checked": confidence == SplitConfidence.CORROBORATED and not lone,
                 "notes": node.evidence.notes,
                 "preview": element_text_preview(node.evidence.candidate.element),
                 "is_part": node.kind == NodeKind.PART,
                 "node": node,
             })
-        groups.append({"href": href, "candidates": candidates})
+        groups.append({"href": href, "candidates": candidates, "lone": lone, "min_accept": 1 if lone else 2})
     return groups
 
 
@@ -1074,7 +1114,10 @@ def book_review(session_id):
     frontmatter_items = _frontmatter_review_groups(book)
 
     _review_index_path(session_dir).write_text(
-        json.dumps({group["href"]: [item["id"] for item in group["candidates"]] for group in groups}),
+        json.dumps({
+            group["href"]: {"ids": [item["id"] for item in group["candidates"]], "min": group.get("min_accept", 2)}
+            for group in groups
+        }),
         encoding="utf-8",
     )
 
@@ -1159,11 +1202,14 @@ def _save_review_in_background(session_dir: Path):
     index = _read_staged(_review_index_path(session_dir)) or {}
     would_split = 0
     skipped = 0
-    for _href, ids in index.items():
+    for _href, entry in index.items():
+        # (An older index held just the list of ids; two were needed.)
+        ids = entry["ids"] if isinstance(entry, dict) else entry
+        minimum = entry.get("min", 2) if isinstance(entry, dict) else 2
         picked = [i for i in ids if i in accepted_ids]
         if not picked:
             continue
-        if len(picked) < 2:
+        if len(picked) < minimum:
             skipped += 1
         else:
             would_split += 1
@@ -1212,7 +1258,7 @@ def save_review(session_id):
         accepted_nodes = [item for item in group["candidates"] if item["id"] in accepted_ids]
         if not accepted_nodes:
             continue
-        if len(accepted_nodes) < 2:
+        if len(accepted_nodes) < group.get("min_accept", 2):
             skipped_hrefs.append(group["href"])
         else:
             would_split += 1
@@ -1545,7 +1591,7 @@ def fix_book(session_id):
             markers_by_href = {}
             for group in groups:
                 accepted_nodes = [item["node"] for item in group["candidates"] if item["id"] in accepted_ids]
-                if len(accepted_nodes) < 2:
+                if len(accepted_nodes) < group.get("min_accept", 2):
                     continue
                 markers_by_href[group["href"]] = [
                     SplitMarker(element=node.evidence.candidate.element, title=node.title, number=marker_number(node.evidence.candidate))

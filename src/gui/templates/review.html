@@ -21,9 +21,11 @@
   {% else %}
   <p class="details-toggle">
     Grouped by the file each one is in. A file needs at least two accepted boundaries to
-    actually split it &mdash; one alone has nothing to cut against. Corroborated boundaries are
+    actually split it &mdash; one alone is normally just the top of its own file, with nothing
+    to cut against. The exception is a lone chapter that comes after other text in its file
+    (a copyright page, say), which is offered on its own. Corroborated boundaries are
     pre-checked since the project's own safety bar already treats those as safe; anything
-    weaker needs your own look first.
+    weaker, and any lone chapter, needs your own look first.
   </p>
   <div style="margin-bottom:0.5rem;">
     <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllChecked('accept', true)">Select All</button>
@@ -32,6 +34,13 @@
   {% for group in groups %}
   <div class="review-group">
     <h3>{{ group.href }}</h3>
+    {% if group.lone %}
+    <div class="review-notes" style="margin-bottom:0.5rem;">
+      This file has text (such as a copyright page) before its first chapter begins. Splitting at the
+      chapter below gives that front matter its own file and the chapter its own file, and adds the
+      chapter to the table of contents if it is missing.
+    </div>
+    {% endif %}
     {% for item in group.candidates %}
     <div class="review-item">
       <input type="checkbox" name="accept" value="{{ item.id }}" id="item-{{ loop.index0 }}-{{ group.href }}" {% if item.auto_checked %}checked{% endif %}>

@@ -39,6 +39,7 @@ from ebook_fix.modules.chapter_markup import ChapterMarkupRepair
 from ebook_fix.modules.chapter_title_cleanup import ChapterTitleCleanupRepair
 from ebook_fix.modules.dead_link_repair import DeadLinkRepair
 from ebook_fix.modules.toc_cleanup import TocCleanupRepair
+from ebook_fix.toc_refresh import refresh_book_toc
 from ebook_fix.modules.toc_generation import TocGenerationRepair
 from ebook_fix.modules.images import ImageRepair
 from ebook_fix.modules.cover_repair import CoverRepair
@@ -1613,6 +1614,12 @@ class Engine:
                 self.log(f"Rejoined the continuation of a chapter: {fragment_href} merged into {target_href}")
             for fragment_href, reason in merge_result.skipped:
                 self.log(f"Left {fragment_href} as its own file: {reason}")
+
+        # Bring book.toc up to date with the NCX/nav edits made above, so
+        # anything built from it later (the EPUB 3 nav document, for one)
+        # includes the chapters this split just gave entries to.
+        if split_count:
+            refresh_book_toc(book)
 
         return split_count, [crossref_report, ncx_report, entry_report], new_hrefs_by_origin
 
