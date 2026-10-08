@@ -23,6 +23,7 @@ ellipsis_repair = true
 apostrophe_repair = true
 scene_break_repair = true
 scene_opener_repair = true
+paragraph_spacing_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
@@ -271,6 +272,18 @@ target_style = "unicode"
 
 # ---------------------------------------------------------------------
 # Apostrophe Repair
+# ---------------------------------------------------------------------
+# Paragraph Spacing
+# ---------------------------------------------------------------------
+[paragraph_spacing_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# When a book's main body-text style has BOTH an indent and a gap between
+# paragraphs (an indent and a blank gap both say "new paragraph"), the gap
+# is removed and the indent kept. Books that are indented with no gap, or
+# spaced with no indent, are left alone, and the space under chapter
+# headers is kept exactly as it was.
+
 # ---------------------------------------------------------------------
 # Scene Opener Markers
 # ---------------------------------------------------------------------

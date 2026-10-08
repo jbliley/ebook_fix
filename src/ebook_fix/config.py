@@ -172,6 +172,11 @@ class SceneOpenerConfig:
 
 
 @dataclass(slots=True)
+class ParagraphSpacingConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class RunningTitleRepairConfig:
     enabled: bool = True
 
@@ -318,6 +323,7 @@ class Config:
     apostrophe_repair: ApostropheRepairConfig = field(default_factory=ApostropheRepairConfig)
     scene_break_repair: SceneBreakRepairConfig = field(default_factory=SceneBreakRepairConfig)
     scene_opener_repair: SceneOpenerConfig = field(default_factory=SceneOpenerConfig)
+    paragraph_spacing_repair: ParagraphSpacingConfig = field(default_factory=ParagraphSpacingConfig)
     cover_repair: CoverRepairConfig = field(default_factory=CoverRepairConfig)
     running_title_repair: RunningTitleRepairConfig = field(default_factory=RunningTitleRepairConfig)
     metadata_repair: MetadataRepairConfig = field(default_factory=MetadataRepairConfig)
@@ -377,6 +383,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.apostrophe_repair, modules, "apostrophe_repair")
     _apply_module_toggle(config.scene_break_repair, modules, "scene_break_repair")
     _apply_module_toggle(config.scene_opener_repair, modules, "scene_opener_repair")
+    _apply_module_toggle(config.paragraph_spacing_repair, modules, "paragraph_spacing_repair")
     _apply_module_toggle(config.cover_repair, modules, "cover_repair")
     _apply_module_toggle(config.running_title_repair, modules, "running_title_repair")
     _apply_module_toggle(config.metadata_repair, modules, "metadata_repair")
@@ -401,6 +408,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.apostrophe_repair, "apostrophe_repair", data.get("apostrophe_repair", {}))
     _apply_section(config.scene_break_repair, "scene_break_repair", data.get("scene_break_repair", {}))
     _apply_section(config.scene_opener_repair, "scene_opener_repair", data.get("scene_opener_repair", {}))
+    _apply_section(config.paragraph_spacing_repair, "paragraph_spacing_repair", data.get("paragraph_spacing_repair", {}))
     _apply_section(config.cover_repair, "cover_repair", data.get("cover_repair", {}))
     _apply_section(config.running_title_repair, "running_title_repair", data.get("running_title_repair", {}))
     _apply_section(config.metadata_repair, "metadata_repair", data.get("metadata_repair", {}))
@@ -493,6 +501,7 @@ ellipsis_repair = true
 apostrophe_repair = true
 scene_break_repair = true
 scene_opener_repair = true
+paragraph_spacing_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
@@ -744,6 +753,18 @@ target_style = "unicode"
 
 # ---------------------------------------------------------------------
 # Apostrophe Repair
+# ---------------------------------------------------------------------
+# Paragraph Spacing
+# ---------------------------------------------------------------------
+[paragraph_spacing_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# When a book's main body-text style has BOTH an indent and a gap between
+# paragraphs (an indent and a blank gap both say "new paragraph"), the gap
+# is removed and the indent kept. Books that are indented with no gap, or
+# spaced with no indent, are left alone, and the space under chapter
+# headers is kept exactly as it was.
+
 # ---------------------------------------------------------------------
 # Scene Opener Markers
 # ---------------------------------------------------------------------

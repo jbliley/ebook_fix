@@ -96,6 +96,7 @@ from ebook_fix.modules.gutenberg_repair import GutenbergRepair
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
+from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair
 from ebook_fix.modules.color_strip import ColorStripRepair
 from ebook_fix.modules.font_strip import FontStripRepair
@@ -144,6 +145,7 @@ _REPAIR_MODULES = [
     ("toc_generation", "TOC Generation"),
     ("scene_break_repair", "Scene Break Normalizer"),
     ("scene_opener_repair", "Scene Opener Markers"),
+    ("paragraph_spacing_repair", "Paragraph Spacing"),
     ("image_repair", "Image Repair"),
     ("cover_repair", "Cover Repair"),
     ("color_repair", "Color Strip"),
@@ -178,6 +180,7 @@ _REPAIR_MODULE_CLASSES = {
     "toc_generation": TocGenerationRepair,
     "scene_break_repair": SceneBreakRepair,
     "scene_opener_repair": SceneOpenerRepair,
+    "paragraph_spacing_repair": ParagraphSpacingRepair,
     "image_repair": ImageRepair,
     "cover_repair": CoverRepair,
     "color_repair": ColorStripRepair,

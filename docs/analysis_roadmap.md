@@ -3287,3 +3287,52 @@ Prologue and Epilogue in the contents (19 entries, no link to a missing
 file), valid XML, a second pass makes zero changes. A 2-word count
 difference against the original is the whitespace repair merging "…" with
 a following quote mark, identical in the old code.
+
+## Done: gap between indented body paragraphs (2026-10-07)
+
+Jacob repaired "Pilgrimage to Hell Chapters" and still saw a blank line
+between every pair of paragraphs, which he took to be the stray line breaks
+Stray Line Break Removal is meant to handle.
+
+What the book contains. There are no `<br/>` tags between paragraphs in the
+repaired file (the only one left is the deliberate one before "Prologue").
+Every body paragraph is `<p class="calibre1">`, and that class is declared
+with `text-indent: 1.5em`, `margin-top: 1em` and `margin-bottom: 0.25em`. A
+reader draws the indent and a blank gap between paragraphs. The gap is
+stylesheet spacing, not markup, so the line break repair never saw it. An
+indent and a gap both mean "new paragraph"; books normally use one.
+
+New repair, `modules/paragraph_spacing_repair.py` ("Paragraph Spacing"),
+on by default, switched with `paragraph_spacing_repair` in `[modules]`. When
+the book's dominant body-text class (the class analysis identifies with
+high confidence as the main text) has BOTH a non-zero indent and a gap of at
+least 0.5em, it sets that class's `margin-top` and `margin-bottom` to 0 and
+keeps the indent. It does not touch: a book that is indented with no gap, or
+gapped with no indent (block style); any class other than the dominant
+body-text one; a class declared with the `margin` shorthand; or a rule that
+shares its selector with other classes. Works on external stylesheets and
+embedded `<style>` blocks, and sits in the Overview's Styling and Fonts box
+("Remove the gap between indented paragraphs") and the fixed-layout guard
+list.
+
+Jacob's rule that the space under a chapter header is never reduced is
+kept: because the paragraph right after a heading takes its top margin from
+this same class, rules are appended that give the paragraph after any
+`h1`-`h6`, the paragraph after a chapter marker, and a chapter title written
+as a paragraph its original top margin back. Only the gap between ordinary
+body paragraphs is removed.
+
+Checked against all 24 books: only two have an indented, gapped body class,
+Pilgrimage to Hell (`.calibre1`, 2,900 paragraphs, 1.5em indent, 1em gap) and
+RunTogetherText (`.calibre5`, 337 paragraphs, 1em indent, 1em gap); every
+other book is left alone by construction. Repairing both with the old and
+new code, only the stylesheet differs (plus the two Pilgrimage files changed
+by the earlier line-break fix): the body class now has zero top and bottom
+margin and its indent unchanged, and the header-spacing rules are appended.
+A second pass makes zero changes on both. The Overview lists the repair
+ticked for Pilgrimage.
+
+Known limit: this is a stylesheet change, so it cannot be seen without
+opening the book in a reader; the Before / After tab shows the book with its
+own stylesheet and will show the difference. A book whose spacing is set with
+the `margin` shorthand, or inline on each paragraph, is not changed.

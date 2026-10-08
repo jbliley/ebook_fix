@@ -57,6 +57,7 @@ from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.ellipsis import normalize_ellipsis_text
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
+from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair, resolve_target_apostrophe_char
 from ebook_fix.apostrophes import normalize_apostrophes_text
 from ebook_fix import series as series_metadata
@@ -87,6 +88,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     TocGenerationRepair,
     SceneBreakRepair,
     SceneOpenerRepair,
+    ParagraphSpacingRepair,
     RunningTitleRepair,
 )
 
@@ -176,6 +178,11 @@ class Engine:
         # repairs.
         if getattr(self.config, "scene_opener_repair", None) and getattr(self.config.scene_opener_repair, "enabled", True):
             modules.append(SceneOpenerRepair(self.config.scene_opener_repair))
+        # Stylesheet-only: removes the gap between body paragraphs that are
+        # also indented. Skipped on fixed-layout books like the other
+        # markup and style repairs.
+        if getattr(self.config, "paragraph_spacing_repair", None) and getattr(self.config.paragraph_spacing_repair, "enabled", True):
+            modules.append(ParagraphSpacingRepair(self.config.paragraph_spacing_repair))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
         # Runs right after Image Repair, the other module that deals
