@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <title>ebook_fix &mdash; {{ filename }}</title>
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; max-width: 900px; margin: 0 auto; color: #222; padding: 0 1rem; }
@@ -19,6 +20,8 @@
     .tabs { display: flex; gap: 0.25rem; border-bottom: 2px solid #ddd; margin: 0.6rem 0 0; }
     .tabs a { padding: 0.6rem 1rem; text-decoration: none; color: #555; border-bottom: 2px solid transparent; margin-bottom: -2px; }
     .tabs a.active { color: #2b6cb0; border-bottom-color: #2b6cb0; font-weight: 600; }
+    .tab-badge { display: inline-block; min-width: 1.2rem; margin-left: 0.35rem; padding: 0 0.4rem; border-radius: 999px; background: #2b6cb0; color: #fff; font-size: 0.72rem; font-weight: 600; line-height: 1.2rem; text-align: center; }
+    .tab-badge[hidden] { display: none; }
     .tabs a.disabled { color: #bbb; cursor: default; pointer-events: none; }
     pre { background: #f7f7f7; border: 1px solid #ddd; border-radius: 10px; padding: 1.5rem; white-space: pre-wrap; word-wrap: break-word; font-size: 0.9rem; line-height: 1.45; overflow-x: auto; }
     a.button, button.button { display: inline-block; margin-top: 1rem; background: #2b6cb0; color: white; padding: 0.55rem 1.1rem; border-radius: 6px; text-decoration: none; border: none; font-size: 0.95rem; cursor: pointer; }
@@ -92,7 +95,7 @@
     <div class="tabs">
       <a href="{{ url_for('book_overview', session_id=session_id) }}" class="{{ 'active' if active_tab == 'overview' else '' }}">Overview</a>
       <a href="{{ url_for('book_details', session_id=session_id) }}" class="{{ 'active' if active_tab == 'details' else '' }}">Metadata</a>
-      <a href="{{ url_for('book_review', session_id=session_id) }}" class="{{ 'active' if active_tab == 'review' else '' }}">Review</a>
+      <a href="{{ url_for('book_review', session_id=session_id) }}" id="tab-review" class="{{ 'active' if active_tab == 'review' else '' }}" {% if review_hidden and active_tab != 'review' %}hidden{% endif %} title="Choices that need a person: chapter starts, possessives, decorative color and fonts, front and back matter">Review<span class="tab-badge" id="review-badge" {% if not review_count %}hidden{% endif %}>{{ review_count }}</span></a>
       <a href="{{ url_for('book_before_after', session_id=session_id) }}" class="{{ 'active' if active_tab == 'before_after' else '' }}">Before / After</a>
     </div>
   </div>
@@ -126,6 +129,15 @@
         .then(function(state) {
           button.disabled = !state.can_fix;
           button.title = state.summary;
+          // The Review tab's count badge, and hiding the tab when it would
+          // be empty (it stays visible while it is the page being looked at).
+          var reviewTab = document.getElementById("tab-review");
+          var badge = document.getElementById("review-badge");
+          if (reviewTab && badge) {
+            badge.textContent = state.review_total;
+            badge.hidden = !state.review_total;
+            reviewTab.hidden = !state.review_visible && !reviewTab.classList.contains("active");
+          }
         })
         .catch(function() { button.disabled = false; button.title = ""; });
     }

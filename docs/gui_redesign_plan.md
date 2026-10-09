@@ -1,7 +1,7 @@
 # GUI Redesign -- Planning Doc
 
-**Status:** Phases 1 and 2 built (2026-10-03 and 2026-10-05); Phase 3 not
-started.
+**Status:** All three phases built (2026-10-03, 2026-10-05 and
+2026-10-09). The acceptance run for Phase 3 is recorded in its write-up.
 Jacob has approved the direction below. This doc is the source of truth for what the redesign
 is, why it is shaped this way, and what order it gets built in. It
 replaces the Repair-tab-as-everything design from Phase 4 of
@@ -422,9 +422,65 @@ above):
   current design.
 - Settle the open question above about pre-ticked chapter boundaries.
 
+(All of the above is done; see the Phase 3 write-up below.)
+
 Acceptance: a full run on a Calibre-managed test layout and on a
 standalone book, covering edit, cover replace, review decision, Fix, and
 Replace original in one session.
+
+**Built 2026-10-09.** What shipped, and where it differs from the sketch:
+
+- **"Fix This Book will change this to" notes on every metadata field.**
+  Opening the Metadata tab asks the server (`/book/<id>/metadata-preview`,
+  `gui/metadata_preview.py`) what the ticked metadata repairs (Title
+  Cleanup, Metadata Sync, Identifier Standardize, Author Initials) are going
+  to do. It does this by running those same four repairs, in the engine's
+  order, against a throwaway copy of the book that already has the person's
+  saved edits applied, and comparing the fields before and after. It has no
+  rules of its own, so it cannot disagree with Fix. A blue note appears under
+  each field that will change, with the new value, the plain-English name of
+  the repair, and a **Use it now** button; a banner at the top counts the
+  changes and has **Use all now**. A note disappears as soon as the field
+  holds that value, and the notes are recomputed after every autosave, so
+  typing your own title removes the title note, and unticking a repair on
+  the Overview removes its notes. This replaces the first version (the
+  Suggested buttons and banner, which only covered a filename-style title).
+  `suggest_from_filename_title` is still the one function Title Cleanup uses.
+- **One button fills in a whole repair.** Title Cleanup only fixes the author
+  while the title still looks like a filename, so filling in the title by hand
+  would have left the author unfixed. A note's button therefore fills in every
+  pending change from the same repair, and says so ("this button also fills
+  in: author").
+- **Cover beside the fields.** The Metadata tab is two columns (one on a
+  narrow window): the current cover, with the pending replacement under it,
+  stays in view on the left while the fields scroll on the right. **Change
+  cover** is a fold-out under the cover holding the Calibre folder's cover,
+  the file picker and the web address box. Behavior is unchanged.
+- **Waitress and a tab icon.** `run_gui.py` serves the GUI with Waitress when
+  it is installed (it is now in `requirements.txt`), which removes the
+  "development server" warning, and falls back to Flask's own server with a
+  one-line note when it is not. The connection timeout is raised to 15
+  minutes so a long Fix on a very large book is never cut off. A small blue
+  book icon is served at `/favicon.svg` (and `/favicon.ico`), so the browser
+  stops asking for a file that does not exist.
+- **Review count badge, hidden when empty.** The Review tab shows the number
+  of items that need a decision on every page, and the tab hides itself when
+  there is nothing at all to look at (it stays visible while it is the page
+  being viewed). The number comes from the cached Overview data and the Fix
+  button's background check, so no page waits on an analysis for it.
+- **Open question settled: safe chapter boundaries are applied by Fix.** The
+  boundaries the Review tab pre-ticks (the ones the split-safety bar calls
+  safe to apply without a person looking) are now split at whenever Fix runs,
+  whether or not the Review tab was ever opened. Before, they were only
+  applied after the Review tab had been opened once, which meant whether a
+  book's chapters got their own pages depended on a tab click. Once the
+  Review tab has saved anything, its ticks decide, so unticking a boundary
+  there still keeps it from being split. The Overview says how many will be
+  split, the Fix button's hover text includes them, and the Fix button is
+  enabled when they are the only thing to do. The "N to review" count still
+  leaves them out, since they need no decision.
+- **Dead code removed:** the unused `metadata.html` and `repair.html`
+  templates, two unused imports in `app.py`. (`book.html` had already gone.)
 
 ## What does not change
 

@@ -62,6 +62,7 @@
 <div class="ov-totals">
   {% if ov.red_count %}<span class="red">{{ ov.red_count }} problem{{ '' if ov.red_count == 1 else 's' }} to look at.</span>{% else %}No problems found.{% endif %}
   <span id="ov-ready"></span>
+  {% if ov.safe_splits and not review_touched %}<span id="ov-safe-splits">{{ ov.safe_splits }} chapter start{{ '' if ov.safe_splits == 1 else 's' }} judged safe will be split onto their own pages (change this on the <a href="{{ url_for('book_review', session_id=session_id) }}">Review tab</a>).</span>{% endif %}
   {% if ov.review_total %}<span class="blue">{{ ov.review_total }} item{{ '' if ov.review_total == 1 else 's' }} need{{ 's' if ov.review_total == 1 else '' }} your review (<a href="{{ url_for('book_review', session_id=session_id) }}">Review tab</a>).</span>{% endif %}
 </div>
 

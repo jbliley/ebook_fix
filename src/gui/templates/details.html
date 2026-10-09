@@ -1,9 +1,39 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  .meta-layout { display: grid; grid-template-columns: 240px 1fr; gap: 1.5rem; align-items: start; }
+  @media (max-width: 760px) { .meta-layout { grid-template-columns: 1fr; } }
+  .cover-column { position: sticky; top: 8.5rem; }
+  .cover-heading { font-weight: 600; margin-bottom: 0.5rem; }
+  .cover-figure { margin: 0 0 0.9rem; }
+  .cover-figure .cover-label { font-size: 0.8rem; color: #666; margin-bottom: 0.3rem; }
+  .cover-figure.pending .cover-label { color: #2f855a; }
+  .cover-figure img { max-width: 100%; max-height: 300px; border: 1px solid #ddd; border-radius: 4px; display: block; }
+  .cover-figure.pending img { border: 2px solid #68d391; }
+  .cover-figure .cover-facts { font-size: 0.78rem; color: #666; margin-top: 0.3rem; }
+  .cover-figure .cover-none { font-size: 0.85rem; color: #888; }
+  details.change-cover { border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.5rem 0.8rem; background: #fafbfc; }
+  details.change-cover summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; color: #2b6cb0; }
+  .change-cover-body { margin-top: 0.8rem; }
+  .change-cover-body .cover-option { padding-top: 0.8rem; margin-top: 0.8rem; border-top: 1px solid #eee; }
+  .change-cover-body .cover-option:first-child { padding-top: 0; margin-top: 0; border-top: none; }
+  .change-cover-body label { margin: 0 0 0.3rem; font-weight: 400; font-size: 0.85rem; color: #555; }
+  .change-cover-body input[type=file] { width: 100%; font-size: 0.8rem; }
+  .change-cover-body .url-row { display: flex; gap: 0.4rem; }
+  .change-cover-body .url-row input { flex: 1; min-width: 0; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.85rem; }
+  .fix-note { margin-top: 0.4rem; font-size: 0.85rem; color: #2c5282; background: #ebf8ff; border: 1px solid #bee3f8; border-radius: 6px; padding: 0.4rem 0.6rem; }
+  .fix-note[hidden] { display: none; }
+  .fix-note button { background: #fff; border: 1px solid #90cdf4; border-radius: 5px; padding: 0.2rem 0.6rem; font-size: 0.8rem; cursor: pointer; margin-left: 0.4rem; color: #2c5282; }
+  .fix-note button:hover { background: #bee3f8; }
+  .fix-note .fix-note-by { color: #4a5568; font-size: 0.78rem; }
+</style>
+
 <p class="details-toggle">
   Edit the book's title, author, series, cover and other details here. Changes are saved as you
   make them and applied when you click <strong>Fix This Book</strong> (top right). The repairs
   themselves are chosen on the <a href="{{ url_for('book_overview', session_id=session_id) }}">Overview</a> tab.
+  Where a repair is going to change a field, a blue note under it says what the new value will
+  be, so there is no need to type it yourself.
 </p>
 
 {% if not is_calibre_managed %}
@@ -14,188 +44,177 @@
 </p>
 {% endif %}
 
-<!-- METADATA SECTION -->
-<h2 style="margin-top:1.5rem; margin-bottom:1rem;">Metadata</h2>
+<div class="staged-banner" id="fix-notes-banner" hidden>
+  <span id="fix-notes-banner-text"></span>
+  <button type="button" class="button secondary" style="margin-top:0; margin-left:0.6rem;" onclick="useAllFixNotes()">Use all now</button>
+  <div class="mismatch-note" style="margin-top:0.4rem;">
+    This fills in the fields below and saves them. Fix This Book makes the same changes on its own,
+    so use these buttons only if you want to look at or adjust a value first.
+  </div>
+</div>
 
-<div class="field-block" style="border:1px solid #eee; border-radius:8px; padding:1rem;">
-  <label style="margin-bottom:0.6rem; display:block;">Cover</label>
-  <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start;">
-    <div>
-      <div style="font-size:0.8rem; color:#666; margin-bottom:0.3rem;">Current</div>
+<div class="meta-layout">
+
+  <!-- COVER: current cover on the left, "Change cover" folds out underneath -->
+  <aside class="cover-column">
+    <div class="cover-heading">Cover</div>
+
+    <div class="cover-figure">
+      <div class="cover-label">Current</div>
       {% if current_cover_preview %}
-      <img src="{{ current_cover_preview.data_uri }}" alt="Current cover" style="max-width:120px; max-height:180px; border:1px solid #ddd; border-radius:4px; display:block;">
-      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+      <img src="{{ current_cover_preview.data_uri }}" alt="Current cover">
+      <div class="cover-facts">
         {% if current_cover_preview.dimensions %}{{ current_cover_preview.dimensions }}<br>{% endif %}
         {{ current_cover_preview.size_label }}
       </div>
       {% else %}
-      <div style="font-size:0.82rem; color:#888; max-width:120px;">No usable cover found.</div>
+      <div class="cover-none">No usable cover found.</div>
       {% endif %}
     </div>
 
     {% if staged_cover_preview %}
-    <div>
-      <div style="font-size:0.8rem; color:#2f855a; margin-bottom:0.3rem;">Pending replacement</div>
-      <img src="{{ staged_cover_preview.data_uri }}" alt="Staged replacement cover" style="max-width:120px; max-height:180px; border:2px solid #68d391; border-radius:4px; display:block;">
-      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
+    <div class="cover-figure pending">
+      <div class="cover-label">Pending replacement (applied when you click Fix This Book)</div>
+      <img src="{{ staged_cover_preview.data_uri }}" alt="Pending replacement cover">
+      <div class="cover-facts">
         {% if staged_cover_preview.dimensions %}{{ staged_cover_preview.dimensions }}<br>{% endif %}
         {{ staged_cover_preview.size_label }}
       </div>
       <form method="post" action="{{ url_for('clear_cover', session_id=session_id) }}" style="margin-top:0.4rem;" onsubmit="return guardedSubmit(this)">
-        <button type="submit" class="button secondary" style="padding:0.25rem 0.6rem; font-size:0.78rem;">Cancel</button>
+        <button type="submit" class="button secondary" style="margin-top:0; padding:0.25rem 0.6rem; font-size:0.78rem;">Cancel</button>
       </form>
     </div>
     {% endif %}
 
-    {% if calibre_cover_preview %}
-    <div>
-      <div style="font-size:0.8rem; color:#666; margin-bottom:0.3rem;">Calibre folder's cover</div>
-      <img src="{{ calibre_cover_preview.data_uri }}" alt="Calibre folder's cover" style="max-width:120px; max-height:180px; border:1px solid #ddd; border-radius:4px; display:block;">
-      <div style="font-size:0.78rem; color:#666; margin-top:0.3rem;">
-        {% if calibre_cover_preview.dimensions %}{{ calibre_cover_preview.dimensions }}<br>{% endif %}
-        {{ calibre_cover_preview.size_label }}
+    <details class="change-cover">
+      <summary>Change cover</summary>
+      <div class="change-cover-body">
+        {% if calibre_cover_preview %}
+        <div class="cover-option">
+          <div class="cover-figure" style="margin-bottom:0;">
+            <div class="cover-label">Calibre folder's cover</div>
+            <img src="{{ calibre_cover_preview.data_uri }}" alt="Calibre folder's cover">
+            <div class="cover-facts">
+              {% if calibre_cover_preview.dimensions %}{{ calibre_cover_preview.dimensions }}<br>{% endif %}
+              {{ calibre_cover_preview.size_label }}
+            </div>
+          </div>
+          <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" style="margin-top:0.4rem;" onsubmit="return guardedSubmit(this)">
+            <input type="hidden" name="use_calibre_cover" value="1">
+            <button type="submit" class="button secondary" style="margin-top:0; padding:0.25rem 0.6rem; font-size:0.78rem;">Use this instead</button>
+          </form>
+        </div>
+        {% endif %}
+
+        <div class="cover-option">
+          <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" enctype="multipart/form-data">
+            <label for="cover-file">A picture from your computer:</label>
+            <input type="file" id="cover-file" name="cover_file" accept="image/jpeg,image/png,image/gif,image/webp" onchange="guardedSubmit(this.form, true)">
+          </form>
+        </div>
+
+        <div class="cover-option">
+          <label for="cover-url">Or a web address:</label>
+          <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" id="cover-url-form" class="url-row">
+            <input type="hidden" name="cover_url" id="cover-url-hidden">
+            <input type="url" id="cover-url" placeholder="https://example.com/image.jpg">
+            <button type="button" class="button secondary" style="margin-top:0; padding:0.3rem 0.7rem; font-size:0.8rem; white-space:nowrap;" onclick="fetchCoverFromUrl()">Fetch</button>
+          </form>
+          <div id="url-status" style="margin-top:0.3rem; font-size:0.78rem; color:#888; display:none;"></div>
+        </div>
       </div>
-      <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" style="margin-top:0.4rem;" onsubmit="return guardedSubmit(this)">
-        <input type="hidden" name="use_calibre_cover" value="1">
-        <button type="submit" class="button secondary" style="padding:0.25rem 0.6rem; font-size:0.78rem;">Use this instead</button>
-      </form>
-    </div>
-    {% endif %}
-  </div>
+    </details>
+  </aside>
 
-  <div style="margin-top:0.8rem;">
-    <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" enctype="multipart/form-data" style="display:flex; gap:0.5rem; align-items:center;">
-      <label for="cover-file" style="margin:0; font-weight:normal; font-size:0.85rem; color:#555;">Replace the cover with a picture from your computer:</label>
-      <input type="file" id="cover-file" name="cover_file" accept="image/jpeg,image/png,image/gif,image/webp" onchange="guardedSubmit(this.form, true)">
-    </form>
-    
-    <div style="margin-top:0.5rem; padding-top:0.8rem; border-top:1px solid #eee;">
-      <label for="cover-url" style="display:block; margin-bottom:0.3rem;">Or use a URL:</label>
-      <form method="post" action="{{ url_for('save_cover', session_id=session_id) }}" id="cover-url-form" style="display:flex; gap:0.5rem; align-items:flex-end;">
-        <input type="hidden" name="cover_url" id="cover-url-hidden">
-        <input type="url" id="cover-url" placeholder="https://example.com/image.jpg" style="flex:1; padding:0.4rem; border:1px solid #ccc; border-radius:4px; font-size:0.9rem;">
-        <button type="button" class="button secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem; white-space:nowrap;" onclick="fetchCoverFromUrl()">Fetch cover</button>
-      </form>
-      <div id="url-status" style="margin-top:0.3rem; font-size:0.78rem; color:#888; display:none;"></div>
-    </div>
-  </div>
-</div>
-
-{% if filename_suggestion %}
-<div class="staged-banner" id="filename-suggestion">
-  {% if filename_suggestion.title %}<strong>This book's title looks like a leftover filename.</strong> Suggested:{% else %}<strong>Suggested:</strong>{% endif %}
-  <ul style="margin:0.4rem 0 0.6rem; padding-left:1.2rem;">
-    {% if filename_suggestion.title %}<li>Title: <em>{{ filename_suggestion.title }}</em></li>{% endif %}
-    {% if filename_suggestion.author %}<li>Author: <em>{{ filename_suggestion.author }}</em></li>{% endif %}
-    {% if filename_suggestion.series %}<li>Series: <em>{{ filename_suggestion.series }}</em>{% if filename_suggestion.series_index %}, book {{ filename_suggestion.series_index }}{% endif %}</li>{% endif %}
-  </ul>
-  <button type="button" class="button secondary" style="margin-top:0;" onclick='applyFilenameSuggestions({{ filename_suggestion|tojson }});'>Use all suggestions</button>
-  <div class="mismatch-note" style="margin-top:0.5rem;">
-    This fills in the fields below and saves them. The "Clean up the title and author name" repair
-    on the Overview tab makes the same changes automatically when you click Fix This Book, so
-    use these buttons only if you want to look at or adjust the result first.
-  </div>
-</div>
-{% endif %}
-
-<form method="post" id="metadata-form" action="{{ url_for('save_metadata', session_id=session_id) }}">
-  {% for f in fields %}
-  <div class="field-block">
-    <label for="field-{{ f.name }}">
-      {{ f.label }}
-      {% if f.mismatch %}<span class="mismatch-tag">MISMATCH</span>{% endif %}
-    </label>
-    {% if f.multiline %}
-    <textarea id="field-{{ f.name }}" name="{{ f.name }}">{{ f.value }}</textarea>
-    {% else %}
-    <input type="text" id="field-{{ f.name }}" name="{{ f.name }}" value="{{ f.value }}">
-    {% endif %}
-    {% if f.name == 'author' %}
-    <div class="author-swap">
-      <button type="button" id="swap-btn" class="button secondary" style="margin-top:0.4rem; padding:0.3rem 0.7rem; font-size:0.8rem; display:none;" onclick="swapAuthorName()">Swap to "First Last"</button>
-    </div>
-    {% endif %}
-    {% if filename_suggestion and f.name == 'title' and filename_suggestion.title %}
-    <div class="mismatch-choices">
-      Suggested:
-      <button type="button" onclick='setFilenameField("field-title", {{ filename_suggestion.title|tojson }});'>{{ filename_suggestion.title }}</button>
-    </div>
-    {% endif %}
-    {% if filename_suggestion and f.name == 'author' and filename_suggestion.author %}
-    <div class="mismatch-choices">
-      Suggested:
-      <button type="button" onclick='setFilenameField("field-author", {{ filename_suggestion.author|tojson }});'>{{ filename_suggestion.author }}</button>
-    </div>
-    {% endif %}
-    {% if f.mismatch %}
-    <div class="mismatch-choices">
-      Pick a value:
-      <button type="button" onclick='document.getElementById("field-{{ f.name }}").value = {{ f.epub_value|tojson }};'>EPUB: {{ f.epub_value }}</button>
-      <button type="button" onclick='document.getElementById("field-{{ f.name }}").value = {{ f.calibre_value|tojson }};'>Calibre: {{ f.calibre_value }}</button>
-    </div>
-    {% if f.note %}<div class="mismatch-note">{{ f.note }}</div>{% endif %}
-    {% endif %}
-  </div>
-  {% endfor %}
-
-  <div class="field-block">
-    <label for="field-language">Language</label>
-    <select id="field-language" name="language">
-      {% for code, choice_label in language_choices %}
-      <option value="{{ code }}" {% if code == language_value %}selected{% endif %}>{{ choice_label }}</option>
+  <!-- FIELDS -->
+  <section class="fields-column">
+    <form method="post" id="metadata-form" action="{{ url_for('save_metadata', session_id=session_id) }}">
+      {% for f in fields %}
+      <div class="field-block" {% if loop.first %}style="margin-top:-1.1rem;"{% endif %}>
+        <label for="field-{{ f.name }}">
+          {{ f.label }}
+          {% if f.mismatch %}<span class="mismatch-tag">MISMATCH</span>{% endif %}
+        </label>
+        {% if f.multiline %}
+        <textarea id="field-{{ f.name }}" name="{{ f.name }}">{{ f.value }}</textarea>
+        {% else %}
+        <input type="text" id="field-{{ f.name }}" name="{{ f.name }}" value="{{ f.value }}">
+        {% endif %}
+        {% if f.name == 'author' %}
+        <div class="author-swap">
+          <button type="button" id="swap-btn" class="button secondary" style="margin-top:0.4rem; padding:0.3rem 0.7rem; font-size:0.8rem; display:none;" onclick="swapAuthorName()">Swap to "First Last"</button>
+        </div>
+        {% endif %}
+        <div class="fix-note" data-note="{{ f.name }}" hidden></div>
+        {% if f.mismatch %}
+        <div class="mismatch-choices">
+          Pick a value:
+          <button type="button" onclick='document.getElementById("field-{{ f.name }}").value = {{ f.epub_value|tojson }};'>EPUB: {{ f.epub_value }}</button>
+          <button type="button" onclick='document.getElementById("field-{{ f.name }}").value = {{ f.calibre_value|tojson }};'>Calibre: {{ f.calibre_value }}</button>
+        </div>
+        {% if f.note %}<div class="mismatch-note">{{ f.note }}</div>{% endif %}
+        {% endif %}
+      </div>
       {% endfor %}
-    </select>
-    <div class="mismatch-note">
-      Sets the EPUB's own language directly. Calibre and EPUB use different, both-correct
-      code formats (eng vs en), so this never shows as a mismatch to pick between. Use
-      this dropdown only if the language itself is actually wrong.
-      {% if language_note %}{{ language_note }}{% endif %}
-    </div>
-  </div>
 
-  <label for="field-series-name">Series</label>
-  <input type="text" id="field-series-name" name="series_name" value="{{ series_name }}" placeholder="Series name (leave blank for none)">
-
-  <label for="field-series-index">Series Position</label>
-  <input type="text" id="field-series-index" name="series_index" value="{{ series_index if series_index is not none else '' }}" placeholder="e.g. 3 or 3.5">
-  {% if filename_suggestion and filename_suggestion.series %}
-  <div class="mismatch-choices">
-    Suggested:
-    <button type="button" onclick='setFilenameField("field-series-name", {{ filename_suggestion.series|tojson }}); setFilenameField("field-series-index", {{ filename_suggestion.series_index|tojson }});'>{{ filename_suggestion.series }}{% if filename_suggestion.series_index %}, book {{ filename_suggestion.series_index }}{% endif %}</button>
-  </div>
-  {% endif %}
-
-  <!-- ISBN LOOKUP SECTION -->
-  <div style="border:1px solid #e2e8f0; border-radius:6px; padding:1rem; margin:1.5rem 0; background:#f7fafc;">
-    <label style="display:block; margin-bottom:0.5rem; font-weight:bold;">Look Up Metadata Online</label>
-    <p style="font-size:0.85rem; color:#666; margin:0 0 0.8rem 0;">
-      This will fetch book metadata online from Open Library. Requires internet connection.
-    </p>
-    
-    <div style="display:flex; gap:0.5rem; margin-bottom:0.8rem;">
-      <button type="button" class="button secondary" onclick="initiateIsbnLookup()" style="padding:0.4rem 0.8rem;">Look Up by ISBN</button>
-      <button type="button" class="button secondary" onclick="initiateTitleAuthorLookup()" style="padding:0.4rem 0.8rem;">Look Up by Title/Author</button>
-    </div>
-    
-    <div id="lookup-status" style="font-size:0.85rem; color:#666; margin-bottom:0.8rem; display:none;"></div>
-    
-    <!-- Lookup Results Preview Panel -->
-    <div id="lookup-results" style="display:none; border-top:1px solid #e2e8f0; padding-top:1rem; margin-top:1rem;">
-      <div style="font-size:0.9rem; font-weight:bold; margin-bottom:0.8rem;">Lookup Results</div>
-      
-      <div id="lookup-comparison" style="display:grid; grid-template-columns: 1fr auto 1fr; gap:1rem; margin-bottom:1rem;">
-        <!-- Filled by JavaScript -->
+      <div class="field-block">
+        <label for="field-language">Language</label>
+        <select id="field-language" name="language">
+          {% for code, choice_label in language_choices %}
+          <option value="{{ code }}" {% if code == language_value %}selected{% endif %}>{{ choice_label }}</option>
+          {% endfor %}
+        </select>
+        <div class="fix-note" data-note="language" hidden></div>
+        <div class="mismatch-note">
+          Sets the EPUB's own language directly. Calibre and EPUB use different, both-correct
+          code formats (eng vs en), so this never shows as a mismatch to pick between. Use
+          this dropdown only if the language itself is actually wrong.
+          {% if language_note %}{{ language_note }}{% endif %}
+        </div>
       </div>
-      
-      <div id="lookup-actions" style="display:flex; gap:0.5rem; margin-top:0.8rem;">
-        <button type="button" class="button secondary" onclick="dismissLookupResults()" style="padding:0.3rem 0.6rem; font-size:0.8rem;">Dismiss</button>
-        <button type="button" class="button" id="apply-lookup-btn" onclick="applyLookupResults()" style="padding:0.3rem 0.6rem; font-size:0.8rem; display:none;">Apply Selected</button>
-      </div>
-    </div>
-  </div>
 
-  <div id="save-status" class="save-status" style="margin-top:1rem;">Changes are saved automatically.</div>
-</form>
+      <div class="field-block">
+        <label for="field-series-name">Series</label>
+        <input type="text" id="field-series-name" name="series_name" value="{{ series_name }}" placeholder="Series name (leave blank for none)">
+
+        <label for="field-series-index">Series Position</label>
+        <input type="text" id="field-series-index" name="series_index" value="{{ series_index }}" placeholder="e.g. 3 or 3.5">
+        <div class="fix-note" data-note="series" hidden></div>
+      </div>
+
+      <!-- ISBN LOOKUP SECTION -->
+      <div style="border:1px solid #e2e8f0; border-radius:6px; padding:1rem; margin:1.5rem 0; background:#f7fafc;">
+        <label style="display:block; margin-bottom:0.5rem; font-weight:bold;">Look Up Metadata Online</label>
+        <p style="font-size:0.85rem; color:#666; margin:0 0 0.8rem 0;">
+          This will fetch book metadata online from Open Library. Requires internet connection.
+        </p>
+
+        <div style="display:flex; gap:0.5rem; margin-bottom:0.8rem;">
+          <button type="button" class="button secondary" onclick="initiateIsbnLookup()" style="padding:0.4rem 0.8rem;">Look Up by ISBN</button>
+          <button type="button" class="button secondary" onclick="initiateTitleAuthorLookup()" style="padding:0.4rem 0.8rem;">Look Up by Title/Author</button>
+        </div>
+
+        <div id="lookup-status" style="font-size:0.85rem; color:#666; margin-bottom:0.8rem; display:none;"></div>
+
+        <!-- Lookup Results Preview Panel -->
+        <div id="lookup-results" style="display:none; border-top:1px solid #e2e8f0; padding-top:1rem; margin-top:1rem;">
+          <div style="font-size:0.9rem; font-weight:bold; margin-bottom:0.8rem;">Lookup Results</div>
+
+          <div id="lookup-comparison" style="display:grid; grid-template-columns: 1fr auto 1fr; gap:1rem; margin-bottom:1rem;">
+            <!-- Filled by JavaScript -->
+          </div>
+
+          <div id="lookup-actions" style="display:flex; gap:0.5rem; margin-top:0.8rem;">
+            <button type="button" class="button secondary" onclick="dismissLookupResults()" style="padding:0.3rem 0.6rem; font-size:0.8rem;">Dismiss</button>
+            <button type="button" class="button" id="apply-lookup-btn" onclick="applyLookupResults()" style="padding:0.3rem 0.6rem; font-size:0.8rem; display:none;">Apply Selected</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="save-status" class="save-status" style="margin-top:1rem;">Changes are saved automatically.</div>
+    </form>
+  </section>
+</div>
 
 <script>
 (function() {
@@ -223,6 +242,7 @@
       .then(function() {
         setStatus("All changes saved.");
         document.dispatchEvent(new Event("ebook:state-changed"));
+        refreshFixNotes();
       })
       .catch(function(err) { setStatus("Could not save: " + err.message, true); })
       .then(function() {
@@ -266,23 +286,136 @@
     return false;
   };
 
-  // Fill one field with a suggested value. Fires an input event so the
-  // unsaved-changes warning and the Swap button both notice.
-  window.setFilenameField = function(id, value) {
+  // ---- "Fix This Book will change this" notes ----
+  // The server works out what the ticked repairs will do to each field
+  // (a throwaway run of the same repairs; see gui/metadata_preview.py).
+  // A note shows under a field only while the field does not already
+  // hold that value, so it disappears the moment the person clicks Use
+  // it now or types the same thing themselves.
+  var previewUrl = "{{ url_for('metadata_preview', session_id=session_id) }}";
+  var lastChanges = {};
+  var previewRequest = 0;
+  var TEXT_FIELDS = {
+    title: "field-title", author: "field-author", publisher: "field-publisher",
+    date: "field-date", rights: "field-rights", description: "field-description",
+    language: "field-language"
+  };
+
+  function norm(text) { return (text || "").split(/\s+/).join(" ").trim(); }
+
+  function fillField(id, value) {
     var el = document.getElementById(id);
     if (!el) return;
     el.value = value;
     el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  function buildNote(note, text, by, alsoFills, onUse) {
+    note.textContent = "";
+    var strong = document.createElement("strong");
+    strong.textContent = text;
+    note.appendChild(document.createTextNode("Fix This Book will change this to: "));
+    note.appendChild(strong);
+    var button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Use it now";
+    button.addEventListener("click", onUse);
+    note.appendChild(button);
+    if (by) {
+      var span = document.createElement("div");
+      span.className = "fix-note-by";
+      span.textContent = "Done by: " + by + (alsoFills ? " (this button also fills in: " + alsoFills + ")" : "");
+      note.appendChild(span);
+    }
+    note.hidden = false;
+  }
+
+  var visibleUses = [];
+  var NOTE_LABELS = {
+    title: "title", author: "author", publisher: "publisher", date: "date",
+    rights: "rights", description: "description", language: "language", series: "series"
   };
 
-  window.applyFilenameSuggestions = function(s) {
-    if (s.title) window.setFilenameField("field-title", s.title);
-    if (s.author) window.setFilenameField("field-author", s.author);
-    if (s.series) {
-      window.setFilenameField("field-series-name", s.series);
-      window.setFilenameField("field-series-index", s.series_index || "");
+  // A repair's changes belong together: Title Cleanup only fixes the author
+  // while the title still looks like a filename, for example, so filling in
+  // just the title by hand would leave the author unfixed. A note's button
+  // therefore fills in every pending change from the same repair.
+  function renderFixNotes() {
+    var pendingNotes = [];
+    Object.keys(TEXT_FIELDS).forEach(function(field) {
+      var note = document.querySelector('.fix-note[data-note="' + field + '"]');
+      var el = document.getElementById(TEXT_FIELDS[field]);
+      var change = lastChanges[field];
+      if (!note || !el) return;
+      if (change && norm(el.value) !== change.after) {
+        pendingNotes.push({
+          key: field, note: note, by: change.by,
+          text: change.after === "" ? "(blank)" : change.after,
+          apply: function() { fillField(TEXT_FIELDS[field], change.after); }
+        });
+      } else {
+        note.hidden = true;
+      }
+    });
+
+    var seriesNote = document.querySelector('.fix-note[data-note="series"]');
+    var nameEl = document.getElementById("field-series-name");
+    var indexEl = document.getElementById("field-series-index");
+    var series = lastChanges.series;
+    if (seriesNote && series && (norm(nameEl.value) !== series.name || norm(indexEl.value) !== series.index)) {
+      pendingNotes.push({
+        key: "series", note: seriesNote, by: series.by,
+        text: series.name === "" ? "(no series)" : series.name + (series.index ? ", book " + series.index : ""),
+        apply: function() {
+          fillField("field-series-name", series.name);
+          fillField("field-series-index", series.index);
+        }
+      });
+    } else if (seriesNote) {
+      seriesNote.hidden = true;
     }
+
+    visibleUses = [];
+    pendingNotes.forEach(function(item) {
+      var group = pendingNotes.filter(function(other) { return other.by === item.by; });
+      var others = group.filter(function(other) { return other !== item; })
+        .map(function(other) { return NOTE_LABELS[other.key]; }).join(", ");
+      var use = function() { group.forEach(function(member) { member.apply(); }); };
+      buildNote(item.note, item.text, item.by, others, use);
+      visibleUses.push(item.apply);
+    });
+    var count = pendingNotes.length;
+
+    var banner = document.getElementById("fix-notes-banner");
+    var bannerText = document.getElementById("fix-notes-banner-text");
+    if (count > 0) {
+      bannerText.textContent = count === 1
+        ? "Fix This Book will change 1 detail on this page."
+        : "Fix This Book will change " + count + " details on this page.";
+      banner.hidden = false;
+    } else {
+      banner.hidden = true;
+    }
+  }
+
+  function refreshFixNotes() {
+    var request = ++previewRequest;
+    return fetch(previewUrl, { headers: { "X-Requested-With": "fetch" } })
+      .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function(data) {
+        if (request !== previewRequest) return;
+        lastChanges = data.changes || {};
+        renderFixNotes();
+      })
+      .catch(function() { /* notes are a convenience; the page works without them */ });
+  }
+
+  window.useAllFixNotes = function() {
+    visibleUses.slice().forEach(function(use) { use(); });
   };
+
+  form.addEventListener("input", renderFixNotes);
+  refreshFixNotes();
 
   // Swap author name - only show button when there's a comma
   window.swapAuthorName = function() {
@@ -319,12 +452,12 @@
     var urlHidden = document.getElementById("cover-url-hidden");
     var statusDiv = document.getElementById("url-status");
     var url = urlInput.value.trim();
-    
+
     if (!url) {
       statusDiv.style.display = "none";
       return;
     }
-    
+
     // Validate URL format
     try {
       new URL(url);
@@ -334,11 +467,11 @@
       statusDiv.style.display = "block";
       return;
     }
-    
+
     statusDiv.textContent = "Validating URL...";
     statusDiv.style.color = "#666";
     statusDiv.style.display = "block";
-    
+
     // Validate that URL is reachable and is an image
     fetch(url, { method: "HEAD" })
       .then(function(response) {

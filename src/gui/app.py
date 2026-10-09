@@ -62,7 +62,7 @@ from ebook_fix.config import load_config
 from ebook_fix.engine import Engine, FIXED_LAYOUT_RISKY_MODULE_TYPES
 from ebook_fix.parser import EPUBParser
 from ebook_fix.splitter import SplitMarker, marker_number
-from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, iter_chapter_nodes, _walk_structure_nodes, NodeKind
+from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, _walk_structure_nodes, NodeKind
 from ebook_fix.writer import EPUBWriter
 from ebook_fix.apostrophes import analyze_book_possessives, apply_possessive_resolutions
 from ebook_fix.color import analyze_book_color
@@ -100,12 +100,11 @@ from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair
 from ebook_fix.modules.color_strip import ColorStripRepair
 from ebook_fix.modules.font_strip import FontStripRepair
-from gui import analysis_view
+from gui import metadata_preview as metadata_preview_module
 from gui import overview_view
 from metadata.core_fields import write_core_field
 from metadata import calibre_detect
 from metadata.language_codes import language_options
-from metadata.title_cleanup import suggest_from_filename_title
 
 app = Flask(__name__)
 
@@ -350,6 +349,27 @@ def _read_staged(path: Path):
 # from the chapter. Below it, the lone chapter start is simply the top of
 # its own file and there is nothing to cut.
 LONE_BOUNDARY_MIN_PREAMBLE_WORDS = 15
+
+
+def _apply_staged_metadata(book, staged_metadata) -> None:
+    """Writes the person's saved metadata edits (staged_metadata.json)
+    onto `book`. Shared by Fix This Book and the Metadata tab's "what
+    Fix will change" preview, so the preview starts from exactly what
+    Fix starts from. Does nothing when nothing is staged."""
+    if staged_metadata is None:
+        return
+    for name, value in staged_metadata.get("fields", {}).items():
+        write_core_field(book, name, value)
+    # .get(), not [] -- a session staged before Phase 5 shipped
+    # won't have a "language" key at all, and that should just mean
+    # "nothing to change" rather than a KeyError at apply time.
+    language_value = staged_metadata.get("language")
+    if language_value:
+        write_core_field(book, "language", language_value)
+    series_name = staged_metadata.get("series_name")
+    if series_name:
+        series_index = staged_metadata.get("series_index")
+        series_metadata.write(book, series_name, series_index)
 
 
 def _words_before(element) -> int:
@@ -610,6 +630,27 @@ def index():
     return render_template("index.html")
 
 
+# A small tab icon (a blue book), drawn as an SVG so there is no image
+# file to keep in the repo. Both pages point at /favicon.svg; /favicon.ico
+# answers with the same picture for any browser that asks for it by the
+# old name, so the console log never fills with "not found" lines.
+_FAVICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="12" fill="#2b6cb0"/>'
+    '<path d="M12 16h18c3 0 2 2 2 2v30s1-2-2-2H12z" fill="#fff"/>'
+    '<path d="M52 16H34c-3 0-2 2-2 2v30s-1-2 2-2h18z" fill="#bee3f8"/>'
+    '</svg>'
+)
+
+
+@app.route("/favicon.svg")
+@app.route("/favicon.ico")
+def favicon():
+    response = Response(_FAVICON_SVG, mimetype="image/svg+xml")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
 @app.route("/browse", methods=["POST"])
 def browse():
     """Opens a real OS file-picker dialog on this machine and returns
@@ -725,20 +766,46 @@ def _overview_cache_key(session_dir: Path, config) -> str:
         f"{attr}={int(bool(getattr(getattr(config, attr), 'enabled', True)))}"
         for attr, _label in _REPAIR_MODULES
     )
-    return f"{stat.st_mtime_ns}-{stat.st_size}-{enabled}"
+    # "v2" because the cached data gained safe_splits and review_visible;
+    # an older cache written without them is simply rebuilt.
+    return f"v2-{stat.st_mtime_ns}-{stat.st_size}-{enabled}"
 
 
-def _review_counts(book) -> dict:
-    """How many items a person has to decide on, by Overview box. Same
-    lists the Review tab renders. Chapter-start boundaries the project
-    already treats as safe (pre-checked) are not counted."""
+def _review_summary(book) -> dict:
+    """What the Review tab holds, for the Overview and the tab bar.
+
+    counts: how many items a person has to decide on, by Overview box
+    (the same lists the Review tab renders). Chapter-start boundaries the
+    project already treats as safe (pre-checked) are not counted: Fix This
+    Book applies them on its own (see fix_book), so they need no decision.
+    safe_splits: how many of those safe boundaries Fix will split at.
+    visible: whether the Review tab has anything at all to show, which
+    includes safe boundaries (the tab is where someone turns them off)."""
     groups = _split_candidate_groups(book)
     structure = sum(1 for g in groups for c in g["candidates"] if not c.get("auto_checked"))
     structure += len(_frontmatter_review_groups(book))
     text = sum(len(g["candidates"]) for g in _possessive_groups(book))
     styling = sum(len(g["findings"]) for g in _color_review_groups(book))
     styling += sum(len(g["findings"]) for g in _font_review_groups(book))
-    return {"structure": structure, "text": text, "styling": styling}
+    counts = {"structure": structure, "text": text, "styling": styling}
+    return {
+        "counts": counts,
+        "safe_splits": len(_default_accepted_split_ids(groups)),
+        "visible": bool(sum(counts.values())) or any(c.get("auto_checked") for g in groups for c in g["candidates"]),
+    }
+
+
+def _default_accepted_split_ids(groups) -> set:
+    """The boundaries Fix This Book splits at when nobody has made any
+    choice on the Review tab: the pre-checked (safe) ones, in files where
+    enough of them are checked for a split to happen at all (the same
+    min_accept gate the staged path applies)."""
+    ids = set()
+    for group in groups:
+        checked = [item["id"] for item in group["candidates"] if item.get("auto_checked")]
+        if len(checked) >= group.get("min_accept", 2):
+            ids.update(checked)
+    return ids
 
 
 _overview_locks: dict = {}
@@ -802,12 +869,41 @@ def _compute_overview_data(session_dir: Path, filename: str, config, key: str, c
             if issubclass(_REPAIR_MODULE_CLASSES[attr], FIXED_LAYOUT_RISKY_MODULE_TYPES)
         }
 
+    review = _review_summary(book)
     data = overview_view.build_overview_page(
         book, analysis_report, module_reports, _REPAIR_MODULES,
-        module_enabled, _review_counts(book), filename, module_skipped,
+        module_enabled, review["counts"], filename, module_skipped,
     )
+    data["safe_splits"] = review["safe_splits"]
+    data["review_visible"] = review["visible"]
     cache_path.write_text(json.dumps({"key": key, "data": data}), encoding="utf-8")
     return data
+
+
+@app.context_processor
+def _review_tab_state():
+    """What the Review tab looks like in the tab bar on every page: a
+    count badge for the items that need a decision, and hidden entirely
+    when the tab would have nothing on it. Read straight from the cached
+    Overview data when it is there (never computed here, so no page waits
+    on a full analysis); when it is not there yet, the tab shows without
+    a badge and the page's own script fixes it up as soon as the Fix
+    button's background check (fix_state) has the numbers."""
+    session_id = (request.view_args or {}).get("session_id")
+    state = {"review_count": 0, "review_hidden": False}
+    if not session_id:
+        return state
+    try:
+        session_dir = _session_dir(session_id)
+        cached = _read_staged(_overview_cache_path(session_dir))
+        if cached is not None and cached.get("key") == _overview_cache_key(session_dir, load_config(None)):
+            data = cached["data"]
+            state["review_count"] = data.get("review_total", 0)
+            state["review_hidden"] = not data.get("review_visible", True)
+    except Exception:
+        # The tab bar is a convenience; never let it break a page.
+        pass
+    return state
 
 
 def _default_module_selection(ov: dict) -> set:
@@ -844,6 +940,9 @@ def book_overview(session_id):
         filename=filename,
         ov=ov,
         selected_modules=sorted(selected),
+        # Once the Review tab has saved its ticks they decide the splits,
+        # and the safe-boundary sentence on this page would no longer be true.
+        review_touched=_read_staged(_staged_review_path(session_dir)) is not None,
     )
 
 
@@ -878,11 +977,15 @@ def fix_state(session_id):
     staged_metadata = _staged_metadata_path(session_dir).exists()
     staged_cover = _read_staged(_staged_cover_path(session_dir))
     has_cover = bool(staged_cover and (staged_cover.get("cover_source") or staged_cover.get("cover_url")))
-    staged_review = _read_staged(_staged_review_path(session_dir)) or {}
+    staged_review_raw = _read_staged(_staged_review_path(session_dir))
+    staged_review = staged_review_raw or {}
     has_review = any(
         staged_review.get(key)
         for key in ("accepted_ids", "possessive_resolutions", "accepted_color_ids", "accepted_font_ids", "frontmatter_labels")
     )
+    # Until the Review tab has saved anything, Fix splits at the safe
+    # (pre-ticked) chapter boundaries on its own, which is something to do.
+    safe_splits = ov.get("safe_splits", 0) if staged_review_raw is None else 0
 
     parts = []
     if repairs:
@@ -891,11 +994,15 @@ def fix_state(session_id):
         parts.append("your metadata edits")
     if has_cover:
         parts.append("a new cover")
+    if safe_splits:
+        parts.append(f"{safe_splits} chapter start{'s' if safe_splits != 1 else ''} split into their own pages")
     if has_review:
         parts.append("your review choices")
     return jsonify({
-        "can_fix": bool(repairs or staged_metadata or has_cover or has_review),
+        "can_fix": bool(repairs or staged_metadata or has_cover or has_review or safe_splits),
         "summary": "Will apply: " + ", ".join(parts) if parts else "Nothing to fix",
+        "review_total": ov.get("review_total", 0),
+        "review_visible": ov.get("review_visible", True),
     })
 
 
@@ -1323,6 +1430,24 @@ def book_repair(session_id):
     return redirect(url_for("book_details", session_id=session_id))
 
 
+@app.route("/book/<session_id>/metadata-preview")
+@_handle_missing_source
+def metadata_preview(session_id):
+    """What Fix This Book will change in each metadata field, for the
+    notes on the Metadata tab (asked for in the background when the tab
+    opens and after every autosave). Runs the ticked metadata repairs
+    against a throwaway copy of the book that already has the person's
+    saved edits applied; see gui.metadata_preview."""
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    selected = _selected_modules(session_dir, filename)
+
+    book = EPUBParser().load(_source_path(session_dir))
+    _apply_staged_metadata(book, _read_staged(_staged_metadata_path(session_dir)))
+    changes = metadata_preview_module.preview_repairs(book, load_config(None), selected)
+    return jsonify({"changes": changes})
+
+
 @app.route("/book/<session_id>/details")
 @_handle_missing_source
 def book_details(session_id):
@@ -1424,47 +1549,6 @@ def book_details(session_id):
     # own field is simply blank.
     current_language = (staged_metadata.get("language") if staged_metadata else None) or merged.language.epub_value or merged.language.display_value
 
-    # --- FILENAME-STYLE TITLE SUGGESTION ---
-    # Same rules Title Cleanup applies at repair time (one shared
-    # function, metadata.title_cleanup.suggest_from_filename_title),
-    # worked out from the book's OWN title and author, so a suggestion
-    # (the series, say) is still available after another field has been
-    # fixed and saved. Shown as "Suggested" buttons beside the fields,
-    # so a person can see and adjust the change before saving. A field
-    # only gets a suggestion while the form still shows the book's own
-    # value: once someone has typed or saved something else there, it is
-    # their decision and is not nagged about. A series is only suggested
-    # while the series box is empty.
-    filename_suggestion = None
-    form_values = {f["name"]: (f["value"] or "").strip() for f in fields}
-    shown_series_name = ((staged_metadata.get("series_name") if staged_metadata else (series_info.name or "")) or "").strip()
-    opf_doc = getattr(book, "opf_document", None)
-    creators = opf_doc.findall(".//{http://purl.org/dc/elements/1.1/}creator") if opf_doc is not None else []
-    creator_file_as = ""
-    if len(creators) == 1:
-        creator_file_as = creators[0].get("{http://www.idpf.org/2007/opf}file-as") or ""
-    epub_title = (getattr(book.metadata, "title", "") or "").strip()
-    epub_author = (getattr(book.metadata, "creator", "") or "").strip()
-    suggestion = suggest_from_filename_title(
-        epub_title,
-        epub_author,
-        file_as=creator_file_as,
-        single_author=len(creators) == 1,
-        has_series=bool(shown_series_name),
-    )
-    if suggestion.has_any:
-        suggested = {
-            "title": suggestion.title if suggestion.title and form_values.get("title") == epub_title else None,
-            "author": suggestion.author if suggestion.author and form_values.get("author") == epub_author else None,
-            "series": suggestion.series if not shown_series_name else None,
-            "series_index": (
-                series_metadata.format_index(suggestion.series_index)
-                if suggestion.series is not None and suggestion.series_index is not None else ""
-            ),
-        }
-        if any(suggested[k] for k in ("title", "author", "series")):
-            filename_suggestion = suggested
-
     return render_template(
         "details.html",
         active_tab="details",
@@ -1478,9 +1562,8 @@ def book_details(session_id):
         language_choices=language_options(current_language),
         language_note=merged.language.note,
         series_name=staged_metadata.get("series_name") if staged_metadata else (series_info.name or ""),
-        series_index=staged_metadata.get("series_index") if staged_metadata else series_info.index,
+        series_index=series_metadata.format_index(staged_metadata.get("series_index") if staged_metadata else series_info.index),
         is_calibre_managed=calibre_ctx.is_calibre_managed,
-        filename_suggestion=filename_suggestion,
     )
 
 
@@ -1521,19 +1604,7 @@ def fix_book(session_id):
     # it lands in the same file as everything else instead of its own
     # separate "_fixed.epub".
     staged_metadata = _read_staged(_staged_metadata_path(session_dir))
-    if staged_metadata is not None:
-        for name, value in staged_metadata.get("fields", {}).items():
-            write_core_field(book, name, value)
-        # .get(), not [] -- a session staged before Phase 5 shipped
-        # won't have a "language" key at all, and that should just mean
-        # "nothing to change" rather than a KeyError at apply time.
-        language_value = staged_metadata.get("language")
-        if language_value:
-            write_core_field(book, "language", language_value)
-        series_name = staged_metadata.get("series_name")
-        if series_name:
-            series_index = staged_metadata.get("series_index")
-            series_metadata.write(book, series_name, series_index)
+    _apply_staged_metadata(book, staged_metadata)
 
     # Staged cover replacement, if any -- own staged file, not a key
     # inside staged_metadata (see _staged_cover_path), so it survives
@@ -1588,21 +1659,29 @@ def fix_book(session_id):
     new_hrefs_by_origin = {}
     with _captured_output() as buf:
         staged_review = _read_staged(_staged_review_path(session_dir))
+        # Once someone has used the Review tab, its saved ticks decide
+        # which boundaries are split at. Until then, the boundaries the
+        # tab would pre-tick (the ones the project's split-safety bar
+        # calls safe to apply without a person looking) are split at,
+        # so whether a book's chapters get their own pages never depends
+        # on whether the Review tab happened to be opened.
+        groups = _split_candidate_groups(book)
         if staged_review is not None:
             accepted_ids = set(staged_review.get("accepted_ids", []))
-            groups = _split_candidate_groups(book)
-            markers_by_href = {}
-            for group in groups:
-                accepted_nodes = [item["node"] for item in group["candidates"] if item["id"] in accepted_ids]
-                if len(accepted_nodes) < group.get("min_accept", 2):
-                    continue
-                markers_by_href[group["href"]] = [
-                    SplitMarker(element=node.evidence.candidate.element, title=node.title, number=marker_number(node.evidence.candidate))
-                    for node in accepted_nodes
-                ]
-            if markers_by_href:
-                engine_for_split = Engine(config=config)
-                split_count, _reports, new_hrefs_by_origin = engine_for_split._split_and_rewire(book, markers_by_href, details=False)
+        else:
+            accepted_ids = _default_accepted_split_ids(groups)
+        markers_by_href = {}
+        for group in groups:
+            accepted_nodes = [item["node"] for item in group["candidates"] if item["id"] in accepted_ids]
+            if len(accepted_nodes) < group.get("min_accept", 2):
+                continue
+            markers_by_href[group["href"]] = [
+                SplitMarker(element=node.evidence.candidate.element, title=node.title, number=marker_number(node.evidence.candidate))
+                for node in accepted_nodes
+            ]
+        if markers_by_href:
+            engine_for_split = Engine(config=config)
+            split_count, _reports, new_hrefs_by_origin = engine_for_split._split_and_rewire(book, markers_by_href, details=False)
 
         # Staged possessive resolutions and decorative-color removals,
         # if any -- both re-derive fresh against the book as it exists
@@ -1984,7 +2063,20 @@ def _open_browser_soon():
 def main():
     print("ebook_fix GUI starting at http://127.0.0.1:5000 -- close this window to stop it.")
     threading.Thread(target=_open_browser_soon, daemon=True).start()
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    try:
+        from waitress import serve
+    except ImportError:
+        # Waitress is a small, ordinary web server that is meant for real
+        # use. When it is not installed, fall back to the server that
+        # comes with Flask: it works the same here, it just prints a
+        # "development server" warning in this window.
+        print("(Waitress is not installed, so Flask's built-in server is being used. "
+              "It works fine; to remove the warning, run: pip install waitress)")
+        app.run(host="127.0.0.1", port=5000, debug=False)
+        return
+    # channel_timeout is raised well above its default of two minutes so a
+    # long Fix on a very large book never has its connection dropped.
+    serve(app, host="127.0.0.1", port=5000, threads=8, channel_timeout=900)
 
 
 if __name__ == "__main__":

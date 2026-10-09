@@ -3336,3 +3336,48 @@ Known limit: this is a stylesheet change, so it cannot be seen without
 opening the book in a reader; the Before / After tab shows the book with its
 own stylesheet and will show the difference. A book whose spacing is set with
 the `margin` shorthand, or inline on each paragraph, is not changed.
+
+## Done: GUI redesign Phase 3, metadata notes, Waitress, Review badge (2026-10-09)
+
+The last phase of the GUI redesign (`docs/gui_redesign_plan.md`). Nothing in
+the engine, the CLI or any repair or analysis module changed; the only file
+outside `src/gui/` and `docs/` is `requirements.txt` (Waitress added).
+
+- **Metadata notes.** Each metadata field that a ticked repair is going to
+  change now says so, with the new value and a "Use it now" button (new
+  `gui/metadata_preview.py`, route `/book/<id>/metadata-preview`). The preview
+  runs Title Cleanup, Metadata Sync, Identifier Standardize and Author
+  Initials, in the engine's order, on a throwaway copy of the book with the
+  saved edits applied, so it has no rules of its own. One button fills in
+  every pending change from the same repair, because Title Cleanup only fixes
+  the author while the title still looks like a filename. Checked in a real
+  browser on a book with a filename-style title: notes appear, one click fills
+  both fields, a typed title removes its note, a typed "J R R Tolkien" brings
+  back an initials note, edits survive a trip to another tab, and the Fix
+  button then writes the clean title, the new cover and the edits.
+- **Cover beside the fields**, with "Change cover" as a fold-out.
+- **Waitress and favicon.** `main()` uses Waitress when it is installed and
+  falls back to Flask's server with a one-line note (both paths started and
+  served pages). A blue book icon is served at `/favicon.svg` and
+  `/favicon.ico`.
+- **Review tab badge**, hidden when there is nothing to look at (The Call of
+  Cthulhu has none; every other example shows a count).
+- **Safe chapter boundaries are applied by Fix** without the Review tab being
+  opened (the open question from Phase 2). On `GutenbergText-ChapterSplit`
+  Fix now splits 15 files into 48, `OmnibusExample` 82 into 89,
+  `CrossReferences-Synthetic` 5 into 10; `MM21` has none and is unchanged.
+  Once the Review tab has saved anything, its ticks decide.
+- **Cleanup.** `metadata.html` and `repair.html` deleted, two unused imports
+  removed.
+
+Acceptance run: a full session (edit, cover replace, review tab opened, Fix
+with Replace original, reopen) on a standalone book and on a Calibre-managed
+layout built for the test. Both produced the backup and the renamed file, the
+Calibre run synced series and subjects to `metadata.opf`, and the repaired
+book reopened as "Nothing to fix". All 21 example books plus the test book
+render every tab. The CLI `analyze` command still runs.
+
+Known, not changed: Metadata Sync only copies values that the two sides agree
+on, so a publisher typed in the GUI changes the EPUB but not Calibre's
+`metadata.opf` when Calibre already has a different publisher. That is the
+existing sync rule, not something this phase touched.
