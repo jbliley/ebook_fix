@@ -58,6 +58,7 @@ from ebook_fix.ellipsis import normalize_ellipsis_text
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
 from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
+from ebook_fix.modules.paragraph_indent_repair import ParagraphIndentRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair, resolve_target_apostrophe_char
 from ebook_fix.apostrophes import normalize_apostrophes_text
 from ebook_fix import series as series_metadata
@@ -89,6 +90,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     SceneBreakRepair,
     SceneOpenerRepair,
     ParagraphSpacingRepair,
+    ParagraphIndentRepair,
     RunningTitleRepair,
 )
 
@@ -183,6 +185,12 @@ class Engine:
         # markup and style repairs.
         if getattr(self.config, "paragraph_spacing_repair", None) and getattr(self.config.paragraph_spacing_repair, "enabled", True):
             modules.append(ParagraphSpacingRepair(self.config.paragraph_spacing_repair))
+        # Stylesheet-only, the other half of Paragraph Spacing: adds an indent
+        # when a book has neither an indent nor a gap. The two never act on
+        # the same book (one needs an indent present, the other absent).
+        # Skipped on fixed-layout books like the other style repairs.
+        if getattr(self.config, "paragraph_indent_repair", None) and getattr(self.config.paragraph_indent_repair, "enabled", True):
+            modules.append(ParagraphIndentRepair(self.config.paragraph_indent_repair))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
         # Runs right after Image Repair, the other module that deals

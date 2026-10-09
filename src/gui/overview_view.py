@@ -62,7 +62,7 @@ BOXES = [
         "key": "styling",
         "title": "Styling and Fonts",
         "sections": ["CSS", "Span Soup", "Possible Decorative Color", "Possible Decorative Font"],
-        "modules": ["color_repair", "font_repair", "paragraph_spacing_repair"],
+        "modules": ["color_repair", "font_repair", "paragraph_spacing_repair", "paragraph_indent_repair"],
     },
     {
         "key": "images",
@@ -95,6 +95,7 @@ PLAIN_NAMES = {
     "scene_break_repair": "Standardize scene breaks",
     "scene_opener_repair": "Mark scene changes that open with capitals",
     "paragraph_spacing_repair": "Remove the gap between indented paragraphs",
+    "paragraph_indent_repair": "Add paragraph indents where the book has none",
     "image_repair": "Fix broken images",
     "cover_repair": "Fix the cover declaration",
     "color_repair": "Remove decorative text colors",

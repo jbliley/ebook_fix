@@ -3381,3 +3381,63 @@ Known, not changed: Metadata Sync only copies values that the two sides agree
 on, so a publisher typed in the GUI changes the EPUB but not Calibre's
 `metadata.opf` when Calibre already has a different publisher. That is the
 existing sync rule, not something this phase touched.
+
+## Done: adding paragraph indents when a book has none (2026-10-09)
+
+Jacob noticed that a converted FB2 ("To Kill a Mockingbird") has no
+paragraph indents: every body paragraph is a bare `<p>` and the converter's
+stylesheet says `p { margin: 0 }`, so the book is a wall of text with
+nothing marking where a paragraph starts. An indent and a gap are the two
+ways a book marks a new paragraph, and this one has neither.
+
+New module `modules/paragraph_indent_repair.py` (Paragraph Indent), the
+other half of Paragraph Spacing: that one removes a gap when there is also
+an indent, this one adds an indent when there is neither. Stylesheet only,
+no chapter file is touched. It acts only when all of these hold:
+
+- One kind of paragraph (bare `<p>` or one class) is at least half of the
+  ordinary paragraphs, there are at least 30, and their median length is at
+  least 40 characters (so verse, scripts and lists are left alone). The
+  existing class analysis could not be used, since it works by class name and
+  these paragraphs have none.
+- The stylesheet gives it no indent, or an explicit zero.
+- The stylesheet explicitly gives it no gap (both margins under 0.5em). A
+  paragraph with no margin declared at all is left alone, since readers draw
+  their own default gap there.
+- Fewer than 10 percent of the paragraphs fake an indent with leading spaces
+  or an inline text-indent.
+- Nothing could be indenting it some other way: a `p + p` rule, an indented
+  wrapper `div`, an `!important`. When in doubt it does nothing.
+
+What it adds is one block at the end of the stylesheet that already styles
+those paragraphs: `p { text-indent: 1.5em }`, then exceptions so these stay
+flush: epigraphs, quotes, poems, table and list cells, subtitles, centered or
+right-aligned paragraphs (by class or inline style, which includes the
+`* * *` scene break lines), and chapter title paragraphs. The first paragraph
+after a heading, a rule or a scene break is also left flush, the way printed
+books do.
+
+Config (`[paragraph_indent_repair]`, and the switch in `[modules]`): on by
+default; `indent = "1.5em"` (any CSS length; an unusable value falls back to
+1.5em) and `flush_first_paragraph = true`. It sits in the Overview's Styling
+and Fonts box as "Add paragraph indents where the book has none", and is on
+the fixed-layout guard list.
+
+Checked: the Mockingbird FB2 (3,353 paragraphs) gets the block; chapters are
+byte-identical, a second run makes zero changes, and a render in a browser
+shows indented paragraphs with the first paragraph under each heading flush
+and the epigraph page unchanged. Run on all 21 example EPUBs, it finds
+nothing to do in any of them: 6 already indent, 7 have a gap between
+paragraphs, 5 have too few `<p>` paragraphs to judge (OmnibusExample has none,
+it uses divs), 1 is short lines, War and Peace fakes its indent with spaces
+or inline styles, and The Call of Cthulhu has a stylesheet too unusual to be
+sure. Of the converted examples, FB2-Example (the same book) and
+FB2-ForeignLanguage get indents; the MOBI and AZW3 books already have them.
+Config options, the CLI repair path, the GUI Overview and Fix, and a reopen
+of the fixed book (nothing left to do) all checked. All 21 books render
+every GUI tab.
+
+Known limits: a book that fakes indents with leading non-breaking spaces or
+a `<br/>`-based layout is not changed; the indent is a stylesheet rule, so it
+shows only in a reader that applies the book's stylesheet; and the amount is
+the same for every book (set it in the config file).

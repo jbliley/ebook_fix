@@ -24,6 +24,7 @@ apostrophe_repair = true
 scene_break_repair = true
 scene_opener_repair = true
 paragraph_spacing_repair = true
+paragraph_indent_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
@@ -283,6 +284,24 @@ target_style = "unicode"
 # is removed and the indent kept. Books that are indented with no gap, or
 # spaced with no indent, are left alone, and the space under chapter
 # headers is kept exactly as it was.
+
+# ---------------------------------------------------------------------
+# Paragraph Indent
+# ---------------------------------------------------------------------
+[paragraph_indent_repair]
+
+# When a book's main body-text style has NO indent and NO gap between
+# paragraphs (a wall of text, as in many converted FB2 books), a first-line
+# indent is added to show where each paragraph starts. Books that already
+# indent, or that put a gap between paragraphs, are left alone, and so is
+# any book where the stylesheet is too unusual to be sure.
+
+# How far the first line is indented: a CSS length such as "1.5em" or "2em".
+indent = "1.5em"
+
+# Leave the first paragraph after a heading or a scene break flush left,
+# the way printed books do. Set to false to indent every paragraph.
+flush_first_paragraph = true
 
 # ---------------------------------------------------------------------
 # Scene Opener Markers
