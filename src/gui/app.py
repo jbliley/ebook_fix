@@ -721,11 +721,21 @@ def browse():
     Runs the dialog in a short-lived subprocess (a plain `python -c`
     call with tkinter, which ships with a standard Python install)
     rather than in-process, since tkinter's own event loop doesn't mix
-    well with Flask's request-handling threads. If tkinter isn't
-    available at all, this fails with a clear message rather than a
-    silent hang."""
+    well with Flask's request-handling threads.
+
+    The chosen path travels back as raw UTF-8 bytes, never as text in
+    the console's own character set. On Windows that set is usually a
+    Western one (cp1252), which cannot hold Cyrillic, Chinese, Arabic
+    and so on, so a book with such letters in its name used to crash
+    the helper and be reported, wrongly, as "tkinter isn't installed"
+    (e.g. a Russian-titled libgen download). Errors are also told
+    apart now: only a genuinely missing tkinter says so."""
     script = (
-        "import tkinter, tkinter.filedialog, sys\n"
+        "import sys\n"
+        "try:\n"
+        "    import tkinter, tkinter.filedialog\n"
+        "except ImportError:\n"
+        "    sys.exit(3)\n"
         "root = tkinter.Tk()\n"
         "root.withdraw()\n"
         "root.attributes('-topmost', True)\n"
@@ -737,20 +747,26 @@ def browse():
         "        ('All files', '*.*'),\n"
         "    ],\n"
         ")\n"
-        "sys.stdout.write(path)\n"
+        "path = str(path) if path else ''\n"
+        "sys.stdout.buffer.write(path.encode('utf-8', 'surrogatepass'))\n"
+        "sys.stdout.buffer.flush()\n"
     )
     try:
         result = subprocess.run(
             [sys.executable, "-c", script],
-            capture_output=True, text=True, timeout=180,
+            capture_output=True, timeout=180,
         )
     except Exception as exc:
         return {"error": f"Couldn't open the file browser: {exc}"}
 
-    if result.returncode != 0:
+    if result.returncode == 3:
         return {"error": "Couldn't open the file browser -- is tkinter installed with your Python?"}
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip().splitlines()
+        reason = detail[-1] if detail else f"exit code {result.returncode}"
+        return {"error": f"Couldn't open the file browser: {reason}"}
 
-    return {"path": result.stdout.strip()}
+    return {"path": result.stdout.decode("utf-8", errors="replace").strip()}
 
 
 def _converted_epub_path(source: Path) -> Path:

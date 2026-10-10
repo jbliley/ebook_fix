@@ -342,6 +342,33 @@ own Windows machine to confirm, same caveat as before). Re-ran the
 full tab regression across all 11 sample books via path-based opening,
 plus a full CLI regression -- both clean.
 
+### Bug fix -- Browse failed on books with non-Western letters in the name (2026-10-10)
+
+Jacob opened a libgen download with a Russian name (Cyrillic letters)
+and got "Couldn't open the file browser -- is tkinter installed with
+your Python?" even though tkinter was fine.
+
+Cause: the file-picker helper sent the chosen path back to the program
+as text through its console channel, and on Windows that channel is
+usually a Western character set (cp1252) that cannot hold Cyrillic,
+Chinese, Arabic and so on. Writing such a path crashed the helper, and
+`/browse` reported every helper crash as "tkinter isn't installed".
+
+Fix: the helper now writes the path as raw UTF-8 bytes and the program
+decodes it as UTF-8, so any language works in a book's name. Errors are
+also told apart now: only a genuinely missing tkinter says so; any other
+failure shows the helper's own reason. Cancelling the dialog still
+returns an empty path with no error.
+
+Tested by standing in a fake tkinter that returns Jacob's exact
+filename and forcing the cp1252 channel: reproduced the original error
+before the fix, then confirmed the path comes back intact after it,
+along with a plain English path, a cancelled dialog, a missing tkinter,
+and a different crash (no longer blamed on tkinter). Also confirmed the
+Cyrillic-named book then opens normally through `/upload` and its
+Overview and Metadata tabs. As before, an actual dialog on a real
+Windows desktop still needs Jacob's own machine to confirm.
+
 ### Phase 4 -- Unified Repair tab (Jacob's top priority)
 A new tab that's the actual single point of "make the changes real,"
 replacing the immediate-write behavior Metadata and Review currently
