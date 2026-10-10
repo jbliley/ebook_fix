@@ -47,6 +47,7 @@ reviewed or handled on a case-by-case basis.
 
 from __future__ import annotations
 import re
+import statistics
 from typing import Set, List, Optional
 from lxml import etree
 
@@ -226,3 +227,166 @@ def filter_contents_page_candidates(book, candidates: List) -> List:
         print(f"[Contents Filter] Removed {removed_count} false-positive candidates from {len(contents_files)} contents page(s)")
     
     return filtered
+
+
+# ---------------------------------------------------------------------
+# A contents list inside a larger file
+# ---------------------------------------------------------------------
+# ContentsPageDetector above only recognizes a file that is *entirely* a
+# contents page. PDF-to-EPUB conversions often leave the contents list
+# as a few lines at the top of the same file as the whole story, with
+# no links and nothing but bare numbers ("1", "2", "3" ... "24"). Those
+# numbers then turn up again later as the real chapter headings, and
+# the sequence finder, which sees two identical runs of numbers, takes
+# the first one: the contents list (found in Three Hearts & Three
+# Lions, where splitting "the chapters" split the contents list).
+
+# Two neighbouring markers closer together than this (in words of text
+# between them) can belong to the same list. Contents lists are usually
+# back to back; a watermark or page-number line may sit in the middle.
+_LIST_MAX_GAP_WORDS = 15
+
+# The typical gap inside a real list is tiny. Real chapters have pages
+# of story between them, so a run with a larger typical gap is not a list.
+_LIST_MAX_MEDIAN_GAP_WORDS = 3
+
+# Fewer entries than this could just be a few short chapters in a row.
+_LIST_MIN_ENTRIES = 5
+
+# A later marker only counts as the "real" version of a list entry if
+# real text follows it.
+_REAL_CHAPTER_MIN_WORDS = 30
+
+_CONTENTS_LABEL_RE = re.compile(
+    r"^\s*(?:table\s+of\s+)?contents\s*:?\s*$"
+    r"|^\s*(?:list\s+of\s+)?chapters\s*:?\s*$",
+    re.IGNORECASE,
+)
+
+_SKIP_TEXT_TAGS = {"style", "script", "title"}
+
+# root element id -> {element: words of text before it}, plus total words.
+# Built once per document; keyed by id(root) and kept only for the
+# duration of one analysis call (see drop_embedded_contents_lists).
+def _word_positions(root) -> tuple:
+    positions = {}
+    count = 0
+    for event, el in etree.iterwalk(root, events=("start", "end")):
+        if not isinstance(el.tag, str):
+            continue
+        if event == "start":
+            positions[el] = count
+            if etree.QName(el).localname.lower() not in _SKIP_TEXT_TAGS and el.text:
+                count += len(el.text.split())
+        elif el.tail:
+            count += len(el.tail.split())
+    return positions, count
+
+
+def _own_words(el) -> int:
+    return len("".join(el.itertext()).split())
+
+
+def drop_embedded_contents_lists(candidates: List) -> tuple:
+    """Removes chapter-marker candidates that are really the entries of
+    a contents list sitting inside a larger file.
+
+    A group of candidates is treated as a contents list when ALL of this
+    holds:
+    - it is a run of at least 5 markers in the same file, each within a
+      few words of the next, with a typical gap of about 3 words or less
+      (real chapters have far more text between them), and
+    - either a "Contents" / "Table of Contents" / "Chapters" label sits
+      just before it, or the same numbering starts again later in the
+      book with real text after each marker (the real headings).
+
+    A run that is only close together (a book of very short chapters, a
+    poetry collection) is never removed, because it has neither a
+    contents label nor a real set of headings elsewhere.
+
+    Returns (kept, removed), both in the original order. Candidates need
+    .href, .number, .element and .book_order (a ChapterCandidate).
+    """
+    ordered = sorted(candidates, key=lambda c: c.book_order)
+    caches: dict = {}
+
+    def positions_for(el):
+        root = el.getroottree().getroot()
+        key = id(root)
+        if key not in caches:
+            caches[key] = _word_positions(root)
+        return caches[key]
+
+    def words_after(cand, nxt) -> int:
+        """Words of text from the end of cand up to nxt (or the end of
+        its document when nxt is None or in another file)."""
+        pos, total = positions_for(cand.element)
+        start = pos.get(cand.element)
+        if start is None:
+            return 0
+        start += _own_words(cand.element)
+        if nxt is not None and nxt.href == cand.href and nxt.element in pos:
+            return max(0, pos[nxt.element] - start)
+        return max(0, total - start)
+
+    # 1. Group neighbouring candidates (same file, small gaps) into runs.
+    runs: list = []
+    current: list = []
+    gaps: list = []
+    for cand in ordered:
+        if cand.element is None:
+            if len(current) >= _LIST_MIN_ENTRIES:
+                runs.append((current, gaps))
+            current, gaps = [], []
+            continue
+        if current and current[-1].href == cand.href:
+            gap = words_after(current[-1], cand)
+            # A list counts up. When the number drops back (the "1" that
+            # starts the real chapters right after a contents list), that
+            # is where a new run begins, never a continuation.
+            counts_up = (
+                current[-1].number is None
+                or cand.number is None
+                or cand.number > current[-1].number
+            )
+            if gap <= _LIST_MAX_GAP_WORDS and counts_up:
+                gaps.append(gap)
+                current.append(cand)
+                continue
+        if len(current) >= _LIST_MIN_ENTRIES:
+            runs.append((current, gaps))
+        current, gaps = [cand], []
+    if len(current) >= _LIST_MIN_ENTRIES:
+        runs.append((current, gaps))
+
+    removed_ids: set = set()
+    for run, run_gaps in runs:
+        if statistics.median(run_gaps) > _LIST_MAX_MEDIAN_GAP_WORDS:
+            continue
+
+        first, last = run[0], run[-1]
+
+        # (a) a "Contents" label just before the list
+        before = first.element.xpath("preceding::text()[normalize-space()]")[-3:]
+        labelled = any(_CONTENTS_LABEL_RE.match(str(text)) for text in before)
+
+        # (b) the same numbering starts again later with real text
+        later_real = False
+        if first.number is not None:
+            run_ids = {id(c) for c in run}
+            for i, cand in enumerate(ordered):
+                if cand.book_order <= last.book_order or id(cand) in run_ids:
+                    continue
+                if cand.number != first.number or cand.element is None:
+                    continue
+                nxt = ordered[i + 1] if i + 1 < len(ordered) else None
+                if words_after(cand, nxt) >= _REAL_CHAPTER_MIN_WORDS:
+                    later_real = True
+                    break
+
+        if labelled or later_real:
+            removed_ids.update(id(c) for c in run)
+
+    kept = [c for c in candidates if id(c) not in removed_ids]
+    removed = [c for c in candidates if id(c) in removed_ids]
+    return kept, removed

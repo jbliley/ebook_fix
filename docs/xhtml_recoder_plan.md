@@ -1074,6 +1074,48 @@ its file name, so the Prologue no longer collides with Chapter One;
 unnumbered files use `chapter_NNN` when free and the first free
 `section_NNN` otherwise.
 
+## Done: a contents list inside the story's own file was split instead of the chapters (2026-10-10)
+Found with a PDF-converted *Three Hearts & Three Lions*
+(`Watermarks-SmallChapterNumbers.epub`). The whole story is one 431 KB
+file, and a few lines at its top are a contents list of bare numbers
+(1 to 24, no links) with a watermark line in the middle. The same 24
+numbers appear again later as the real chapter headings. Bare numbers all
+score the same, so the sequence finder saw two identical runs and, on a
+tie, took the first: the contents list. The Review tab offered only those
+24 boxes, and applying them produced 23 tiny files holding just "1" to
+"23" plus one giant file holding the whole book.
+
+The existing `ContentsPageDetector` only recognizes a file that is
+*entirely* a contents page, and says so in its own notes (a list embedded
+in a larger file is out of scope). `contents_filter.drop_embedded_contents_lists()`
+now covers that case, and `chapters.analyze_book_chapters()` calls it right
+after the whole-file check, before sequence finding.
+
+A group of markers is treated as an embedded contents list only when it is
+a run of at least 5 in the same file that counts up, each within 15 words
+of the next with a typical gap of 3 words or less (real chapters have pages
+of story between them), AND either a "Contents" / "Table of Contents" /
+"Chapters" label sits just before it, or the same numbering starts again
+later in the book with at least 30 words of text after the marker. A run
+that is merely close together is never removed, so a book of very short
+numbered chapters or poems is safe. When the numbering drops back (the real
+"1" right after the list), a new run begins, so the first real chapter is
+never swallowed by the list in front of it.
+
+Tested: the Review tab now offers the 24 real chapter starts; running the
+real accept-and-fix flow gives 24 chapter files of 9 to 27 KB, each starting
+with its number and opening line, navigation entries "1" to "24" pointing at
+them, and the front matter (copyright, Contents list, prologue) kept
+together in its own file. Chapter detection on the other 21 example books
+is unchanged. Guard cases: a labelled list, an unlabelled list that repeats
+later, a list with no later headings, a list followed immediately by the
+real "1", short numbered chapters (kept), spaced-out runs (kept), fewer
+than 5 entries (kept), and an ordinary book (untouched).
+
+Still open: a contents list that has titles next to the numbers
+("1  The Dream") inside a larger file is not covered, and neither is a
+list whose entries are separated by more than a few words.
+
 ## Continuity note
 This file is the source of truth for where this feature stands --
 more reliable than relying on conversation memory across sessions.

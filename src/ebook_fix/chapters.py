@@ -38,7 +38,7 @@ from enum import Enum
 
 from lxml import etree
 
-from ebook_fix.contents_filter import ContentsPageDetector
+from ebook_fix.contents_filter import ContentsPageDetector, drop_embedded_contents_lists
 
 # Block-level tags we consider as chapter-marker candidates. "div" is
 # deliberately excluded: a div very often wraps a whole chapter's worth
@@ -1144,6 +1144,11 @@ def analyze_book_chapters(book) -> BookChapterSummary:
     contents_files = detector.detect_contents_files(book)
     if contents_files:
         all_candidates = detector.filter_candidates(all_candidates, contents_files)
+
+    # ...and from a contents list that sits inside a larger file (a few
+    # lines of bare numbers at the top of the story's own file), which the
+    # whole-file check above cannot see.
+    all_candidates, _embedded_contents = drop_embedded_contents_lists(all_candidates)
 
     part_candidates = [c for c in all_candidates if c.label_kind == "part"]
     unnumbered_candidates = [c for c in all_candidates if c.label_kind == "unnumbered"]
