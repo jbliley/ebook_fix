@@ -91,7 +91,7 @@ You do **not** need to install `ebook_fix` as a command to use the GUI.
 
 > **Important:** Leave the command window opened while using the GUI. Closing that window stops the GUI server.
 
-The GUI runs locally on your computer. Nothing is sent over the internet; it is simply a local application that uses your web browser as its interface.
+The GUI runs locally on your computer. Nothing is sent over the internet unless you click one of the **Look Up** buttons on the Metadata tab. Those send only the book's ISBN, or its title and author, to [Open Library](https://openlibrary.org) to find suggested details, which you then accept or ignore. Otherwise it is simply a local application that uses your web browser as its interface.
 
 ### Starting the GUI manually
 

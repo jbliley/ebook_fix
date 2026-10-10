@@ -6,8 +6,9 @@ directly: `python run_gui.py`.
 
 A browser tab opens automatically at http://127.0.0.1:5000. Leave
 this window open while using the GUI; closing it (or pressing Ctrl+C)
-stops the program. Nothing here is sent over the internet -- it's a
-normal program that happens to display itself in your browser.
+stops the program. Nothing is sent over the internet unless you click a
+Look Up button on the Metadata tab -- it's a normal program that happens
+to display itself in your browser.
 """
 import sys
 from pathlib import Path

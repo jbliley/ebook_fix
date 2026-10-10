@@ -1201,75 +1201,47 @@ def clear_cover(session_id):
 
 @app.route("/book/<session_id>/lookup", methods=["POST"])
 def book_lookup(session_id):
-    """Handles ISBN/title+author metadata lookup from Open Library.
-    
+    """Looks the book up on Open Library and returns suggestions for the
+    Metadata tab's blue notes. Nothing is changed or saved here; the
+    person clicks "Use it" on a note to put a value into a field.
+
     Request body (JSON):
-    - search_type: 'isbn' or 'title_author'
-    - isbn: (if search_type='isbn')
-    - title: (if search_type='title_author')
-    - author: (if search_type='title_author', optional)
-    
-    Returns JSON:
-    - status: 'success', 'not_found', 'offline', 'error'
-    - result: lookup result dict (if success)
-    - comparison: comparison result (if success)
-    - message: error message (if not success)
+    - search_type: 'isbn' (reads the ISBN from the book's own
+      identifiers) or 'title_author'
+    - current: the field values on the page right now (title, author,
+      publisher, date, description), so suggestions are compared against
+      what the person actually sees, including edits not yet saved
+
+    Returns JSON with 'status' ('success', 'not_found', 'no_isbn',
+    'offline', 'busy' or 'error') and a plain-English 'message'; a
+    success also has 'suggestions' ({field: value}) and 'found'.
+    See ebook_fix.isbn_lookup.run_lookup.
     """
-    try:
-        session_dir = _session_dir(session_id)
-        book = EPUBParser().load(_source_path(session_dir))
-    except FileNotFoundError:
-        return jsonify({'status': 'error', 'message': 'Book file not found. Session may have expired.'}), 404
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Failed to load book: {str(e)}'}), 500
-    
-    try:
-        data = request.get_json() or {}
-    except Exception:
-        return jsonify({'status': 'error', 'message': 'Invalid request'}), 400
-    
-    search_type = data.get('search_type', 'isbn').strip().lower()
-    result = None
-    
-    if search_type == 'isbn':
-        isbn_input = (data.get('isbn') or '').strip()
-        if not isbn_input:
-            return jsonify({'status': 'error', 'message': 'No ISBN provided'}), 400
-        result = isbn_lookup.fetch_isbn_metadata(isbn_input)
-    
-    elif search_type == 'title_author':
-        title = (data.get('title') or '').strip()
-        author = (data.get('author') or '').strip() or None
-        if not title:
-            return jsonify({'status': 'error', 'message': 'No title provided'}), 400
-        result = isbn_lookup.fetch_title_author_metadata(title, author)
-    
-    else:
-        return jsonify({'status': 'error', 'message': 'Invalid search type'}), 400
-    
-    if result is None:
-        return jsonify({'status': 'not_found', 'message': 'No metadata found'}), 200
-    
-    # Compare with current metadata
-    # Read staged metadata if available to compare against edited values
-    staged = _read_staged(_staged_metadata_path(session_dir))
-    
-    current_metadata = {
-        'title': staged.get('fields', {}).get('title') or book.metadata.title or '',
-        'author': staged.get('fields', {}).get('author') or book.metadata.creator or '',
-        'publisher': staged.get('fields', {}).get('publisher') or book.metadata.publisher or '',
-        'publish_date': staged.get('fields', {}).get('publish_date') or book.metadata.date or '',
-        'description': staged.get('fields', {}).get('description') or book.metadata.description or '',
-        'series_name': staged.get('series_name') or '',
-    }
-    
-    comparison = isbn_lookup.compare_metadata(current_metadata, result)
-    
-    return jsonify({
-        'status': 'success',
-        'result': result,
-        'comparison': comparison,
-    }), 200
+    session_dir = _session_dir(session_id)  # a 404 for an unknown session
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"status": "error", "message": "Invalid request."}), 400
+
+    search_type = str(data.get("search_type") or "isbn").strip().lower()
+    if search_type not in ("isbn", "title_author"):
+        return jsonify({"status": "error", "message": "Invalid search type."}), 400
+
+    current = data.get("current")
+    if not isinstance(current, dict):
+        current = {}
+
+    book = None
+    if search_type == "isbn":
+        # Only the ISBN search needs the book itself (to read its identifiers).
+        try:
+            book = EPUBParser().load(_source_path(session_dir))
+        except FileNotFoundError:
+            return jsonify({"status": "error", "message": "Book file not found. Session may have expired."}), 404
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Failed to load book: {e}"}), 500
+
+    return jsonify(isbn_lookup.run_lookup(search_type, current, book)), 200
 
 
 @app.route("/book/<session_id>/review")
