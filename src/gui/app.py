@@ -41,6 +41,7 @@ import io
 import base64
 import json
 import mimetypes
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -223,7 +224,60 @@ def _source_path(session_dir: Path) -> Path:
     folder can never be recognized as Calibre-managed no matter what
     it contains. See docs/gui_plan.md, "Bug fix -- Calibre detection
     and save location"."""
+    real = Path((session_dir / "real_path.txt").read_text(encoding="utf-8"))
+    copy = session_dir / "converted_before.epub"
+    if not real.exists() and copy.exists():
+        return copy
+    return real
+
+
+def _real_path(session_dir: Path) -> Path:
+    """The book's own location on disk, exactly as recorded when it was
+    opened -- whether or not a file is still sitting there. Used for
+    working out where the "_fixed" file and the "_original" backup go,
+    which has to stay the same even after a converted book's temporary
+    EPUB has been cleaned up (see _cleanup_converted_epub())."""
     return Path((session_dir / "real_path.txt").read_text(encoding="utf-8"))
+
+
+def _converted_flag_path(session_dir: Path) -> Path:
+    """Present only for a session opened from an FB2/MOBI. Holds the path
+    of the EPUB this program made from it, so that file can be cleaned
+    up once its repaired copy exists."""
+    return session_dir / "converted.flag"
+
+
+def _converted_copy_path(session_dir: Path) -> Path:
+    """A private copy of a converted EPUB, kept in the session's own temp
+    folder once the converted file is removed from the book's folder, so
+    the tabs and re-running Fix still have the "before" book to work on."""
+    return session_dir / "converted_before.epub"
+
+
+def _cleanup_converted_epub(session_dir: Path) -> None:
+    """After a successful fix of a book that was converted from an FB2 or
+    MOBI, removes the intermediate converted EPUB from the book's folder,
+    so only the "_fixed.epub" is left next to the original. The converted
+    EPUB is first copied into the session's temp folder, and _source_path()
+    falls back to that copy, so Before/After, the Overview and a second Fix
+    keep working. Never touches a file this session did not create, never
+    runs when the fixed file is missing, and a locked file (Windows) is
+    simply left in place instead of failing the fix."""
+    flag = _converted_flag_path(session_dir)
+    if not flag.exists() or _replaced_flag_path(session_dir).exists():
+        return
+    converted = Path(flag.read_text(encoding="utf-8"))
+    if converted != _real_path(session_dir) or not converted.is_file():
+        return
+    if not _fixed_output_path(session_dir).is_file():
+        return
+    copy = _converted_copy_path(session_dir)
+    try:
+        if not copy.exists():
+            shutil.copy2(converted, copy)
+        converted.unlink()
+    except OSError:
+        return
 
 
 def _load_analysis(session_dir: Path):
@@ -275,7 +329,7 @@ def _fixed_output_path(session_dir: Path) -> Path:
     the book's real location, this is the only path a fix is ever
     written to -- no browser download step, the file's just already
     in the right folder."""
-    source = _source_path(session_dir)
+    source = _real_path(session_dir)
     return source.with_name(source.stem + "_fixed" + source.suffix)
 
 
@@ -284,7 +338,7 @@ def _original_backup_path(session_dir: Path) -> Path:
     Calibre-managed book can end up back under its own original
     filename (what Calibre's own database points at) without ever
     losing the untouched original outright. See replace_original()."""
-    source = _source_path(session_dir)
+    source = _real_path(session_dir)
     return source.with_name(source.stem + "_original" + source.suffix)
 
 
@@ -724,6 +778,7 @@ def upload():
     if not path_obj.is_file():
         return render_template("index.html", error=f"Can't find that file: {typed_path}")
     suffix = path_obj.suffix.lower()
+    converted_here = False
     if suffix in MOBI_EXTENSIONS or suffix in FB2_EXTENSIONS:
         # A MOBI/AZW/AZW3/PRC or FB2 book is converted to an EPUB first (see
         # ebook_fix.mobi.convert / ebook_fix.fb2.convert; an AZW3 is routed
@@ -742,6 +797,7 @@ def upload():
             traceback.print_exc()
             return render_template("index.html", error=f"Something went wrong converting that book to EPUB: {exc}")
         path_obj = target
+        converted_here = True
     elif suffix != ".epub":
         return render_template(
             "index.html",
@@ -753,6 +809,8 @@ def upload():
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "real_path.txt").write_text(str(path_obj.resolve()), encoding="utf-8")
     (session_dir / "original_filename.txt").write_text(path_obj.name, encoding="utf-8")
+    if converted_here:
+        _converted_flag_path(session_dir).write_text(str(path_obj.resolve()), encoding="utf-8")
     return redirect(url_for("book_overview", session_id=session_id))
 
 
@@ -1790,6 +1848,11 @@ def fix_book(session_id):
             _staged_metadata_path(session_dir).unlink(missing_ok=True)
             _staged_review_path(session_dir).unlink(missing_ok=True)
 
+    # A book converted from an FB2/MOBI no longer needs its intermediate
+    # EPUB once the fixed copy exists (skipped automatically if the
+    # original was just replaced, since that file now IS the fixed book).
+    _cleanup_converted_epub(session_dir)
+
     already_replaced = _replaced_flag_path(session_dir).exists()
     return render_template(
         "fix_result.html",
@@ -1838,12 +1901,29 @@ def _replace_original_files(session_dir: Path) -> dict:
     Used by both the Replace original button on the result page and the
     Replace original checkbox next to Fix This Book."""
     fixed_path = _fixed_output_path(session_dir)
-    source_path = _source_path(session_dir)
+    source_path = _real_path(session_dir)
     backup_path = _original_backup_path(session_dir)
     outcome = {"ok": False, "error": None, "source": str(source_path), "backup": str(backup_path)}
+    converted_gone = _converted_flag_path(session_dir).exists() and not source_path.exists()
 
     if not fixed_path.exists():
         outcome["error"] = "There is no repaired file to put in place yet."
+        return outcome
+
+    if converted_gone:
+        # The converted EPUB was already cleaned up after the fix, so
+        # there is no file to back up: the repaired book just takes its
+        # name. The untouched "before" copy stays in the temp folder.
+        try:
+            fixed_path.rename(source_path)
+        except OSError as exc:
+            outcome["error"] = (
+                f"Couldn't move the repaired file into place: {exc}. "
+                "This usually means something else has the book open -- close it and try again."
+            )
+            return outcome
+        _replaced_flag_path(session_dir).write_text(str(_converted_copy_path(session_dir)), encoding="utf-8")
+        outcome["ok"] = True
         return outcome
 
     if backup_path.exists():
