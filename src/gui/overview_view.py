@@ -276,7 +276,6 @@ def build_overview_page(book, ar, module_reports, module_labels, module_enabled,
     facts = _build_facts(ar, module_reports)
 
     # ---- header ----
-    page_count = s.html_page_count
     header = {
         "title": merged.title.display_value or filename,
         "author": merged.author.display_value or "",
@@ -284,7 +283,6 @@ def build_overview_page(book, ar, module_reports, module_labels, module_enabled,
             part for part in (
                 f"EPUB {s.epub_version}" if s.epub_version else "EPUB",
                 f"{s.total_word_count:,} words",
-                _plural(page_count, "page"),
             ) if part
         ),
     }

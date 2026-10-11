@@ -125,6 +125,13 @@ def overwrite_file(src, dst, attempts: int = ATTEMPTS, delay: float = DELAY_SECO
     return "copied"
 
 
+def remove_file(path, attempts: int = ATTEMPTS, delay: float = DELAY_SECONDS) -> None:
+    """Deletes a file permanently, retrying when Windows says it is in
+    use and clearing a read-only mark first."""
+    p = usable_path(path)
+    _retry(lambda: os.remove(p), p, attempts, delay)
+
+
 # ---------------------------------------------------------------------
 # Finding out who has the file
 # ---------------------------------------------------------------------

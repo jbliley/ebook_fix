@@ -149,7 +149,7 @@ def build_overview(analysis_report) -> list[Section]:
     sections.append(Section("Book Metadata", metadata_lines))
 
     sections.append(Section("File Contents", [
-        f"HTML/XHTML pages: {s.html_page_count}",
+        f"Content files (internal XHTML files, not book pages): {s.html_page_count}",
         f"Spine entries: {s.spine_entry_count}",
         f"TOC entries: {s.toc_entry_count}" + (f" (from {s.toc_source})" if s.toc_source else " (no NCX or nav document found)"),
         f"CSS files: {s.css_file_count}",
@@ -176,9 +176,9 @@ def build_overview(analysis_report) -> list[Section]:
         structure_lines.append("Chapters Detected: None (run `map-structure` to check for weaker, unlabeled candidates)")
     if fm.boundaries_confirmed:
         structure_lines.append(
-            f"Front Matter: {fm.front_matter_count} page(s) | "
-            f"Back Matter: {fm.back_matter_count} page(s) | "
-            f"Main Content: {fm.main_content_count} page(s)"
+            f"Front Matter: {fm.front_matter_count} file(s) | "
+            f"Back Matter: {fm.back_matter_count} file(s) | "
+            f"Main Content: {fm.main_content_count} file(s)"
         )
     else:
         structure_lines.append("Front/Back Matter: not classified (no confirmed chapter sequence to anchor on)")
@@ -255,7 +255,7 @@ def build_issues(analysis_report) -> list[Section]:
     structural_issues = []
     if analysis_report.unexplained_thin_chapters:
         explained_count = len(analysis_report.thin_chapters) - len(analysis_report.unexplained_thin_chapters)
-        explained_note = f" ({explained_count} more thin page(s) explained by front/back matter, not counted here)" if explained_count else ""
+        explained_note = f" ({explained_count} more thin file(s) explained by front/back matter, not counted here)" if explained_count else ""
         structural_issues.append(f"Thin/Empty Chapters: {len(analysis_report.unexplained_thin_chapters)}{explained_note}")
     elif analysis_report.thin_chapters:
         structural_issues.append(f"Thin/Empty Chapters: 0 unexplained ({len(analysis_report.thin_chapters)} explained by front/back matter)")

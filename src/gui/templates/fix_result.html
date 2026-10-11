@@ -31,6 +31,12 @@
 </div>
 {% endif %}
 
+{% if delete_outcome and delete_outcome.ok %}
+<div class="saved-banner">Deleted the kept original, <code>{{ delete_outcome.path }}</code>.</div>
+{% elif delete_outcome %}
+<div class="staged-banner" style="background:#fff5f5;border-color:#feb2b2;color:#742a2a;">{{ delete_outcome.error }}</div>
+{% endif %}
+
 {% if replace_outcome and not replace_outcome.ok %}
 <div class="staged-banner" style="background:#fff5f5;border-color:#feb2b2;color:#742a2a;">
   {{ replace_outcome.error }}
@@ -65,6 +71,16 @@
 </form>
 {% endif %}
 
+{% if backup_deletable and already_replaced %}
+<form method="post" action="{{ url_for('delete_original_backup', session_id=session_id) }}" style="margin-bottom:1.2rem;"
+      onsubmit="return confirm('Permanently delete the kept original file? This cannot be undone.');">
+  <button type="submit" class="button secondary">Delete the kept original (pre-repair) file</button>
+  <p class="details-toggle" style="margin-top:0.4rem;">
+    Look the repaired book over first (the Before / After tab compares the two). This permanently deletes
+    <code>{{ replaced_backup or '' }}</code>; it is not sent to the Recycle Bin.
+  </p>
+</form>
+{% endif %}
 <p>
   <a class="button secondary" href="{{ url_for('book_before_after', session_id=session_id) }}">See what changed (Before / After)</a>
   <a class="button secondary" href="{{ url_for('book_overview', session_id=session_id) }}">Back to Overview</a>

@@ -1133,6 +1133,8 @@ Two books Jacob tested turned up a batch of separate problems. All were reproduc
 
 **GUI**
 - Before/After: once the original was replaced, the tab now compares the kept `<name>_original.epub` (before) with the book itself (after), in the same session or a later one (`_comparison_paths` in `gui/app.py`).
+- Delete the kept original: after Replace original, the result page and the Before/After tab offer a "Delete the kept original (pre-repair) file" button (route `delete_original_backup`). It asks for confirmation, deletes only `<name>_original.epub`, only when the repaired book is in place beside it, and is permanent (no Recycle Bin).
+- Overview: the header no longer shows a page total. It counted internal XHTML files, so a long novel looked like it had about 30 pages. The words total stays, and the detail lines now say "file(s)" instead of "page(s)".
 - Replace original on Calibre books: new `gui/file_swap.py` retries a refused rename, clears a read-only mark, uses the long-path form on Windows, and falls back to copying. When it still fails it names the program holding the file (Windows Restart Manager) or a Calibre program still running in the background, and states that nothing was changed. The exact cause on Jacob's machine is not confirmed yet; this needs his result.
 
 ## Continuity note

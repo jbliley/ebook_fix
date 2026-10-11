@@ -1870,7 +1870,20 @@ def fix_book(session_id):
         already_replaced=already_replaced,
         replace_outcome=replace_outcome,
         replaced_backup=_replaced_flag_path(session_dir).read_text(encoding="utf-8") if already_replaced else None,
+        backup_deletable=_backup_deletable(session_dir),
     )
+
+
+def _backup_deletable(session_dir: Path) -> bool:
+    """True when the kept "<name>_original.epub" sits next to the book
+    and the book itself is there, so the Delete button can be offered.
+    Only ever that one file, never the book."""
+    try:
+        real = _real_path(session_dir)
+    except OSError:
+        return False
+    backup = _original_backup_path(session_dir)
+    return backup != real and backup.is_file() and real.is_file()
 
 
 def _comparison_paths(session_dir: Path):
@@ -2033,6 +2046,46 @@ def replace_original(session_id):
         already_replaced=already_replaced,
         replace_outcome=outcome,
         replaced_backup=_replaced_flag_path(session_dir).read_text(encoding="utf-8") if already_replaced else None,
+        backup_deletable=_backup_deletable(session_dir),
+    )
+
+
+@app.route("/book/<session_id>/delete-original-backup", methods=["POST"])
+def delete_original_backup(session_id):
+    """Deletes the kept "<name>_original.epub" (the pre-repair file),
+    once the person has looked at the repaired book and is happy with
+    it. Permanent. Only ever deletes that one backup file, and only when
+    the repaired book is in place next to it."""
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    backup = _original_backup_path(session_dir)
+    outcome = {"ok": False, "error": None, "path": str(backup)}
+    if not _backup_deletable(session_dir):
+        outcome["error"] = (
+            f"There is no kept original at {backup} to delete (or the repaired book is "
+            "not in place next to it). Nothing was deleted."
+        )
+    else:
+        try:
+            file_swap.remove_file(backup)
+            outcome["ok"] = True
+        except OSError as exc:
+            outcome["error"] = file_swap.explain_failure("Couldn't delete the kept original", backup, exc).replace(
+                "Nothing was changed.", "The file was not deleted."
+            )
+    already_replaced = _replaced_flag_path(session_dir).exists()
+    return render_template(
+        "fix_result.html",
+        active_tab="overview",
+        session_id=session_id,
+        filename=filename,
+        result=None,
+        has_fixed=_fixed_output_path(session_dir).exists(),
+        already_replaced=already_replaced,
+        replace_outcome=None,
+        replaced_backup=_replaced_flag_path(session_dir).read_text(encoding="utf-8") if already_replaced else None,
+        delete_outcome=outcome,
+        backup_deletable=_backup_deletable(session_dir),
     )
 
 
@@ -2107,6 +2160,7 @@ def book_before_after(session_id):
             has_fixed=True,
             chapters=[],
             kept_backup=str(kept_backup) if kept_backup else None,
+            backup_deletable=_backup_deletable(session_dir),
         )
 
     requested_href = request.args.get("href")
@@ -2128,6 +2182,7 @@ def book_before_after(session_id):
         selected=selected,
         after_href=after_href,
         kept_backup=str(kept_backup) if kept_backup else None,
+        backup_deletable=_backup_deletable(session_dir),
     )
 
 

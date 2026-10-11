@@ -4,9 +4,8 @@
 {% if already_replaced %}
 <p class="empty-state">
   This book's original file was already replaced with its repaired version (the pre-repair file
-  was kept as <code>{{ replaced_backup }}</code>). There's no separate "_fixed" file left to
-  compare against anymore &mdash; open the book again from the Overview tab if you'd like to
-  review it fresh, or check the kept backup directly.
+  was kept as <code>{{ replaced_backup }}</code>, which is no longer there, so there is nothing
+  left to compare against).
 </p>
 {% else %}
 <p class="empty-state">
@@ -22,6 +21,12 @@
   This book was already replaced with its repaired version, so <strong>Before</strong> is the kept
   original (<code>{{ kept_backup }}</code>) and <strong>After</strong> is the book itself.
 </p>
+{% if backup_deletable %}
+<form method="post" action="{{ url_for('delete_original_backup', session_id=session_id) }}" style="margin-bottom:1rem;"
+      onsubmit="return confirm('Permanently delete the kept original file? This cannot be undone.');">
+  <button type="submit" class="button secondary">Happy with it? Delete the kept original (pre-repair) file</button>
+</form>
+{% endif %}
 {% endif %}
 <form method="get" action="{{ url_for('book_before_after', session_id=session_id) }}" style="margin-bottom:1rem;">
   <label for="chapter-select" style="margin-top:0;">Chapter</label>
