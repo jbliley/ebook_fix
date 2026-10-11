@@ -59,6 +59,8 @@ from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
 from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.paragraph_indent_repair import ParagraphIndentRepair
+from ebook_fix.modules.header_spacing_repair import HeaderSpacingRepair
+from ebook_fix.modules.text_size_repair import TextSizeRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair, resolve_target_apostrophe_char
 from ebook_fix.apostrophes import normalize_apostrophes_text
 from ebook_fix import series as series_metadata
@@ -87,10 +89,12 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     TocCleanupRepair,
     DeadLinkRepair,
     TocGenerationRepair,
+    HeaderSpacingRepair,
     SceneBreakRepair,
     SceneOpenerRepair,
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
+    TextSizeRepair,
     RunningTitleRepair,
 )
 
@@ -166,6 +170,12 @@ class Engine:
         # pass -- see modules/toc_generation.py's module docstring.
         if getattr(self.config, "toc_generation", None) and getattr(self.config.toc_generation, "enabled", True):
             modules.append(TocGenerationRepair(self.config.toc_generation))
+        # Right after Chapter Markup (it relies on the chapter headers
+        # that module marks): keeps 2 to 5 visible blank lines between
+        # each chapter header and its first paragraph. Skipped on
+        # fixed-layout books like the other markup repairs.
+        if getattr(self.config, "header_spacing_repair", None) and getattr(self.config.header_spacing_repair, "enabled", True):
+            modules.append(HeaderSpacingRepair(self.config.header_spacing_repair))
         # Runs right after Chapter Markup, before anything text-level:
         # this only ever touches <hr> elements (never text/tail nodes),
         # and its classification depends on chapter boundary awareness
@@ -191,6 +201,11 @@ class Engine:
         # Skipped on fixed-layout books like the other style repairs.
         if getattr(self.config, "paragraph_indent_repair", None) and getattr(self.config.paragraph_indent_repair, "enabled", True):
             modules.append(ParagraphIndentRepair(self.config.paragraph_indent_repair))
+        # Stylesheet-only: makes the text size independent of the page body
+        # size (reading apps that ignore it otherwise show huge text).
+        # Skipped on fixed-layout books like the other style repairs.
+        if getattr(self.config, "text_size_repair", None) and getattr(self.config.text_size_repair, "enabled", True):
+            modules.append(TextSizeRepair(self.config.text_size_repair))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
         # Runs right after Image Repair, the other module that deals

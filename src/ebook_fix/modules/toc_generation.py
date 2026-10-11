@@ -79,11 +79,12 @@ class TocGenerationRepair:
         report = Report(self.name)
         if self.config is not None and not getattr(self.config, "enabled", True):
             return report
-        if not self._eligible(book):
+        if not self._eligible(book, analysis):
             return report
 
+        placeholder = self._is_placeholder_toc(book, analysis)
         location = book.package_path or "content.opf"
-        if self._ncx_needs_generating(book):
+        if self._ncx_needs_generating(book, placeholder):
             report.add(
                 location,
                 "No table of contents at all",
@@ -107,9 +108,10 @@ class TocGenerationRepair:
         report = Report(self.name)
         if self.config is not None and not getattr(self.config, "enabled", True):
             return report
-        if not self._eligible(book):
+        if not self._eligible(book, analysis):
             return report
 
+        placeholder = self._is_placeholder_toc(book, analysis)
         chapter_summary = analysis.chapters if analysis is not None else None
         entries = build_toc_entries(book, chapter_summary=chapter_summary)
         if not entries:
@@ -117,7 +119,7 @@ class TocGenerationRepair:
             # (case 3 books never get a generated TOC).
             return report
 
-        if self._ncx_needs_generating(book):
+        if self._ncx_needs_generating(book, placeholder):
             self._add_ncx(book, entries, report)
 
         if self._needs_nav(book):
@@ -129,7 +131,27 @@ class TocGenerationRepair:
     # Eligibility
     # -----------------------------------------------------
 
-    def _eligible(self, book):
+    # A TOC with this few entries (often a lone "Start" or "Cover" link
+    # left by a converter) is a placeholder, not a real table of
+    # contents, when the book clearly has many chapters.
+    _PLACEHOLDER_TOC_MAX_ENTRIES = 2
+    _PLACEHOLDER_TOC_MIN_CHAPTERS = 5
+
+    @staticmethod
+    def _count_entries(entries):
+        return sum(1 + TocGenerationRepair._count_entries(e.children) for e in entries)
+
+    def _is_placeholder_toc(self, book, analysis):
+        if not getattr(book, "toc_source", ""):
+            return False
+        if self._count_entries(book.toc or []) > self._PLACEHOLDER_TOC_MAX_ENTRIES:
+            return False
+        summary = getattr(analysis, "chapters", None) if analysis is not None else None
+        if summary is None:
+            return False
+        return len(summary.confirmed_boundaries or []) >= self._PLACEHOLDER_TOC_MIN_CHAPTERS
+
+    def _eligible(self, book, analysis=None):
         # book.toc_source is set once at parse time and never updated
         # afterward, so this stays a reliable "did this book start out
         # with nothing at all" check across every pass of a multi-pass
@@ -141,12 +163,14 @@ class TocGenerationRepair:
         # right where that addition actually happens -- book.ncx_document/
         # book.nav_item DO reflect whatever this module (or
         # EPUB3UpgradeRepair) already added on an earlier pass.
+        if self._is_placeholder_toc(book, analysis):
+            return True
         return not getattr(book, "toc_source", "")
 
     def _needs_nav(self, book):
         return book.version.startswith("3") and book.nav_item is None
 
-    def _ncx_needs_generating(self, book):
+    def _ncx_needs_generating(self, book, placeholder=False):
         # Not just "book.ncx_document is None" -- a book can ship an
         # NCX *file* that parses fine but whose navMap has no
         # navPoints in it at all (an empty shell some conversion tool
@@ -165,7 +189,9 @@ class TocGenerationRepair:
         nav_map = ncx.find(f"{{{NCX_NS_URI}}}navMap")
         if nav_map is None:
             return True
-        return len(nav_map.findall(f"{{{NCX_NS_URI}}}navPoint")) == 0
+        # Count every navPoint, nested ones too.
+        count = len(list(nav_map.iter(f"{{{NCX_NS_URI}}}navPoint")))
+        return count <= (self._PLACEHOLDER_TOC_MAX_ENTRIES if placeholder else 0)
 
     # -----------------------------------------------------
     # toc.ncx

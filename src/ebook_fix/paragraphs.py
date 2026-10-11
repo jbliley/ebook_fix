@@ -42,6 +42,7 @@ import re
 from dataclasses import dataclass, field
 
 from ebook_fix.headings import is_chapter_header
+from ebook_fix.chapters import _classify as _classify_chapter_label
 
 SENTENCE_ENDINGS = ('.', '!', '?', '"', "'", ')', '\u201d', '\u2019')
 MIN_WORDS_FOR_MERGE = 4
@@ -148,6 +149,13 @@ def _renders_gap(element) -> bool:
     return "\u00a0" in "".join(element.itertext())
 
 
+def _reads_as_chapter_label(el) -> bool:
+    """A short element whose text is a chapter label ("Chapter 2", "7",
+    "Prologue"), even when the chapter analysis did not confirm it."""
+    text = _text(el)
+    return bool(text) and len(text) <= 40 and _classify_chapter_label(text) is not None
+
+
 def _is_spacing_after_header(p, markers) -> bool:
     """True for a blank, gap-showing paragraph sitting directly under a
     chapter header (see ebook_fix.headings), including when several
@@ -160,7 +168,7 @@ def _is_spacing_after_header(p, markers) -> bool:
         if not isinstance(node.tag, str):
             node = node.getprevious()
             continue
-        if is_chapter_header(node, markers):
+        if is_chapter_header(node, markers) or _reads_as_chapter_label(node):
             return True
         if node.tag.rsplit("}", 1)[-1].lower() == "p" and _is_empty(node):
             node = node.getprevious()

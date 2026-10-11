@@ -177,6 +177,22 @@ class ParagraphSpacingConfig:
 
 
 @dataclass(slots=True)
+class TextSizeConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
+class HeaderSpacingConfig:
+    enabled: bool = True
+    # Blank lines kept under each chapter header, between the header and
+    # the first paragraph: fewer than min_lines get topped up, more than
+    # max_lines get cut down. A header that is an image, or that the
+    # stylesheet already spaces, is left alone.
+    min_lines: int = 2
+    max_lines: int = 5
+
+
+@dataclass(slots=True)
 class ParagraphIndentConfig:
     enabled: bool = True
     # How far the first line of each body paragraph is indented, as a CSS
@@ -208,6 +224,10 @@ class CoverRepairConfig:
     # (extension matches the image's actual format, never converted),
     # updating the manifest and any chapter that displays it to match.
     standardize_filename: bool = True
+    # Remove a page that holds nothing but a second copy of the cover
+    # art, sitting near the real cover page (the reader would
+    # otherwise show the cover twice).
+    remove_duplicate_cover_page: bool = True
 
 
 @dataclass(slots=True)
@@ -336,6 +356,8 @@ class Config:
     scene_opener_repair: SceneOpenerConfig = field(default_factory=SceneOpenerConfig)
     paragraph_spacing_repair: ParagraphSpacingConfig = field(default_factory=ParagraphSpacingConfig)
     paragraph_indent_repair: ParagraphIndentConfig = field(default_factory=ParagraphIndentConfig)
+    header_spacing_repair: HeaderSpacingConfig = field(default_factory=HeaderSpacingConfig)
+    text_size_repair: TextSizeConfig = field(default_factory=TextSizeConfig)
     cover_repair: CoverRepairConfig = field(default_factory=CoverRepairConfig)
     running_title_repair: RunningTitleRepairConfig = field(default_factory=RunningTitleRepairConfig)
     metadata_repair: MetadataRepairConfig = field(default_factory=MetadataRepairConfig)
@@ -397,6 +419,8 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.scene_opener_repair, modules, "scene_opener_repair")
     _apply_module_toggle(config.paragraph_spacing_repair, modules, "paragraph_spacing_repair")
     _apply_module_toggle(config.paragraph_indent_repair, modules, "paragraph_indent_repair")
+    _apply_module_toggle(config.header_spacing_repair, modules, "header_spacing_repair")
+    _apply_module_toggle(config.text_size_repair, modules, "text_size_repair")
     _apply_module_toggle(config.cover_repair, modules, "cover_repair")
     _apply_module_toggle(config.running_title_repair, modules, "running_title_repair")
     _apply_module_toggle(config.metadata_repair, modules, "metadata_repair")
@@ -423,6 +447,8 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.scene_opener_repair, "scene_opener_repair", data.get("scene_opener_repair", {}))
     _apply_section(config.paragraph_spacing_repair, "paragraph_spacing_repair", data.get("paragraph_spacing_repair", {}))
     _apply_section(config.paragraph_indent_repair, "paragraph_indent_repair", data.get("paragraph_indent_repair", {}))
+    _apply_section(config.header_spacing_repair, "header_spacing_repair", data.get("header_spacing_repair", {}))
+    _apply_section(config.text_size_repair, "text_size_repair", data.get("text_size_repair", {}))
     _apply_section(config.cover_repair, "cover_repair", data.get("cover_repair", {}))
     _apply_section(config.running_title_repair, "running_title_repair", data.get("running_title_repair", {}))
     _apply_section(config.metadata_repair, "metadata_repair", data.get("metadata_repair", {}))
@@ -517,6 +543,8 @@ scene_break_repair = true
 scene_opener_repair = true
 paragraph_spacing_repair = true
 paragraph_indent_repair = true
+header_spacing_repair = true
+text_size_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
@@ -781,6 +809,30 @@ target_style = "unicode"
 # headers is kept exactly as it was.
 
 # ---------------------------------------------------------------------
+# Text Size
+# ---------------------------------------------------------------------
+[text_size_repair]
+
+# Fixes text that shows far too large (or small) in reading apps that
+# ignore the size set on the page body, because the book sizes its text
+# in two layers that only work together (for example a body size of
+# 0.41667em with 1.8em on every span of text). Stylesheet-only, and does
+# nothing when the stylesheet is too unusual to be sure.
+enabled = true
+
+# ---------------------------------------------------------------------
+# Chapter Header Spacing
+# ---------------------------------------------------------------------
+[header_spacing_repair]
+
+# Keeps a visible gap under each chapter header (between the header and
+# the first paragraph). Fewer blank lines than min_lines get topped up to
+# min_lines; more than max_lines get cut down to max_lines. A header that
+# is an image, or that the stylesheet already spaces, is left alone.
+min_lines = 2
+max_lines = 5
+
+# ---------------------------------------------------------------------
 # Paragraph Indent
 # ---------------------------------------------------------------------
 [paragraph_indent_repair]
@@ -870,6 +922,12 @@ sync_declarations = true
 # updating the manifest and any chapter that displays it (e.g. a
 # dedicated cover.xhtml page) to match.
 standardize_filename = true
+
+# Remove a page that holds nothing but a second copy of the cover art,
+# near the real cover page, so the cover isn't shown twice. Only
+# acts on a page with no text and one image with the same shape as the
+# cover, within the first few pages of the book.
+remove_duplicate_cover_page = true
 
 # ---------------------------------------------------------------------
 # Running Title Removal

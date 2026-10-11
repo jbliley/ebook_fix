@@ -17,6 +17,12 @@
 {% elif not chapters %}
 <p class="empty-state">This book has no chapters to compare.</p>
 {% else %}
+{% if kept_backup %}
+<p class="empty-state" style="margin-bottom:1rem;">
+  This book was already replaced with its repaired version, so <strong>Before</strong> is the kept
+  original (<code>{{ kept_backup }}</code>) and <strong>After</strong> is the book itself.
+</p>
+{% endif %}
 <form method="get" action="{{ url_for('book_before_after', session_id=session_id) }}" style="margin-bottom:1rem;">
   <label for="chapter-select" style="margin-top:0;">Chapter</label>
   <select id="chapter-select" name="href" onchange="this.form.submit()">

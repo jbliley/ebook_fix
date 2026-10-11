@@ -1125,6 +1125,53 @@ def _select_unnumbered_boundaries(candidates: list, numbered_candidates: list) -
         selected.append(chosen)
     return selected
 
+def _promote_sections_over_restarting_numbers(all_candidates: list) -> int:
+    """
+    Some books label big sections "Chapter One", "Chapter Two" (a day,
+    a location) and then number the real chapters 1, 2, 3 ... inside
+    each section, restarting at 1 under the next label. Read as one
+    flat list, the few labeled markers out-score the many bare numbers
+    and the real chapters are lost.
+
+    When labeled markers count up, and the bare numbers beneath them
+    keep restarting near 1 after those labels (and clearly outnumber
+    them), the labeled markers are really section dividers. Mark them
+    as "part" so the existing Part handling lets the numbers restart
+    under each one. Returns how many markers were promoted.
+    """
+    labeled = [
+        c for c in all_candidates
+        if c.label_prefix and c.label_kind == "chapter" and c.number is not None
+    ]
+    bare = [
+        c for c in all_candidates
+        if not c.label_prefix and c.label_kind is None and c.number is not None
+    ]
+    if len(labeled) < 3 or len(bare) < 2 * len(labeled):
+        return 0
+
+    nums = [c.number for c in sorted(labeled, key=lambda c: c.book_order)]
+    if any(b <= a for a, b in zip(nums, nums[1:])):
+        return 0
+
+    events = sorted(labeled + bare, key=lambda c: (c.book_order, 0 if c.label_prefix else 1))
+    restarts = 0
+    after_label = False
+    for c in events:
+        if c.label_prefix:
+            after_label = True
+        elif after_label:
+            if c.number <= PART_RESTART_MAX_NUMBER:
+                restarts += 1
+            after_label = False
+    if restarts < 2:
+        return 0
+
+    for c in labeled:
+        c.label_kind = "part"
+    return len(labeled)
+
+
 def analyze_book_chapters(book) -> BookChapterSummary:
     all_candidates = []
     order = 0
@@ -1149,6 +1196,10 @@ def analyze_book_chapters(book) -> BookChapterSummary:
     # lines of bare numbers at the top of the story's own file), which the
     # whole-file check above cannot see.
     all_candidates, _embedded_contents = drop_embedded_contents_lists(all_candidates)
+
+    # "Chapter One" sections that each restart the numbering at 1 are
+    # section dividers, not the chapters themselves.
+    _promote_sections_over_restarting_numbers(all_candidates)
 
     part_candidates = [c for c in all_candidates if c.label_kind == "part"]
     unnumbered_candidates = [c for c in all_candidates if c.label_kind == "unnumbered"]

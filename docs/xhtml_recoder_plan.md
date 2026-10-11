@@ -1116,6 +1116,25 @@ Still open: a contents list that has titles next to the numbers
 ("1  The Dream") inside a larger file is not covered, and neither is a
 list whose entries are separated by more than a few words.
 
+## Done: The Tomb and The Loner test books (2026-10-11)
+
+Two books Jacob tested turned up a batch of separate problems. All were reproduced with the real GUI code path and fixed.
+
+**The Tomb (F. Paul Wilson)**
+- No chapters found, so no TOC and every page labeled low-confidence back matter. The book has "Chapter One" to "Chapter Nine" sections with the real chapters numbered 1, 2, 3 ... and restarting inside each section. The nine labels out-scored the 107 bare numbers. `chapters._promote_sections_over_restarting_numbers` now treats counting-up labeled markers as Parts when the bare numbers under them keep restarting near 1, so the numbers become the chapters and the labels become the sections.
+- The book's NCX held a single "Start" entry, which blocked TOC generation (a book with any TOC was left alone). `TocGenerationRepair` now treats a TOC of 2 entries or fewer as a placeholder when 5 or more chapters were confirmed, and builds a real one.
+- The cover showed twice: the cover page, then a page holding the same art at another size. `CoverRepair` (new option `remove_duplicate_cover_page`) removes a page that has no text, one image, and the same shape as the cover, within three pages of the cover page. The image is removed too if nothing else uses it. No image library is needed (sizes are read from the file headers).
+- No visible gap under chapter numbers: the original gap was a paragraph holding only a newline, which readers draw as nothing. New module `modules/header_spacing_repair.py` (Chapter Header Spacing, switch `header_spacing_repair`, `[header_spacing_repair]` `min_lines = 2`, `max_lines = 5`) keeps 2 to 5 visible blank lines under each confirmed chapter header. It skips a header that is an image or has no text, one followed by an image, and one the stylesheet already spaces (margins of about 1.5em or more).
+
+**The Loner: Crossfire (J. A. Johnstone)**
+- `* * *` appeared right under each chapter header. Paragraph Repair read the title as story text and turned the blank line below it into a scene break. A title that reads as a chapter label ("Chapter 2", "7") is now never counted as story text, and its spacing is kept even when the analysis did not confirm it (`modules/paragraph.py`, `paragraphs.py`).
+- The Whitespace step turned the non-breaking space in that blank line into a plain space when the text sat in a styled span, so the gap was lost. `whitespace._is_blank_line_paragraph` now looks at the enclosing paragraph.
+- Huge text in reading apps: the body is `0.41667em` and every span of text is `1.8em` (0.75em together). Apps that ignore the body size show the 1.8em. New module `modules/text_size_repair.py` (Text Size, switch `text_size_repair`) adds lines to the stylesheet so the text is 1em in every app, with other sizes kept in proportion. It only acts when the body factor and the inner factor roughly cancel, every size is a plain class rule in em/rem/%, and the body class is used on the body only.
+
+**GUI**
+- Before/After: once the original was replaced, the tab now compares the kept `<name>_original.epub` (before) with the book itself (after), in the same session or a later one (`_comparison_paths` in `gui/app.py`).
+- Replace original on Calibre books: new `gui/file_swap.py` retries a refused rename, clears a read-only mark, uses the long-path form on Windows, and falls back to copying. When it still fails it names the program holding the file (Windows Restart Manager) or a Calibre program still running in the background, and states that nothing was changed. The exact cause on Jacob's machine is not confirmed yet; this needs his result.
+
 ## Continuity note
 This file is the source of truth for where this feature stands --
 more reliable than relying on conversation memory across sessions.

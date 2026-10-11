@@ -576,6 +576,14 @@ def _is_blank_line_paragraph(host) -> bool:
     as nothing, which silently removes the gap (and lets Paragraph Repair
     delete the now-bare paragraph on the next pass), so it is left alone.
     """
+    # The text often sits in a styled <span> inside the <p>
+    # (<p><span class="x">&#160;</span></p>), so look at the paragraph.
+    node = host
+    while node is not None and _local_tag(node) in ("span", "b", "i", "em", "strong", "font", "u"):
+        node = node.getparent()
+    if node is None:
+        return False
+    host = node
     if _local_tag(host) != "p":
         return False
     text = "".join(host.itertext())

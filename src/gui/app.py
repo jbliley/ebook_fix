@@ -99,11 +99,14 @@ from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
 from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.paragraph_indent_repair import ParagraphIndentRepair
+from ebook_fix.modules.header_spacing_repair import HeaderSpacingRepair
+from ebook_fix.modules.text_size_repair import TextSizeRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair
 from ebook_fix.modules.color_strip import ColorStripRepair
 from ebook_fix.modules.font_strip import FontStripRepair
 from gui import metadata_preview as metadata_preview_module
 from gui import overview_view
+from gui import file_swap
 from metadata.core_fields import write_core_field
 from metadata import calibre_detect
 from metadata.language_codes import language_options
@@ -144,10 +147,12 @@ _REPAIR_MODULES = [
     ("dead_link_repair", "Dead Link Cleanup"),
     ("epub3_upgrade", "EPUB 3 Upgrade"),
     ("toc_generation", "TOC Generation"),
+    ("header_spacing_repair", "Chapter Header Spacing"),
     ("scene_break_repair", "Scene Break Normalizer"),
     ("scene_opener_repair", "Scene Opener Markers"),
     ("paragraph_spacing_repair", "Paragraph Spacing"),
     ("paragraph_indent_repair", "Paragraph Indent"),
+    ("text_size_repair", "Text Size"),
     ("image_repair", "Image Repair"),
     ("cover_repair", "Cover Repair"),
     ("color_repair", "Color Strip"),
@@ -180,10 +185,12 @@ _REPAIR_MODULE_CLASSES = {
     "dead_link_repair": DeadLinkRepair,
     "epub3_upgrade": EPUB3UpgradeRepair,
     "toc_generation": TocGenerationRepair,
+    "header_spacing_repair": HeaderSpacingRepair,
     "scene_break_repair": SceneBreakRepair,
     "scene_opener_repair": SceneOpenerRepair,
     "paragraph_spacing_repair": ParagraphSpacingRepair,
     "paragraph_indent_repair": ParagraphIndentRepair,
+    "text_size_repair": TextSizeRepair,
     "image_repair": ImageRepair,
     "cover_repair": CoverRepair,
     "color_repair": ColorStripRepair,
@@ -1866,6 +1873,33 @@ def fix_book(session_id):
     )
 
 
+def _comparison_paths(session_dir: Path):
+    """(before, after, kept_backup) for the Before/After tab, or None when
+    there is nothing to compare yet.
+
+    - Normally: the original book against the "_fixed" file next to it.
+    - After "Replace original file" (this session, or an earlier one):
+      the original filename now holds the repaired book, and the
+      untouched original was kept as "<name>_original.epub" right beside
+      it, so the kept backup is "before" and the book itself is "after".
+      kept_backup is that backup's path, so the page can say so.
+    """
+    real = _real_path(session_dir)
+    flag = _replaced_flag_path(session_dir)
+    if flag.exists():
+        backup = Path(flag.read_text(encoding="utf-8"))
+        if backup.is_file() and real.is_file():
+            return backup, real, backup
+        return None
+    fixed = _fixed_output_path(session_dir)
+    if fixed.exists():
+        return _source_path(session_dir), fixed, None
+    backup = _original_backup_path(session_dir)
+    if backup.is_file() and real.is_file():
+        return backup, real, backup
+    return None
+
+
 def _replace_original_files(session_dir: Path) -> dict:
     """Swaps a repaired book back onto its own original filename, so
     Calibre (or anything else pointed at that exact path) picks up the
@@ -1903,11 +1937,10 @@ def _replace_original_files(session_dir: Path) -> dict:
         # there is no file to back up: the repaired book just takes its
         # name. The untouched "before" copy stays in the temp folder.
         try:
-            fixed_path.rename(source_path)
+            file_swap.move_file(fixed_path, source_path)
         except OSError as exc:
-            outcome["error"] = (
-                f"Couldn't move the repaired file into place: {exc}. "
-                "This usually means something else has the book open -- close it and try again."
+            outcome["error"] = file_swap.explain_failure(
+                "Couldn't move the repaired file into place", source_path, exc
             )
             return outcome
         _replaced_flag_path(session_dir).write_text(str(_converted_copy_path(session_dir)), encoding="utf-8")
@@ -1921,45 +1954,53 @@ def _replace_original_files(session_dir: Path) -> dict:
         )
         return outcome
 
-    # Both renames are same-filesystem moves and should be near-instant,
-    # but a book file can still be locked by something else on Windows
-    # (Calibre's own viewer, another reader, an antivirus scan, even an
-    # Explorer preview pane) -- os.rename surfaces that as a bare
-    # PermissionError/OSError with no context. Caught here so a lock
-    # shows up as a clear, actionable message instead of a 500 page,
-    # the same posture calibredb_write.py already takes toward a
-    # locked Calibre library.
+    # Step 1: put the untouched original aside as the backup. Windows
+    # refuses to rename a file another program has open (and a Calibre
+    # library nests files in long paths, and sometimes marks them
+    # read-only), so file_swap retries, clears a read-only mark, and falls
+    # back to copying before giving up. If it does give up, the message
+    # names whatever has the file open, and nothing has been changed.
     try:
-        source_path.rename(backup_path)
+        how_backed_up = file_swap.move_file(source_path, backup_path)
     except OSError as exc:
-        outcome["error"] = (
-            f"Couldn't rename the original file to make a backup: {exc}. "
-            "This usually means something else has the book open -- Calibre's "
-            "own viewer, another reader, or an antivirus scan -- close it and "
-            "try again. Nothing was changed."
+        outcome["error"] = file_swap.explain_failure(
+            "Couldn't set the original aside as a backup", source_path, exc
         )
         return outcome
 
+    # Step 2: put the repaired file on the original name.
     try:
-        fixed_path.rename(source_path)
+        if how_backed_up == "renamed":
+            file_swap.rename_with_retry(fixed_path, source_path)
+        else:
+            # The original is still where it was (it was copied, not
+            # moved), so the repaired file goes over it.
+            file_swap.overwrite_file(fixed_path, source_path)
     except OSError as exc:
-        # The backup rename above already succeeded, so roll it back
-        # rather than leaving the book missing under its original name
-        # with a stray "_original.epub" sitting next to it.
-        try:
-            backup_path.rename(source_path)
-            rollback_note = ""
-        except OSError as rollback_exc:
-            rollback_note = (
-                f" Additionally, restoring the original from {backup_path} also "
-                f"failed ({rollback_exc}) -- the original is safe at that path, "
-                "but needs to be renamed back by hand."
-            )
+        # The backup step already succeeded, so put things back rather
+        # than leaving the book missing under its original name.
+        rollback_note = ""
+        if how_backed_up == "renamed":
+            try:
+                file_swap.rename_with_retry(backup_path, source_path)
+            except OSError as rollback_exc:
+                rollback_note = (
+                    f" Additionally, restoring the original from {backup_path} also "
+                    f"failed ({rollback_exc}) -- the original is safe at that path, "
+                    "but needs to be renamed back by hand."
+                )
+        else:
+            # Copied backup: the original was never moved. Remove the
+            # extra copy only if the original is intact.
+            try:
+                if source_path.exists() and source_path.stat().st_size == backup_path.stat().st_size:
+                    backup_path.unlink()
+            except OSError:
+                pass
         outcome["error"] = (
-            f"Couldn't move the repaired file into place: {exc}.{rollback_note} "
-            "This usually means something else has the book open -- close it and "
-            "try again."
-        )
+            file_swap.explain_failure("Couldn't move the repaired file into place", source_path, exc)
+            + rollback_note
+        ).replace(" Nothing was changed.", "" if rollback_note else " The original is back where it was.")
         return outcome
 
     _replaced_flag_path(session_dir).write_text(str(backup_path), encoding="utf-8")
@@ -2009,29 +2050,29 @@ def book_before_after(session_id):
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
 
-    if _replaced_flag_path(session_dir).exists():
+    paths = _comparison_paths(session_dir)
+    if paths is None:
+        if _replaced_flag_path(session_dir).exists():
+            return render_template(
+                "before_after.html",
+                active_tab="before_after",
+                session_id=session_id,
+                filename=filename,
+                has_fixed=False,
+                already_replaced=True,
+                replaced_backup=_replaced_flag_path(session_dir).read_text(encoding="utf-8"),
+            )
         return render_template(
             "before_after.html",
             active_tab="before_after",
             session_id=session_id,
             filename=filename,
             has_fixed=False,
-            already_replaced=True,
-            replaced_backup=_replaced_flag_path(session_dir).read_text(encoding="utf-8"),
         )
 
-    fixed_path = _fixed_output_path(session_dir)
-    if not fixed_path.exists():
-        return render_template(
-            "before_after.html",
-            active_tab="before_after",
-            session_id=session_id,
-            filename=filename,
-            has_fixed=False,
-        )
-
-    original_book = EPUBParser().load(_source_path(session_dir))
-    fixed_book = EPUBParser().load(fixed_path)
+    before_path, after_path, kept_backup = paths
+    original_book = EPUBParser().load(before_path)
+    fixed_book = EPUBParser().load(after_path)
     fixed_hrefs = {c.href for c in fixed_book.chapters}
 
     split_mapping = {}
@@ -2065,6 +2106,7 @@ def book_before_after(session_id):
             filename=filename,
             has_fixed=True,
             chapters=[],
+            kept_backup=str(kept_backup) if kept_backup else None,
         )
 
     requested_href = request.args.get("href")
@@ -2085,6 +2127,7 @@ def book_before_after(session_id):
         chapters=chapters,
         selected=selected,
         after_href=after_href,
+        kept_backup=str(kept_backup) if kept_backup else None,
     )
 
 
@@ -2108,7 +2151,10 @@ def book_asset(session_id, side, href):
         abort(404)
 
     session_dir = _session_dir(session_id)
-    epub_path = _source_path(session_dir) if side == "before" else _fixed_output_path(session_dir)
+    paths = _comparison_paths(session_dir)
+    if paths is None:
+        abort(404)
+    epub_path = paths[0] if side == "before" else paths[1]
     if not epub_path.exists():
         abort(404)
 

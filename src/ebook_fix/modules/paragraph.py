@@ -25,6 +25,8 @@ import re
 from ebook_fix.config import ParagraphRepairConfig
 from ebook_fix.report import Report
 from ebook_fix.paragraphs import analyze_book_paragraphs, looks_mid_sentence
+from ebook_fix.chapters import _classify as _classify_chapter_label
+from ebook_fix.headings import HEADING_TAGS as _HEADING_TAGS, MARKER_ATTR as _MARKER_ATTR
 from ebook_fix.modules.scene_break_repair import SCENE_BREAK_TEXT
 
 # A blank paragraph standing between two stretches of story is only
@@ -81,6 +83,19 @@ def _is_story_text(el, junk) -> bool:
     return bool(text) and not MARKER_TEXT.match(text)
 
 
+def _is_chapter_header_shape(el) -> bool:
+    """True for an element that reads as a chapter title ("Chapter 2",
+    "7", "Prologue"), a heading tag, or one Chapter Markup has marked.
+    The blank line under a title like that is spacing, never a scene
+    change, even when the chapter analysis did not confirm the title."""
+    if el is None:
+        return False
+    if _local(el) in _HEADING_TAGS or el.get(_MARKER_ATTR):
+        return True
+    text = _text(el)
+    return bool(text) and len(text) <= 40 and _classify_chapter_label(text) is not None
+
+
 def _spacer_runs(chapter_summary):
     """Runs of adjacent blank paragraphs sitting between two story
     paragraphs, as lists of live elements. Only runs that contain at
@@ -106,7 +121,10 @@ def _spacer_runs(chapter_summary):
         seen.update(run)
         if not any(r in blanks and _renders_blank_line(r) for r in run):
             continue
-        if _is_story_text(_sibling_elements(run[0], -1), junk) and _is_story_text(node, junk):
+        before_run = _sibling_elements(run[0], -1)
+        if _is_chapter_header_shape(before_run):
+            continue
+        if _is_story_text(before_run, junk) and _is_story_text(node, junk):
             runs.append(run)
     return runs
 
