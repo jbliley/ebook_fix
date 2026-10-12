@@ -3498,9 +3498,30 @@ book (the joined hyphens). Junk File Removal drops `calibre_bookmarks.txt` from
 15 books and 2 duplicate pictures (GutenbergText-ChapterSplit and
 Watermarks-SmallChapterNumbers; the fixed-layout example is left alone). The
 stylesheet module finds nothing to do in any example (their repeated blocks are
-the tiny `@page` rule). The real Sandman Slim file was not available this
-session, so its 42 KB block and the "colum-barium" pair are reproduced by the
-synthetic book, not checked on the real file.
+the tiny `@page` rule). Tried on the real Sandman Slim file (uploaded afterwards): the 42 KB block that
+12 pages carried (42,025 bytes) becomes one `text/stylesheet.css` linked from
+those 12 pages (a page drops from 197 KB to 156 KB); `calibre_bookmarks.txt` is
+removed; the unused PNG copy of the cover (`images/9780061999444.png`) is
+removed; and 7 split words are joined (store-fronts, moto-cross, car-jacking,
+moth-erfucker, junk-yard, Lurk-ers, block-buster), which is exactly 7 words
+fewer in the book text and nothing else. The repaired book passes the manifest
+and XML checks and a second run makes zero changes.
+
+Two things from the original findings list are NOT caught on the real file.
+"colum-barium" appears once in the whole book and "columbarium" never appears
+spelled out, so the book gives no evidence and it is left alone (the same goes
+for nonabhor-rent, redeco-rating, nec-romancing, un-filtered and down-loaded;
+that needs a dictionary, which the project does not have). The two logo files
+(`logo.jpg`, `logo.1.jpg`) are the same picture saved twice but differ by
+JPEG noise (a mean difference of under 0.5 out of 255), and both are used, one
+on the title page and one on the publisher page; proving two files are the same
+art needs an image library, so they are left alone.
+
+The third part of Junk File Removal, `remove_unused_cover_copy`, was added for
+the PNG: a picture that nothing refers to, that is not the declared cover, and
+whose width and height equal the cover's is removed. It is deliberately narrow
+because there is no image library to compare the art itself. It finds nothing
+in the 21 example books.
 
 Known limits: a hyphen split that the book never spells joined anywhere (it
 appears once) is left alone, and so is a real compound a book happens to also

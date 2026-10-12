@@ -23,6 +23,16 @@ Two kinds of leftover are handled:
      cover or guide entries, encryption.xml) is left alone and reported.
    A picture that has no identical twin is never touched, used or not.
 
+3. An unused copy of the cover. A picture that nothing refers to (no page,
+   stylesheet, guide entry or encryption entry), that is not the declared
+   cover, and whose width and height equal the cover's is removed. This is
+   how Sandman Slim's leftover PNG copy of cover.jpg is caught; the two are
+   the same art but not the same bytes, and without an image library the art
+   cannot be compared, so the match is kept narrow on purpose.
+
+Two pictures that look alike but differ in their bytes and are both in use
+(Sandman Slim's two logo files) are left alone.
+
 A second run finds nothing left to remove and does nothing.
 """
 from __future__ import annotations
@@ -36,6 +46,7 @@ from urllib.parse import unquote
 
 from ebook_fix.config import JunkFileConfig
 from ebook_fix.cover import analyze_book_cover, find_manifest_item_element
+from ebook_fix.modules.cover_repair import image_size
 from ebook_fix.report import Report
 
 OPF_NS = "http://www.idpf.org/2007/opf"
@@ -68,7 +79,7 @@ class JunkFileRepair:
         for path in self._junk_paths(book):
             report.add(path, "Junk file", f"{path}: a leftover file that is not part of the book")
         for plan in self._duplicate_plans(book):
-            report.add(plan.remove_href, "Duplicate picture", plan.describe(will=True))
+            report.add(plan.remove_href, "Unused cover copy" if plan.kind == "cover_copy" else "Duplicate picture", plan.describe(will=True))
         return report
 
     def repair(self, book, analysis=None) -> Report:
@@ -88,7 +99,7 @@ class JunkFileRepair:
                 chapter.modified = True
                 changed_chapters.add(chapter.href)
             self._remove_manifest_file(book, plan.remove_href)
-            report.add(plan.remove_href, "Duplicate picture removed", plan.describe(will=False))
+            report.add(plan.remove_href, "Unused cover copy removed" if plan.kind == "cover_copy" else "Duplicate picture removed", plan.describe(will=False))
 
         if report.count and hasattr(book, "mark_modified"):
             book.mark_modified()
@@ -145,8 +156,15 @@ class JunkFileRepair:
     # -----------------------------------------------------
 
     def _duplicate_plans(self, book) -> list:
-        if not self.config.remove_duplicate_images:
-            return []
+        plans = []
+        if self.config.remove_duplicate_images:
+            plans.extend(self._exact_duplicate_plans(book))
+        if self.config.remove_unused_cover_copy:
+            planned = {p.remove_href for p in plans}
+            plans.extend(p for p in self._cover_copy_plans(book) if p.remove_href not in planned)
+        return plans
+
+    def _exact_duplicate_plans(self, book) -> list:
         base = PurePosixPath(book.package_path).parent
 
         images = [m for m in book.manifest if m.media_type.startswith("image/")]
@@ -191,6 +209,48 @@ class JunkFileRepair:
                     repoints=list(refs.markup_refs(path)),
                     keep_path=keep_path,
                 ))
+        return plans
+
+    def _cover_copy_plans(self, book) -> list:
+        """An unused picture with exactly the declared cover's pixel size.
+        Found in Sandman Slim: a second, PNG copy of the cover (the same
+        art as cover.jpg, so not a byte-for-byte match) that no page,
+        stylesheet or packaging entry refers to. Without an image library
+        the art itself cannot be compared, so the test is deliberately
+        narrow: nothing may refer to the picture at all, it must not be
+        the cover, and its width and height must equal the cover's."""
+        base = PurePosixPath(book.package_path).parent
+        cover_ids = self._cover_item_ids(book)
+        covers = [m for m in book.manifest if m.id in cover_ids and m.media_type.startswith("image/")]
+        if len(covers) != 1:
+            return []
+        cover = covers[0]
+        cover_data = self._read_bytes(book, unquote(str(base / cover.href)))
+        cover_size = image_size(cover_data) if cover_data else None
+        if cover_size is None:
+            return []
+
+        refs = _References(book, base)
+        protected = self._protected_paths(book, base)
+        plans = []
+        for item in book.manifest:
+            if item is cover or not item.media_type.startswith("image/"):
+                continue
+            if "cover-image" in item.properties.split() or item.id in cover_ids:
+                continue
+            path = unquote(str(base / item.href))
+            if path in protected or refs.is_used(path):
+                continue
+            data = self._read_bytes(book, path)
+            if data is None or image_size(data) != cover_size:
+                continue
+            plans.append(_Plan(
+                remove_href=item.href,
+                keep_href=cover.href,
+                repoints=[],
+                keep_path=unquote(str(base / cover.href)),
+                kind="cover_copy",
+            ))
         return plans
 
     def _protected_paths(self, book, base) -> set:
@@ -276,16 +336,22 @@ class _Plan:
     """One duplicate picture to remove, and the page references to move
     over to the kept copy first."""
 
-    __slots__ = ("remove_href", "keep_href", "repoints", "keep_path")
+    __slots__ = ("remove_href", "keep_href", "repoints", "keep_path", "kind")
 
-    def __init__(self, remove_href, keep_href, repoints, keep_path):
+    def __init__(self, remove_href, keep_href, repoints, keep_path, kind="exact"):
         self.remove_href = remove_href
         self.keep_href = keep_href
         self.repoints = repoints
         self.keep_path = keep_path
+        self.kind = kind
 
     def describe(self, will: bool) -> str:
         verb = "will be removed" if will else "removed"
+        if self.kind == "cover_copy":
+            return (
+                f"{self.remove_href}: a picture nothing uses, with exactly the size of the cover "
+                f"{self.keep_href} (a leftover copy of the cover); {verb}"
+            )
         if self.repoints:
             return (
                 f"{self.remove_href}: an exact copy of {self.keep_href}; "

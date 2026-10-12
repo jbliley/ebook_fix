@@ -189,6 +189,9 @@ class JunkFileConfig:
     # Remove a picture that is a byte-for-byte copy of another picture in
     # the book (and point any page that shows it at the copy kept).
     remove_duplicate_images: bool = True
+    # Remove a picture that nothing uses and that has exactly the declared
+    # cover's pixel size (a leftover copy of the cover in another format).
+    remove_unused_cover_copy: bool = True
 
 
 @dataclass(slots=True)
@@ -864,6 +867,11 @@ remove_known_junk = true
 # that shows the removed copy is pointed at the kept one. A copy used from a
 # stylesheet or link is left alone.
 remove_duplicate_images = true
+
+# Remove a picture that nothing refers to at all and that has exactly the
+# declared cover's width and height (a leftover copy of the cover saved in
+# another format, so not an exact copy). Nothing else unused is touched.
+remove_unused_cover_copy = true
 
 # ---------------------------------------------------------------------
 # Mid-Word Hyphen Repair
