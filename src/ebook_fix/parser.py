@@ -394,6 +394,11 @@ class EPUBParser:
         book.toc = self._merge_split_labels(entries)
         book.toc_source = source
 
+        def _count(items):
+            return sum(1 + _count(getattr(e, "children", None) or []) for e in items)
+
+        book.original_toc_count = _count(book.toc)
+
         # Phase 3a of the XHTML Recoder plan (see
         # docs/xhtml_recoder_plan.md): keep the NCX around as a live,
         # editable tree on the Book model -- the same idiom as

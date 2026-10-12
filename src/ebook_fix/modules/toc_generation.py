@@ -84,7 +84,8 @@ class TocGenerationRepair:
 
         placeholder = self._is_placeholder_toc(book, analysis)
         location = book.package_path or "content.opf"
-        if self._ncx_needs_generating(book, placeholder):
+        confirmed = self._confirmed_count(analysis)
+        if self._ncx_needs_generating(book, placeholder, confirmed):
             report.add(
                 location,
                 "No table of contents at all",
@@ -119,11 +120,14 @@ class TocGenerationRepair:
             # (case 3 books never get a generated TOC).
             return report
 
-        if self._ncx_needs_generating(book, placeholder):
+        confirmed = self._confirmed_count(analysis)
+        if self._ncx_needs_generating(book, placeholder, confirmed):
             self._add_ncx(book, entries, report)
 
         if self._needs_nav(book):
             self._add_nav(book, entries, report)
+        elif placeholder and self._nav_needs_regenerating(book, confirmed):
+            self._regenerate_nav(book, entries, report)
 
         return report
 
@@ -144,7 +148,10 @@ class TocGenerationRepair:
     def _is_placeholder_toc(self, book, analysis):
         if not getattr(book, "toc_source", ""):
             return False
-        if self._count_entries(book.toc or []) > self._PLACEHOLDER_TOC_MAX_ENTRIES:
+        original = getattr(book, "original_toc_count", -1)
+        if original < 0:
+            original = self._count_entries(book.toc or [])
+        if original > self._PLACEHOLDER_TOC_MAX_ENTRIES:
             return False
         summary = getattr(analysis, "chapters", None) if analysis is not None else None
         if summary is None:
@@ -170,7 +177,14 @@ class TocGenerationRepair:
     def _needs_nav(self, book):
         return book.version.startswith("3") and book.nav_item is None
 
-    def _ncx_needs_generating(self, book, placeholder=False):
+    @staticmethod
+    def _confirmed_count(analysis):
+        summary = getattr(analysis, "chapters", None) if analysis is not None else None
+        if summary is None:
+            return 0
+        return len(summary.confirmed_boundaries or [])
+
+    def _ncx_needs_generating(self, book, placeholder=False, confirmed=0):
         # Not just "book.ncx_document is None" -- a book can ship an
         # NCX *file* that parses fine but whose navMap has no
         # navPoints in it at all (an empty shell some conversion tool
@@ -191,7 +205,50 @@ class TocGenerationRepair:
             return True
         # Count every navPoint, nested ones too.
         count = len(list(nav_map.iter(f"{{{NCX_NS_URI}}}navPoint")))
-        return count <= (self._PLACEHOLDER_TOC_MAX_ENTRIES if placeholder else 0)
+        if not placeholder:
+            return count <= 0
+        # A placeholder TOC may already have grown a few entries (for
+        # example the ones a Review-tab split adds), so compare against
+        # the detected chapter count. A generated TOC always has at
+        # least that many entries, so this stays idempotent.
+        return count < max(confirmed, self._PLACEHOLDER_TOC_MAX_ENTRIES + 1)
+
+    def _nav_bytes(self, book, item):
+        base = PurePosixPath(book.package_path).parent
+        full = str(base / item.href)
+        if full in book.new_files:
+            return book.new_files[full]
+        chapter = book.nav_chapter
+        if chapter is not None and chapter.document is not None:
+            return etree.tostring(chapter.document)
+        return b""
+
+    def _nav_needs_regenerating(self, book, confirmed):
+        item = book.nav_item
+        if item is None:
+            return False
+        data = self._nav_bytes(book, item)
+        links = data.count(b"<a ") + data.count(b"<a>")
+        return links < max(confirmed, self._PLACEHOLDER_TOC_MAX_ENTRIES + 1)
+
+    def _regenerate_nav(self, book, entries, report):
+        item = book.nav_item
+        data = build_nav_bytes(book, entries)
+        base = PurePosixPath(book.package_path).parent
+        chapter = book.nav_chapter
+        if chapter is not None and chapter.document is not None:
+            root = etree.fromstring(data)
+            doc = chapter.document
+            chapter.document = etree.ElementTree(root) if hasattr(doc, "getroot") else root
+            chapter.modified = True
+            book.new_files.pop(str(base / item.href), None)
+        else:
+            book.new_files[str(base / item.href)] = data
+        report.add(
+            book.package_path or "content.opf",
+            "nav.xhtml regenerated",
+            f"Rebuilt {item.href!r} from {len(entries)} detected top-level chapter/part entries.",
+        )
 
     # -----------------------------------------------------
     # toc.ncx

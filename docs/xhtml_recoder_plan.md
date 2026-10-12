@@ -1142,3 +1142,8 @@ This file is the source of truth for where this feature stands --
 more reliable than relying on conversation memory across sessions.
 Update it at the end of each session that touches this feature:
 what got built, what got decided, what's still open.
+
+### 2026-10-12: placeholder TOC regeneration after Review splits
+
+- A TOC that started with 2 or fewer entries (for example a lone "Start") is now judged by its size when the file was first loaded (`Book.original_toc_count`), because split steps refresh `book.toc` afterwards.
+- TOC Generation rebuilds both `toc.ncx` and the EPUB3 `nav.xhtml` in full when they hold fewer entries than the detected chapter count.

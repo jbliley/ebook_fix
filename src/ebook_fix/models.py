@@ -102,6 +102,9 @@ class Book:
     spine: list[str] = field(default_factory=list)
     toc: list[TocEntry] = field(default_factory=list)
     toc_source: str = ""  # "ncx", "nav", or "" if the book has neither
+    # How many TOC entries (nested ones included) the file had when it was
+    # first loaded; book.toc itself is refreshed after splits, this is not.
+    original_toc_count: int = -1
     ncx_document: Any = None
     ncx_href: str = ""
     ncx_modified: bool = False
