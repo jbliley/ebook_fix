@@ -3441,3 +3441,70 @@ Known limits: a book that fakes indents with leading non-breaking spaces or
 a `<br/>`-based layout is not changed; the indent is a stylesheet rule, so it
 shows only in a reader that applies the book's stylesheet; and the amount is
 the same for every book (set it in the config file).
+
+## Sandman Slim leftovers: stylesheet, junk files, mid-word hyphens (2026-10-12)
+
+The last three items from the Sandman Slim (Kadrey) findings list, built as
+three repair modules. Each follows the project's usual shape: a switch in
+`[modules]`, its own config section, a place in the Overview and the Repair
+tab, and a second run that changes nothing.
+
+**Embedded Stylesheet Consolidation** (`modules/stylesheet_dedupe_repair.py`,
+`stylesheet_dedupe_repair`). Sandman Slim has a 42 KB block of style rules
+pasted into the `<head>` of 12 files. When the same `<style>` block (spacing
+ignored) sits in at least two files, the first copy is written to a new shared
+file (`stylesheet.css`, or the next free name, in the pages' folder), added to
+the manifest, and every copy is replaced in place by a `<link>` to it, so the
+order of the rules does not change. Left alone: a block only one file has or
+that differs between files, a block with a media attribute, a file that holds
+the same block twice, and a block that uses `url(...)` or `@import` when its
+files sit in different folders (the paths would break). Option `min_size`
+(1024 bytes): the 60-byte `@page` rule that many converters stamp into every
+page (it repeats in 5 of the example books) is not worth a new file. Skipped
+on fixed-layout books.
+
+**Junk File Removal** (`modules/junk_file_repair.py`, `junk_file_repair`).
+Two parts, each with its own option. `remove_known_junk` removes
+`calibre_bookmarks.txt`, `.DS_Store`, `Thumbs.db`, `ehthumbs.db`,
+`desktop.ini` and the `__MACOSX` folder, never anything in the reading order
+and never anything else in META-INF. `remove_duplicate_images` removes a
+picture that is a byte-for-byte copy of another, keeping the declared cover
+(else the copy the book uses). A page that shows the removed copy is pointed
+at the kept one first. A copy used from a stylesheet, a link, the guide, or
+named in `encryption.xml` is left alone. A picture with no identical twin is
+never touched, used or not. On the fixed-layout guard list, since a repeated
+page picture can be deliberate in a comic.
+
+**Mid-Word Hyphen Repair** (`modules/hyphen_leftover_repair.py`,
+`hyphen_leftover_repair`). Joins a leftover line-break hyphen inside a word
+("colum-barium" to "columbarium"). There is no dictionary, so the book is the
+evidence: a pair `AAA-BBB` is joined only when at least one half never appears
+as a word on its own in the book, the joined word appears elsewhere at least as
+often as the pair, the first half is not a prefix (re, non, self, mid, ...),
+and both halves are plain lowercase letters (a leading capital is allowed and
+kept). The first version also joined real compounds ("gun-fighter",
+"wheel-chair", "bear-claws") because the joined spelling happened to occur; the
+"one half is not a word" rule removed those. Headings, the contents page, code
+and style blocks, and anything glued to an apostrophe are never touched. It is
+on the fixed-layout guard list.
+
+Checked: a synthetic book carrying all three problems (three pages with the same
+stylesheet, three junk files, two pairs of duplicate pictures, split words and
+look-alike compounds that must stay) comes out right and a second run makes zero
+changes. Run on all 21 example EPUBs: no crashes; a second pass over every
+output makes zero changes; the fixed-layout books are unchanged; every manifest
+file exists and every page parses; word counts only drop, by 1 to 21 words per
+book (the joined hyphens). Junk File Removal drops `calibre_bookmarks.txt` from
+15 books and 2 duplicate pictures (GutenbergText-ChapterSplit and
+Watermarks-SmallChapterNumbers; the fixed-layout example is left alone). The
+stylesheet module finds nothing to do in any example (their repeated blocks are
+the tiny `@page` rule). The real Sandman Slim file was not available this
+session, so its 42 KB block and the "colum-barium" pair are reproduced by the
+synthetic book, not checked on the real file.
+
+Known limits: a hyphen split that the book never spells joined anywhere (it
+appears once) is left alone, and so is a real compound a book happens to also
+spell joined with no space. Not caused by this work, noticed during checks: in
+The Call of Cthulhu and War and Peace some pages still point at a cover picture
+under its old name after Cover Repair renames it (the same dead links exist
+without these modules).

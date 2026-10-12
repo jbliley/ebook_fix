@@ -23,6 +23,9 @@ ellipsis_repair = true
 apostrophe_repair = true
 scene_break_repair = true
 scene_opener_repair = true
+stylesheet_dedupe_repair = true
+junk_file_repair = true
+hyphen_leftover_repair = true
 paragraph_spacing_repair = true
 paragraph_indent_repair = true
 header_spacing_repair = true
@@ -275,6 +278,50 @@ target_style = "unicode"
 
 # ---------------------------------------------------------------------
 # Apostrophe Repair
+# ---------------------------------------------------------------------
+# Embedded Stylesheet Consolidation
+# ---------------------------------------------------------------------
+[stylesheet_dedupe_repair]
+
+# Only a repeated stylesheet at least this many bytes long is moved. Small
+# rules that many converters stamp into every page (a 60-byte @page rule,
+# say) are not worth a new file.
+min_size = 1024
+
+# When a book pastes the same stylesheet into the top of several of its
+# files (a 42 KB block copied into 12 pages, say), it is moved into one
+# shared stylesheet file and each page links to it instead. A block that
+# only one file has, that differs between files, or that refers to other
+# files from several folders is left alone.
+
+# ---------------------------------------------------------------------
+# Junk File Removal
+# ---------------------------------------------------------------------
+[junk_file_repair]
+
+# Remove leftover files that do not belong in a finished book:
+# calibre_bookmarks.txt, .DS_Store, Thumbs.db, desktop.ini and the
+# __MACOSX folder. Nothing else in META-INF is ever touched.
+remove_known_junk = true
+
+# Remove a picture that is a byte-for-byte copy of another picture in the
+# book. The declared cover (or else the copy the book uses) is kept; a page
+# that shows the removed copy is pointed at the kept one. A copy used from a
+# stylesheet or link is left alone.
+remove_duplicate_images = true
+
+# ---------------------------------------------------------------------
+# Mid-Word Hyphen Repair
+# ---------------------------------------------------------------------
+[hyphen_leftover_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Joins a word left split by a line-break hyphen ("colum-barium") when the
+# book itself shows the joined word ("columbarium") is how it is normally
+# spelled. A real compound ("well-known"), a hyphen after a prefix
+# ("re-enter"), a heading and anything the book does not back up are left
+# alone.
+
 # ---------------------------------------------------------------------
 # Paragraph Spacing
 # ---------------------------------------------------------------------

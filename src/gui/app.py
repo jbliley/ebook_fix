@@ -97,6 +97,9 @@ from ebook_fix.modules.gutenberg_repair import GutenbergRepair
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
+from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
+from ebook_fix.modules.junk_file_repair import JunkFileRepair
+from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
 from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.paragraph_indent_repair import ParagraphIndentRepair
 from ebook_fix.modules.header_spacing_repair import HeaderSpacingRepair
@@ -157,6 +160,9 @@ _REPAIR_MODULES = [
     ("cover_repair", "Cover Repair"),
     ("color_repair", "Color Strip"),
     ("font_repair", "Font Strip"),
+    ("stylesheet_dedupe_repair", "Embedded Stylesheet Consolidation"),
+    ("junk_file_repair", "Junk File Removal"),
+    ("hyphen_leftover_repair", "Mid-Word Hyphen Repair"),
     ("ellipsis_repair", "Ellipsis Normalizer"),
     ("apostrophe_repair", "Apostrophe Repair"),
     ("whitespace_repair", "Whitespace Normalizer"),
@@ -195,6 +201,9 @@ _REPAIR_MODULE_CLASSES = {
     "cover_repair": CoverRepair,
     "color_repair": ColorStripRepair,
     "font_repair": FontStripRepair,
+    "stylesheet_dedupe_repair": EmbeddedStylesheetRepair,
+    "junk_file_repair": JunkFileRepair,
+    "hyphen_leftover_repair": HyphenLeftoverRepair,
     "ellipsis_repair": EllipsisRepair,
     "apostrophe_repair": ApostropheRepair,
     "whitespace_repair": WhitespaceRepair,

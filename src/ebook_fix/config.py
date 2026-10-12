@@ -172,6 +172,31 @@ class SceneOpenerConfig:
 
 
 @dataclass(slots=True)
+class StylesheetDedupeConfig:
+    enabled: bool = True
+    # Only a repeated stylesheet at least this many bytes long is moved.
+    # Small rules that many converters stamp into every page (a 60-byte
+    # @page rule, say) are not worth a new file.
+    min_size: int = 1024
+
+
+@dataclass(slots=True)
+class JunkFileConfig:
+    enabled: bool = True
+    # Remove known leftover files (calibre_bookmarks.txt, .DS_Store,
+    # Thumbs.db, desktop.ini, the __MACOSX folder).
+    remove_known_junk: bool = True
+    # Remove a picture that is a byte-for-byte copy of another picture in
+    # the book (and point any page that shows it at the copy kept).
+    remove_duplicate_images: bool = True
+
+
+@dataclass(slots=True)
+class HyphenLeftoverConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class ParagraphSpacingConfig:
     enabled: bool = True
 
@@ -354,6 +379,9 @@ class Config:
     apostrophe_repair: ApostropheRepairConfig = field(default_factory=ApostropheRepairConfig)
     scene_break_repair: SceneBreakRepairConfig = field(default_factory=SceneBreakRepairConfig)
     scene_opener_repair: SceneOpenerConfig = field(default_factory=SceneOpenerConfig)
+    stylesheet_dedupe_repair: StylesheetDedupeConfig = field(default_factory=StylesheetDedupeConfig)
+    junk_file_repair: JunkFileConfig = field(default_factory=JunkFileConfig)
+    hyphen_leftover_repair: HyphenLeftoverConfig = field(default_factory=HyphenLeftoverConfig)
     paragraph_spacing_repair: ParagraphSpacingConfig = field(default_factory=ParagraphSpacingConfig)
     paragraph_indent_repair: ParagraphIndentConfig = field(default_factory=ParagraphIndentConfig)
     header_spacing_repair: HeaderSpacingConfig = field(default_factory=HeaderSpacingConfig)
@@ -417,6 +445,9 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.apostrophe_repair, modules, "apostrophe_repair")
     _apply_module_toggle(config.scene_break_repair, modules, "scene_break_repair")
     _apply_module_toggle(config.scene_opener_repair, modules, "scene_opener_repair")
+    _apply_module_toggle(config.stylesheet_dedupe_repair, modules, "stylesheet_dedupe_repair")
+    _apply_module_toggle(config.junk_file_repair, modules, "junk_file_repair")
+    _apply_module_toggle(config.hyphen_leftover_repair, modules, "hyphen_leftover_repair")
     _apply_module_toggle(config.paragraph_spacing_repair, modules, "paragraph_spacing_repair")
     _apply_module_toggle(config.paragraph_indent_repair, modules, "paragraph_indent_repair")
     _apply_module_toggle(config.header_spacing_repair, modules, "header_spacing_repair")
@@ -445,6 +476,9 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.apostrophe_repair, "apostrophe_repair", data.get("apostrophe_repair", {}))
     _apply_section(config.scene_break_repair, "scene_break_repair", data.get("scene_break_repair", {}))
     _apply_section(config.scene_opener_repair, "scene_opener_repair", data.get("scene_opener_repair", {}))
+    _apply_section(config.stylesheet_dedupe_repair, "stylesheet_dedupe_repair", data.get("stylesheet_dedupe_repair", {}))
+    _apply_section(config.junk_file_repair, "junk_file_repair", data.get("junk_file_repair", {}))
+    _apply_section(config.hyphen_leftover_repair, "hyphen_leftover_repair", data.get("hyphen_leftover_repair", {}))
     _apply_section(config.paragraph_spacing_repair, "paragraph_spacing_repair", data.get("paragraph_spacing_repair", {}))
     _apply_section(config.paragraph_indent_repair, "paragraph_indent_repair", data.get("paragraph_indent_repair", {}))
     _apply_section(config.header_spacing_repair, "header_spacing_repair", data.get("header_spacing_repair", {}))
@@ -541,6 +575,9 @@ ellipsis_repair = true
 apostrophe_repair = true
 scene_break_repair = true
 scene_opener_repair = true
+stylesheet_dedupe_repair = true
+junk_file_repair = true
+hyphen_leftover_repair = true
 paragraph_spacing_repair = true
 paragraph_indent_repair = true
 header_spacing_repair = true
@@ -796,6 +833,50 @@ target_style = "unicode"
 
 # ---------------------------------------------------------------------
 # Apostrophe Repair
+# ---------------------------------------------------------------------
+# Embedded Stylesheet Consolidation
+# ---------------------------------------------------------------------
+[stylesheet_dedupe_repair]
+
+# Only a repeated stylesheet at least this many bytes long is moved. Small
+# rules that many converters stamp into every page (a 60-byte @page rule,
+# say) are not worth a new file.
+min_size = 1024
+
+# When a book pastes the same stylesheet into the top of several of its
+# files (a 42 KB block copied into 12 pages, say), it is moved into one
+# shared stylesheet file and each page links to it instead. A block that
+# only one file has, that differs between files, or that refers to other
+# files from several folders is left alone.
+
+# ---------------------------------------------------------------------
+# Junk File Removal
+# ---------------------------------------------------------------------
+[junk_file_repair]
+
+# Remove leftover files that do not belong in a finished book:
+# calibre_bookmarks.txt, .DS_Store, Thumbs.db, desktop.ini and the
+# __MACOSX folder. Nothing else in META-INF is ever touched.
+remove_known_junk = true
+
+# Remove a picture that is a byte-for-byte copy of another picture in the
+# book. The declared cover (or else the copy the book uses) is kept; a page
+# that shows the removed copy is pointed at the kept one. A copy used from a
+# stylesheet or link is left alone.
+remove_duplicate_images = true
+
+# ---------------------------------------------------------------------
+# Mid-Word Hyphen Repair
+# ---------------------------------------------------------------------
+[hyphen_leftover_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Joins a word left split by a line-break hyphen ("colum-barium") when the
+# book itself shows the joined word ("columbarium") is how it is normally
+# spelled. A real compound ("well-known"), a hyphen after a prefix
+# ("re-enter"), a heading and anything the book does not back up are left
+# alone.
+
 # ---------------------------------------------------------------------
 # Paragraph Spacing
 # ---------------------------------------------------------------------

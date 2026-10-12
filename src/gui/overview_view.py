@@ -55,14 +55,14 @@ BOXES = [
         ],
         "modules": [
             "gutenberg_repair", "running_title_repair", "linebreak_repair", "paragraph_repair",
-            "scene_break_repair", "scene_opener_repair", "ellipsis_repair", "apostrophe_repair", "whitespace_repair",
+            "scene_break_repair", "scene_opener_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "whitespace_repair",
         ],
     },
     {
         "key": "styling",
         "title": "Styling and Fonts",
         "sections": ["CSS", "Span Soup", "Possible Decorative Color", "Possible Decorative Font"],
-        "modules": ["color_repair", "font_repair", "paragraph_spacing_repair", "paragraph_indent_repair", "text_size_repair"],
+        "modules": ["color_repair", "font_repair", "paragraph_spacing_repair", "paragraph_indent_repair", "text_size_repair", "stylesheet_dedupe_repair"],
     },
     {
         "key": "images",
@@ -74,7 +74,7 @@ BOXES = [
         "key": "files",
         "title": "Files and Packaging",
         "sections": ["File Contents", "Files & Packaging"],
-        "modules": ["epub3_upgrade"],
+        "modules": ["epub3_upgrade", "junk_file_repair"],
     },
 ]
 
@@ -95,6 +95,9 @@ PLAIN_NAMES = {
     "header_spacing_repair": "Keep 2 to 5 blank lines under chapter headers",
     "scene_break_repair": "Standardize scene breaks",
     "scene_opener_repair": "Mark scene changes that open with capitals",
+    "stylesheet_dedupe_repair": "Share one stylesheet instead of a copy in every page",
+    "junk_file_repair": "Remove leftover junk files and duplicate pictures",
+    "hyphen_leftover_repair": "Join words split by a leftover hyphen",
     "paragraph_spacing_repair": "Remove the gap between indented paragraphs",
     "paragraph_indent_repair": "Add paragraph indents where the book has none",
     "text_size_repair": "Fix text that shows too large or small in some apps",

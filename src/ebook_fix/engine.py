@@ -57,6 +57,9 @@ from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.ellipsis import normalize_ellipsis_text
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
+from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
+from ebook_fix.modules.junk_file_repair import JunkFileRepair
+from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
 from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.paragraph_indent_repair import ParagraphIndentRepair
 from ebook_fix.modules.header_spacing_repair import HeaderSpacingRepair
@@ -96,6 +99,11 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     ParagraphIndentRepair,
     TextSizeRepair,
     RunningTitleRepair,
+    EmbeddedStylesheetRepair,
+    HyphenLeftoverRepair,
+    # A comic or picture book can repeat the same page picture on purpose,
+    # so identical pictures are never merged on a fixed-layout book.
+    JunkFileRepair,
 )
 
 console = Console()
@@ -239,6 +247,24 @@ class Engine:
         # touched -- see ebook_fix.fonts's module docstring.
         if getattr(self.config, "font_repair", None) and getattr(self.config.font_repair, "enabled", True):
             modules.append(FontStripRepair(self.config.font_repair))
+        # Runs after every stylesheet repair above, so each of them has
+        # already had its turn on the page-by-page copies of the rules; this
+        # then moves the copies that are identical into one shared file.
+        # Skipped on fixed-layout books like the other style repairs.
+        if getattr(self.config, "stylesheet_dedupe_repair", None) and getattr(self.config.stylesheet_dedupe_repair, "enabled", True):
+            modules.append(EmbeddedStylesheetRepair(self.config.stylesheet_dedupe_repair))
+        # Runs after Cover Repair and Image Repair, so the cover is already
+        # declared and renamed and the pictures are already checked, before
+        # an identical copy of one is removed. Only touches files, never
+        # chapter text, so it runs on fixed-layout books too.
+        if getattr(self.config, "junk_file_repair", None) and getattr(self.config.junk_file_repair, "enabled", True):
+            modules.append(JunkFileRepair(self.config.junk_file_repair))
+        # Joins a leftover line-break hyphen inside a word. It only acts on
+        # what the whole book backs up, so it goes before the other
+        # text-level repairs and after anything that reshapes paragraphs.
+        # Skipped on fixed-layout books like the other prose repairs.
+        if getattr(self.config, "hyphen_leftover_repair", None) and getattr(self.config.hyphen_leftover_repair, "enabled", True):
+            modules.append(HyphenLeftoverRepair(self.config.hyphen_leftover_repair))
         # Runs before Whitespace Normalizer: both modules can end up
         # wanting to touch the very same text/tail node (an ellipsis
         # sitting in a paragraph that also has, say, doubled internal
