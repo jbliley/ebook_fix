@@ -465,6 +465,13 @@ standardize_filename = true
 # cover, within the first few pages of the book.
 remove_duplicate_cover_page = true
 
+# Fix a cover <link> tag in a page header (for example Project
+# Gutenberg's rel="icon" type="image/x-cover") that names a cover file
+# which no longer exists, typically because the cover was renamed. The
+# tag is pointed at the book's real cover. A link to a file that exists
+# is never changed.
+fix_stale_links = true
+
 # ---------------------------------------------------------------------
 # Running Title Removal
 # ---------------------------------------------------------------------

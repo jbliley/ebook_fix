@@ -60,6 +60,7 @@ from ebook_fix.cover import (
     analyze_book_cover,
     archive_names,
     find_manifest_item_element,
+    repoint_stale_cover_links,
     rewrite_chapter_image_references,
     standard_cover_filename,
     swap_filename,
@@ -218,6 +219,16 @@ class CoverRepair:
                     f"{cover.resolved_href} -> standardized filename \"{target}\"",
                 )
 
+        if self.config.fix_stale_links:
+            stale = repoint_stale_cover_links(book, cover.resolved_href, dry_run=True)
+            if stale:
+                report.add(
+                    "content.opf",
+                    "Stale cover links",
+                    f"{len(stale)} page(s) have a cover link to a file that "
+                    "no longer exists and will be pointed at the cover",
+                )
+
         if self.config.remove_duplicate_cover_page:
             dup = find_duplicate_cover_page(book, cover)
             if dup is not None:
@@ -300,6 +311,23 @@ class CoverRepair:
                     "content.opf",
                     "Cover file renamed",
                     f"{cover.resolved_href} -> {renamed_to}",
+                )
+                changed = True
+
+        if self.config.fix_stale_links:
+            # After the rename above, so a link the rename just updated is
+            # already right, and only a link left over from an earlier
+            # run (old name no longer findable) is healed here.
+            cover_now = posixpath.normpath(
+                str(PurePosixPath(book.package_path).parent / cover.cover_item.href)
+            )
+            fixed_pages = repoint_stale_cover_links(book, cover_now)
+            if fixed_pages:
+                report.add(
+                    "content.opf",
+                    "Stale cover links fixed",
+                    f"{len(fixed_pages)} page(s) pointed at a cover file that "
+                    f"no longer exists; now point at {cover_now}",
                 )
                 changed = True
 

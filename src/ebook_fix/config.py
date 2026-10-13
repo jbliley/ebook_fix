@@ -260,6 +260,10 @@ class CoverRepairConfig:
     # art, sitting near the real cover page (the reader would
     # otherwise show the cover twice).
     remove_duplicate_cover_page: bool = True
+    # Point a cover <link> tag in a page header (e.g. Project Gutenberg's
+    # rel="icon" type="image/x-cover") at the real cover when the file it
+    # names no longer exists, as left behind by a renamed cover.
+    fix_stale_links: bool = True
 
 
 @dataclass(slots=True)
@@ -1026,6 +1030,13 @@ standardize_filename = true
 # acts on a page with no text and one image with the same shape as the
 # cover, within the first few pages of the book.
 remove_duplicate_cover_page = true
+
+# Fix a cover <link> tag in a page header (for example Project
+# Gutenberg's rel="icon" type="image/x-cover") that names a cover file
+# which no longer exists, typically because the cover was renamed. The
+# tag is pointed at the book's real cover. A link to a file that exists
+# is never changed.
+fix_stale_links = true
 
 # ---------------------------------------------------------------------
 # Running Title Removal

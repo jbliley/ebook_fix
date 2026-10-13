@@ -46,6 +46,7 @@ itself.
 from __future__ import annotations
 
 import posixpath
+import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -368,7 +369,9 @@ def sync_declarations(opf, cover_item) -> bool:
 
 
 def rewrite_chapter_image_references(book, old_path: str, new_path: str) -> None:
-    """Updates any <img src> or SVG <image xlink:href>/href, in any
+    """Updates any <img src>, SVG <image xlink:href>/href, <link href>
+    (e.g. the <link rel="icon" type="image/x-cover"> tag Project
+    Gutenberg books carry in every page header) or <a href> in any
     chapter (e.g. a dedicated cover.xhtml page), that points at
     `old_path` to point at `new_path` instead. Marks each touched
     chapter .modified = True; does not itself call
@@ -397,8 +400,82 @@ def rewrite_chapter_image_references(book, old_path: str, new_path: str) -> None
                 image.set(attr, swap_filename(href, target_name))
                 touched = True
 
+        for tag in ("link", "a"):
+            for el in chapter.document.findall(f".//{{*}}{tag}"):
+                href = el.get("href")
+                if not href or "#" in href or _SCHEME_RE.match(href):
+                    continue
+                if _resolve(chapter_dir, href) == old_path:
+                    el.set("href", swap_filename(href, target_name))
+                    touched = True
+
         if touched:
             chapter.modified = True
+
+
+_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp")
+
+
+def _looks_like_cover_link(el) -> bool:
+    """True for a <link> tag that declares a cover or icon picture
+    (rel="icon" type="image/x-cover", rel="coverpage", and so on)."""
+    rel = (el.get("rel") or "").lower().split()
+    kind = (el.get("type") or "").lower()
+    href = (el.get("href") or "").lower()
+    if not href.endswith(_IMAGE_EXTENSIONS):
+        return False
+    return bool(
+        "cover" in kind
+        or "coverpage" in rel
+        or "cover" in rel
+        or ("icon" in rel and kind.startswith("image/"))
+    )
+
+
+def repoint_stale_cover_links(book, cover_path: str, dry_run: bool = False) -> list:
+    """Finds <link> tags that declare a cover picture but point at a
+    file that no longer exists in the book, and points them at the
+    book's real cover (`cover_path`) instead. This heals books that an
+    earlier version repaired: the cover file had been renamed but the
+    <link> tag in each page header kept the old name, and the old name
+    can no longer be worked out from the book itself.
+
+    Only ever touches a <link> that looks like a cover declaration and
+    whose target is genuinely missing; a link to a file that exists is
+    never changed. Marks each touched chapter .modified = True and
+    returns the list of chapter hrefs it changed. With dry_run=True
+    nothing is edited; the list is what would have been changed."""
+    base = PurePosixPath(book.package_path).parent
+    present = (
+        archive_names(book)
+        | set(getattr(book, "new_files", {}) or {})
+    ) - set(getattr(book, "removed_files", set()) or set())
+    if cover_path not in present:
+        return []
+
+    changed = []
+    for chapter in book.chapters:
+        if chapter.document is None:
+            continue
+        chapter_dir = PurePosixPath(_resolve(base, chapter.href)).parent
+        touched = False
+        for el in chapter.document.findall(".//{*}link"):
+            href = el.get("href")
+            if not href or "#" in href or _SCHEME_RE.match(href):
+                continue
+            if not _looks_like_cover_link(el):
+                continue
+            if _resolve(chapter_dir, href) in present:
+                continue
+            touched = True
+            if not dry_run:
+                el.set("href", posixpath.relpath(cover_path, str(chapter_dir) or "."))
+        if touched:
+            if not dry_run:
+                chapter.modified = True
+            changed.append(chapter.href)
+    return changed
 
 
 def unique_manifest_id(opf, preferred: str = "cover-image") -> str:

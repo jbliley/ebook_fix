@@ -3557,3 +3557,35 @@ Results: the Pilgrimage file now has Prologue and Epilogue styled as `h2.calibre
 with 1 line above and 2 below, finishes in 2 passes, and all 21 example books
 repair with no change in word count and a stable second run. Known limit: the
 stale cover links (Call of Cthulhu, War and Peace) are still the next item.
+
+## Stale cover links after the cover is renamed (2026-10-13)
+
+Found while checking Call of Cthulhu and War and Peace: Cover Repair renames the
+cover picture to `cover.jpg`, but these Project Gutenberg books also name the
+cover in a `<link rel="icon" type="image/x-cover">` tag in the head of every
+page (one page in Cthulhu, 366 in War and Peace). Cover Repair only updated
+`<img>` and SVG `<image>` tags, so after the rename those tags pointed at a file
+that no longer existed.
+
+What changed:
+- The shared cover rename code (`rewrite_chapter_image_references` in
+  `cover.py`, used by Cover Repair and by Replace Cover) now also updates
+  `<link href>` and `<a href>` tags that point at the old cover file.
+- A book already repaired by an earlier version has dead cover links whose old
+  name can no longer be worked out. `repoint_stale_cover_links` finds a `<link>`
+  that declares a cover or icon picture (rel `icon`, `coverpage` or `cover`, or
+  a type containing `cover`) and whose file is missing from the book, and points
+  it at the real cover. A link to a file that exists is never touched. The
+  Cover Repair preview lists these as "Stale cover links".
+- New setting: `fix_stale_links` under `[cover_repair]` (on by default).
+
+Results: both books now repair with no dead cover links. A War and Peace copy
+that was broken by the old version (367 dead links) is healed on a new run, and
+a second run changes nothing. All 21 example books repair with no change in word
+count, valid XML on every changed page, and the only differences from the
+previous version are the cover links and the OPF modified timestamp.
+
+Not caused by this work, noticed during checks: in both books the NCX still has
+an entry for the Project Gutenberg footer page (`#pg-footer-heading`) after
+Gutenberg Boilerplate removal deleted that page, so the NCX points at a missing
+file. It is not fixed here.
