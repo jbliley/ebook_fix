@@ -851,6 +851,20 @@ def merge_repeated_markers(candidates: list) -> list:
                     seen_hrefs.append(nxt.href)
                 j += 1
             if j - i > 1:
+                # A split a person approved stamped its header (see
+                # headings.SPLIT_MARKER_ATTR). When one of the repeats
+                # carries that stamp it is the real chapter start, not
+                # whichever copy happens to come first (a "Prologue"
+                # line in the copyright page, say).
+                from ebook_fix.headings import carries_split_stamp
+                group = ordered[i:j]
+                stamped = next((m for m in group if carries_split_stamp(m.element)), None)
+                if stamped is not None:
+                    current = stamped
+                    seen_hrefs = []
+                    for m in group:
+                        if m.href != current.href and m.href not in seen_hrefs:
+                            seen_hrefs.append(m.href)
                 current.occurrence_count = j - i
                 current.also_seen_hrefs = seen_hrefs
             merged.append(current); i = j

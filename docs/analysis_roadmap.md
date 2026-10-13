@@ -3529,3 +3529,31 @@ spell joined with no space. Not caused by this work, noticed during checks: in
 The Call of Cthulhu and War and Peace some pages still point at a cover picture
 under its old name after Cover Repair renames it (the same dead links exist
 without these modules).
+
+## Prologue header style and blank line above chapter headers (2026-10-13)
+
+Found in "Pilgrimage to Hell" (Deathlands 1). After splitting, the Prologue was
+found but left looking like body text (an indented bold paragraph, not styled
+like "Chapter One"), the real Prologue lost out to a stray word "Prologue" on the
+copyright page when the chapter analysis folded repeated markers, and chapter
+headers sat hard against the top of the page.
+
+What changed:
+- Splitter now stamps each header it splits at (`data-ebookfix-split`), and the
+  chapter analysis treats a stamped header as the real one when a marker repeats
+  across files. The copyright page no longer gets wrapped as a chapter.
+- Chapter Header Spacing now also restyles a plain-paragraph header (Prologue,
+  Epilogue) to the tag and class of the book's other chapter headers, flattening
+  bold and line-break wrappers. Setting: `match_header_style` (on by default).
+  It needs at least one heading-tag chapter header in the book to copy from.
+- Chapter Header Spacing now keeps `lines_before` (1 by default) real blank
+  lines above each chapter header, as a blank paragraph rather than a margin,
+  since margins are ignored by many readers. The 2 line minimum under headers is
+  unchanged, and now applies to the Prologue too.
+- Paragraph Repair keeps a blank line sitting directly above a chapter header,
+  the same way it already keeps the space below one.
+
+Results: the Pilgrimage file now has Prologue and Epilogue styled as `h2.calibre5`
+with 1 line above and 2 below, finishes in 2 passes, and all 21 example books
+repair with no change in word count and a stable second run. Known limit: the
+stale cover links (Call of Cthulhu, War and Peace) are still the next item.

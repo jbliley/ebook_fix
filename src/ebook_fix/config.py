@@ -218,6 +218,10 @@ class HeaderSpacingConfig:
     # stylesheet already spaces, is left alone.
     min_lines: int = 2
     max_lines: int = 5
+    # Blank lines added directly above each chapter header (0 turns it off).
+    lines_before: int = 1
+    # Restyle a plain-paragraph header (Prologue) like the other chapter headers.
+    match_header_style: bool = True
 
 
 @dataclass(slots=True)
@@ -920,6 +924,11 @@ enabled = true
 # is an image, or that the stylesheet already spaces, is left alone.
 min_lines = 2
 max_lines = 5
+# Blank lines added directly above each chapter header (0 turns it off).
+lines_before = 1
+# Restyle a header that looks like body text (a Prologue) to match the
+# other chapter headers.
+match_header_style = true
 
 # ---------------------------------------------------------------------
 # Paragraph Indent

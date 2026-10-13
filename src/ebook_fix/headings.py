@@ -26,6 +26,13 @@ from __future__ import annotations
 
 HEADING_TAGS = frozenset(("h1", "h2", "h3", "h4", "h5", "h6"))
 MARKER_ATTR = "data-ebookfix-chapter"
+# Stamped on the header block a person-approved split cut at (the Review
+# tab's ticked boundaries). The chapter analysis can fail to find that
+# header again once the book is split (a repeated word in the copyright
+# page can win instead), so the split records its own answer.
+SPLIT_MARKER_ATTR = "data-ebookfix-split"
+
+_BLOCK_TAGS = HEADING_TAGS | frozenset(("p", "div", "li", "blockquote"))
 
 
 def _local(el) -> str:
@@ -58,9 +65,47 @@ def chapter_marker_elements(chapter_summary) -> set:
     return found
 
 
+def split_header_block(element):
+    """The nearest block (heading, p, div, li, blockquote) at or above
+    `element`: a marker is often an inline <strong> or <span> inside the
+    real header paragraph."""
+    node = element
+    while node is not None:
+        if isinstance(node.tag, str) and _local(node) in _BLOCK_TAGS:
+            return node
+        node = node.getparent()
+    return element
+
+
+def stamp_split_header(element) -> bool:
+    """Record that a split was made at this header. Returns True if the
+    attribute was added."""
+    block = split_header_block(element)
+    if block is None or not isinstance(block.tag, str) or block.get(SPLIT_MARKER_ATTR):
+        return False
+    block.set(SPLIT_MARKER_ATTR, "true")
+    return True
+
+
+def carries_split_stamp(element) -> bool:
+    node = element
+    while node is not None:
+        if isinstance(node.tag, str) and node.get(SPLIT_MARKER_ATTR):
+            return True
+        node = node.getparent()
+    return False
+
+
+def is_marked_header(el) -> bool:
+    """True for an element Chapter Markup or a split has marked."""
+    return el is not None and isinstance(el.tag, str) and bool(
+        el.get(MARKER_ATTR) or el.get(SPLIT_MARKER_ATTR)
+    )
+
+
 def is_chapter_header(el, markers=None) -> bool:
     if el is None or not isinstance(el.tag, str):
         return False
-    if _local(el) in HEADING_TAGS or el.get(MARKER_ATTR):
+    if _local(el) in HEADING_TAGS or el.get(MARKER_ATTR) or el.get(SPLIT_MARKER_ATTR):
         return True
     return markers is not None and el in markers

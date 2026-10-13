@@ -617,6 +617,13 @@ def apply_split(book, chapter, markers: list) -> SplitResult:
     new_hrefs = generate_split_hrefs(chapter.href, segments, existing_hrefs)
     href_by_id = build_href_by_id(segments, new_hrefs)
 
+    # Integrity check passed: the split is going ahead, so record which
+    # header each cut was made at (see headings.SPLIT_MARKER_ATTR).
+    from ebook_fix.headings import stamp_split_header
+    for marker in markers:
+        if getattr(marker, "element", None) is not None:
+            stamp_split_header(marker.element)
+
     _wire_into_book(book, chapter, documents, segments, new_hrefs)
 
     return SplitResult(

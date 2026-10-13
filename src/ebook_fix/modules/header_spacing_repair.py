@@ -19,6 +19,12 @@ space or a line break (each line break is one line), or a bare <br/> right
 under the header. A blank paragraph with nothing in it draws nothing, so
 it counts for nothing.
 
+A header that is only a plain paragraph (a "Prologue" or "Epilogue" that
+the conversion left looking like body text) is restyled to match the
+book's numbered chapter headers: same tag and class, with any bold and
+line-break wrappers flattened to plain text. Needs at least one real
+heading-tag chapter header in the book to copy from.
+
 When it does nothing, on purpose:
 - The header is an image, or has no text of its own (it may need the
   space as part of its design), or an image comes right after it.
@@ -26,6 +32,11 @@ When it does nothing, on purpose:
   margin plus the next paragraph's top margin come to about a line or
   more (see MARGIN_GAP_EM). Adding lines on top would double it.
 - The header already has between MIN_LINES and MAX_LINES lines of gap.
+
+It also keeps lines_before (1 by default) blank lines directly above each
+chapter header, so the header never sits hard against the top of the page
+or the text above it. Margins are not used for this, since many readers
+ignore them; a real blank paragraph is added instead.
 
 Existing spacing is never reduced below MIN_LINES, and only ever cut down
 when it is above MAX_LINES. Re-running finds the gap already there and
@@ -37,13 +48,14 @@ import re
 
 from ebook_fix.config import HeaderSpacingConfig
 from ebook_fix.css import COMMENT_RE, RULE_RE
-from ebook_fix.headings import MARKER_ATTR, chapter_marker_elements
+from ebook_fix.headings import MARKER_ATTR, SPLIT_MARKER_ATTR, chapter_marker_elements
 from ebook_fix.modules.paragraph_indent_repair import _book_rules
 from ebook_fix.modules.paragraph_spacing_repair import _to_em
 from ebook_fix.report import Report
 
 DEFAULT_MIN_LINES = 2
 DEFAULT_MAX_LINES = 5
+DEFAULT_LINES_BEFORE = 1
 # Margin (in em) between a header and the next paragraph that already
 # counts as a visible gap, so no more is added.
 MARGIN_GAP_EM = 1.5
@@ -188,6 +200,25 @@ def read_header_spacing(header):
     return block, gaps, lines, node
 
 
+def lines_before_header(header) -> int:
+    """Blank lines directly above the header, among its own siblings."""
+    lines = 0
+    node = header.getprevious()
+    while node is not None:
+        if not isinstance(node.tag, str):
+            node = node.getprevious()
+            continue
+        if _local(node) == "br":
+            lines += 1
+        else:
+            n = _gap_lines(node)
+            if n is None:
+                break
+            lines += n
+        node = node.getprevious()
+    return lines
+
+
 def _gap_paragraph(like):
     from lxml import etree
 
@@ -221,7 +252,7 @@ def _headers(book, analysis):
                 continue
             if "chapter-wrapper" in (el.get("class") or ""):
                 continue
-            if el.get(MARKER_ATTR) or el in markers:
+            if el.get(MARKER_ATTR) or el.get(SPLIT_MARKER_ATTR) or el in markers:
                 found.append((chapter, el))
     # A header that holds another header (a wrapper) is not itself one.
     found_ids = {id(x) for _c, x in found}
@@ -230,7 +261,63 @@ def _headers(book, analysis):
             yield chapter, el
 
 
-def plan_header_spacing(book, analysis, min_lines, max_lines):
+_HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
+MAX_RESTYLE_LENGTH = 40
+
+
+def restyle_plain_headers(book, analysis):
+    """Give paragraph-style chapter headers the tag and class of the book's
+    heading-style ones. Returns [(chapter, text)] for each one changed."""
+    from collections import Counter
+
+    headers = list(_headers(book, analysis))
+    styles = Counter()
+    for _chapter, el in headers:
+        if _local(el) in _HEADING_TAGS and _text(el):
+            styles[(el.tag, el.get("class") or "")] += 1
+    if not styles:
+        return []
+    (tag, cls), _n = styles.most_common(1)[0]
+    changed = []
+    for chapter, el in headers:
+        if _local(el) not in ("p", "div"):
+            continue
+        text = " ".join(_text(el).split())
+        if not text or len(text) > MAX_RESTYLE_LENGTH or _has_image(el):
+            continue
+        if any(_local(d) in ("p", "div") or _local(d) in _HEADING_TAGS for d in el.iterdescendants()
+               if isinstance(d.tag, str)):
+            continue
+        for child in list(el):
+            el.remove(child)
+        el.text = text
+        el.tag = tag
+        if cls:
+            el.set("class", cls)
+        elif "class" in el.attrib:
+            del el.attrib["class"]
+        changed.append((chapter, text))
+    return changed
+
+
+def _plain_header_names(book, analysis):
+    """What restyle_plain_headers would change, without changing anything."""
+    headers = list(_headers(book, analysis))
+    has_ref = any(_local(el) in _HEADING_TAGS and _text(el) for _c, el in headers)
+    if not has_ref:
+        return []
+    out = []
+    for chapter, el in headers:
+        if _local(el) in ("p", "div") and not _has_image(el):
+            text = " ".join(_text(el).split())
+            if text and len(text) <= MAX_RESTYLE_LENGTH and not any(
+                    isinstance(d.tag, str) and (_local(d) in ("p", "div") or _local(d) in _HEADING_TAGS)
+                    for d in el.iterdescendants()):
+                out.append((chapter, text))
+    return out
+
+
+def plan_header_spacing(book, analysis, min_lines, max_lines, lines_before=0):
     """[(chapter, header, action, detail)] where action is "add" or
     "trim"; headers that need nothing are left out."""
     rules, _sources = _book_rules(book)
@@ -243,6 +330,8 @@ def plan_header_spacing(book, analysis, min_lines, max_lines):
         seen.add(id(header))
         if _has_image(header) or not _text(header):
             continue
+        if lines_before > 0 and lines_before_header(header) < lines_before:
+            plan.append((chapter, header, "before", lines_before - lines_before_header(header)))
         block, gaps, lines, first = read_header_spacing(header)
         if first is None:
             continue
@@ -274,12 +363,31 @@ class HeaderSpacingRepair:
         hi = max(hi, lo, 1)
         return lo, hi
 
+    def _before(self) -> int:
+        return max(int(getattr(self.config, "lines_before", DEFAULT_LINES_BEFORE) or 0), 0)
+
     def analyze(self, book, analysis=None) -> Report:
         report = Report(self.name)
         if not self.config.enabled:
             return report
         lo, hi = self._limits()
-        plan = plan_header_spacing(book, analysis, lo, hi)
+        plan = plan_header_spacing(book, analysis, lo, hi, self._before())
+        plain = _plain_header_names(book, analysis) if getattr(self.config, "match_header_style", True) else []
+        if plain:
+            report.add(
+                plain[0][0].href,
+                "Chapter header styled differently",
+                "These chapter headers look like body text and will be restyled to match the other "
+                "chapter headers: " + ", ".join(f'"{x}"' for _c, x in plain) + ".",
+            )
+        before = [p for p in plan if p[2] == "before"]
+        if before:
+            report.add(
+                before[0][0].href,
+                "Chapter header has no blank line above",
+                f"{len(before)} chapter header(s) have fewer than {self._before()} blank line(s) above "
+                "them. A blank line will be added.",
+            )
         add = [p for p in plan if p[2] == "add"]
         trim = [p for p in plan if p[2] == "trim"]
         if add:
@@ -303,8 +411,22 @@ class HeaderSpacingRepair:
         if not self.config.enabled:
             return report
         lo, hi = self._limits()
-        added = trimmed = 0
-        for chapter, header, action, (block, gaps, lines) in plan_header_spacing(book, analysis, lo, hi):
+        added = trimmed = before = 0
+        restyled = restyle_plain_headers(book, analysis) if getattr(self.config, "match_header_style", True) else []
+        for chapter, _text_ in restyled:
+            chapter.modified = True
+        if restyled:
+            report.add("chapters", "Chapter header restyled",
+                       "Restyled to match the other chapter headers: "
+                       + ", ".join(f'"{x}"' for _c, x in restyled) + ".")
+        for chapter, header, action, info in plan_header_spacing(book, analysis, lo, hi, self._before()):
+            if action == "before":
+                for _ in range(info):
+                    header.addprevious(_gap_paragraph(header))
+                before += 1
+                chapter.modified = True
+                continue
+            block, gaps, lines = info
             if action == "add":
                 anchor = gaps[-1][0] if gaps else block
                 for _ in range(lo - lines):
@@ -328,12 +450,15 @@ class HeaderSpacingRepair:
                             excess -= 1
                 trimmed += 1
             chapter.modified = True
+        if before:
+            report.add("chapters", "Chapter header gap added above",
+                       f"Added a blank line above {before} chapter header(s).")
         if added:
             report.add("chapters", "Chapter header gap added",
                        f"Added blank lines under {added} chapter header(s) so each has {lo}.")
         if trimmed:
             report.add("chapters", "Chapter header gap reduced",
                        f"Cut the space under {trimmed} chapter header(s) down to {hi} lines.")
-        if (added or trimmed) and hasattr(book, "mark_modified"):
+        if (added or trimmed or before or restyled) and hasattr(book, "mark_modified"):
             book.mark_modified()
         return report

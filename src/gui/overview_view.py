@@ -92,7 +92,7 @@ PLAIN_NAMES = {
     "dead_link_repair": "Fix dead links",
     "epub3_upgrade": "Upgrade to EPUB 3",
     "toc_generation": "Build a table of contents",
-    "header_spacing_repair": "Keep 2 to 5 blank lines under chapter headers",
+    "header_spacing_repair": "One blank line above and 2 to 5 below chapter headers, all styled alike",
     "scene_break_repair": "Standardize scene breaks",
     "scene_opener_repair": "Mark scene changes that open with capitals",
     "stylesheet_dedupe_repair": "Share one stylesheet instead of a copy in every page",

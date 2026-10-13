@@ -177,6 +177,26 @@ def _is_spacing_after_header(p, markers) -> bool:
     return False
 
 
+def _is_spacing_before_header(p, markers) -> bool:
+    """True for a blank, gap-showing paragraph sitting directly above a
+    chapter header (the blank line Chapter Header Spacing adds so a header
+    is not hard against the top of the page). Kept like the space below."""
+    if not _renders_gap(p):
+        return False
+    node = p.getnext()
+    while node is not None:
+        if not isinstance(node.tag, str):
+            node = node.getnext()
+            continue
+        if is_chapter_header(node, markers):
+            return True
+        if node.tag.rsplit("}", 1)[-1].lower() == "p" and _is_empty(node):
+            node = node.getnext()
+            continue
+        return False
+    return False
+
+
 def _referenced_fragments(book) -> set:
     """Every fragment id (the part after a '#') that some link in the
     book points at: in-body links, the EPUB 3 nav document (an ordinary
@@ -517,6 +537,7 @@ def analyze_book_paragraphs(book, frontmatter_summary=None, chapter_markers=None
             if (
                 not junk and empty and not _holds_link_target(p, referenced)
                 and not _is_spacing_after_header(p, chapter_markers)
+                and not _is_spacing_before_header(p, chapter_markers)
             ):
                 chapter_summary.empty_paragraphs.append(
                     EmptyParagraph(href=chapter.href, element=p)
