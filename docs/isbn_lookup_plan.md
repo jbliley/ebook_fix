@@ -49,7 +49,7 @@ A field is only suggested when Open Library has a value and the page does not al
 - **Publisher:** one name containing the other counts as the same. After an ISBN search it can replace a different publisher; after a title search it only fills a blank.
 - **Date:** same year counts as the same. After an ISBN search it can replace a different year; after a title search it only fills a blank.
 - **Description:** only ever fills a blank, so a description someone wrote or cleaned up is never replaced by a catalog blurb.
-- Series is not suggested (Open Library does not reliably have it).
+- **Series (added 2026-10-13):** read from the edition record's free-text `series` list (entries like `Sandman Slim ; 1` or `Deathlands -- 1`, parsed by `metadata.title_cleanup.parse_series_text`). Shown as one combined blue note, "Open Library has: Name, book N", with a single Use it that fills both Series fields. It only fills blanks: a book with no series gets name and position, a book with the same name but no position gets the position, and a series already set is never replaced. The title/author search has no series in its results, so it looks at the first edition's record found for it. Open Library only has a series on some editions, so an empty result is normal, not a failure. Not yet checked against live Open Library data (the build environment could not reach it); only against records written in its documented format.
 
 ### Messages
 - Found: `Found "<title>" by <author> (ISBN <isbn>) on Open Library. N suggestions shown under the fields above.` Or, if nothing differs: `Nothing to change, this page already agrees with it.`

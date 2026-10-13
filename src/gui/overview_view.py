@@ -205,6 +205,8 @@ def _build_facts(ar, module_reports) -> list:
     name_problems = []
     if _issues_in(module_reports.get("title_cleanup"), "Filename-style title"):
         name_problems.append("title looks like a filename")
+    if _issues_in(module_reports.get("title_cleanup"), "Series tag"):
+        name_problems.append("title has the series written in it")
     if _issues_in(module_reports.get("title_cleanup"), "Author name"):
         name_problems.append("author is stored as \"Last, First\"")
     if name_problems:

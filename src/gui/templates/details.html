@@ -181,6 +181,7 @@
         <label for="field-series-index">Series Position</label>
         <input type="text" id="field-series-index" name="series_index" value="{{ series_index }}" placeholder="e.g. 3 or 3.5">
         <div class="fix-note" data-note="series" hidden></div>
+        <div class="fix-note" data-lookup="series" hidden></div>
       </div>
 
       <!-- ONLINE LOOKUP (Open Library) -->
@@ -473,6 +474,7 @@
         note.hidden = true;
       }
     });
+    if (renderSeriesLookupNote()) shown++;
     document.getElementById("lookup-actions").style.display = shown > 0 ? "flex" : "none";
     return shown;
   }
@@ -483,7 +485,32 @@
       var el = document.getElementById("field-" + field);
       values[field] = el ? el.value : "";
     });
+    values.series_name = document.getElementById("field-series-name").value;
+    values.series_index = document.getElementById("field-series-index").value;
     return values;
+  }
+
+  // The series is one combined note (name and position) with one Use it.
+  // Returns true when it is showing.
+  function renderSeriesLookupNote() {
+    var note = document.querySelector('.fix-note[data-lookup="series"]');
+    var nameEl = document.getElementById("field-series-name");
+    var indexEl = document.getElementById("field-series-index");
+    if (!note || !nameEl || !indexEl) return false;
+    var name = lookupSuggestions.series_name;
+    var index = lookupSuggestions.series_index;
+    var nameDiffers = name !== undefined && norm(nameEl.value) !== norm(name);
+    var indexDiffers = index !== undefined && norm(indexEl.value) !== norm(index);
+    if (nameDiffers || indexDiffers) {
+      var text = (name !== undefined ? name : norm(nameEl.value)) + (index !== undefined ? ", book " + index : "");
+      buildLookupNote(note, text, function() {
+        if (name !== undefined) fillField("field-series-name", name);
+        if (index !== undefined) fillField("field-series-index", index);
+      });
+      return true;
+    }
+    note.hidden = true;
+    return false;
   }
 
   function performLookup(searchType) {
@@ -531,6 +558,8 @@
       var el = document.getElementById("field-" + field);
       if (value !== undefined && el && norm(el.value) !== norm(value)) fillField("field-" + field, value);
     });
+    if (lookupSuggestions.series_name !== undefined) fillField("field-series-name", lookupSuggestions.series_name);
+    if (lookupSuggestions.series_index !== undefined) fillField("field-series-index", lookupSuggestions.series_index);
   };
 
   window.clearLookupSuggestions = function() {

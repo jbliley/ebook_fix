@@ -540,6 +540,14 @@ read_series_from_title = true
 # like "Jr." and company names are left alone.
 fix_author_order = true
 
+# Take a series tag written inside the title out of it and record it as
+# the book's series, but only if the book has no series set yet. Forms
+# recognized: "Title (Series #3)", "Title (Series, Book 3)", "Title
+# [Series Vol. 3]", "Title (Book 3 of the Series)", "Series #3: Title" and
+# "Series, Book 3 - Title". A tag with no marker ("Title (Series 3)") is
+# left alone, since a bare number could be an edition or part of the title.
+read_embedded_series = true
+
 # ---------------------------------------------------------------------
 # Identifier Standardize
 # ---------------------------------------------------------------------

@@ -30,6 +30,7 @@ import urllib.request
 from typing import Optional
 
 from metadata.identifiers import analyze_book_identifiers
+from metadata.title_cleanup import parse_series_text
 
 _BASE_URL = "https://openlibrary.org"
 _USER_AGENT = "ebook-fix/1.0 (https://github.com/jbliley/ebook_fix)"
@@ -38,6 +39,10 @@ _TIMEOUT_SECONDS = 10
 # The fields a lookup can suggest, named the same as the Metadata tab's
 # form fields (field-title, field-author, ...).
 SUGGESTED_FIELDS = ("title", "author", "publisher", "date", "description")
+
+# The series is suggested too, but as one combined note (name plus
+# position), so it travels beside the plain fields rather than in them.
+SERIES_FIELDS = ("series_name", "series_index")
 
 # How many of a book's ISBNs to try before giving up (e.g. a print ISBN
 # and an ebook ISBN may both be listed; only one may be in Open Library).
@@ -201,6 +206,26 @@ def _clean_description(value) -> str:
     return text.strip()
 
 
+def series_from_edition(edition) -> tuple:
+    """(name, number) from an Open Library edition record's free-text
+    "series" list, or ("", None) when it has none. Entries look like
+    "Sandman Slim ; 1" or "Deathlands -- 1"; the first entry that carries
+    a number wins, else the first with a usable name."""
+    if not isinstance(edition, dict):
+        return "", None
+    entries = edition.get("series") or []
+    if isinstance(entries, str):
+        entries = [entries]
+    parsed = [parse_series_text(e) for e in entries if isinstance(e, str)]
+    parsed = [p for p in parsed if p]
+    for name, index in parsed:
+        if index is not None:
+            return name, index
+    if parsed:
+        return parsed[0][0], None
+    return "", None
+
+
 def _work_description(work_keys: list) -> str:
     for key in work_keys[:1]:
         if isinstance(key, str) and _WORK_KEY.match(key):
@@ -285,6 +310,8 @@ def fetch_isbn_metadata(isbn: str) -> Optional[dict]:
     if not description:
         description = _work_description(work_keys)
 
+    series_name, series_index = series_from_edition(edition)
+
     return {
         "title": (edition.get("title") or "").strip(),
         "author": _author_names(author_keys),
@@ -292,6 +319,8 @@ def fetch_isbn_metadata(isbn: str) -> Optional[dict]:
         "date": normalize_date(edition.get("publish_date")),
         "description": description,
         "isbn": digits,
+        "series_name": series_name,
+        "series_index": series_index,
     }
 
 
@@ -350,6 +379,15 @@ def fetch_title_author_metadata(title: str, author: Optional[str] = None) -> Opt
     publishers = doc.get("publisher") or []
     year = doc.get("first_publish_year")
 
+    # The search results carry no series, but any one edition of the book
+    # usually does, so look at the first edition found (a failure here
+    # just means no series suggestion).
+    series_name, series_index = "", None
+    if isbns:
+        series_name, series_index = series_from_edition(
+            _get_json_quietly(f"{_BASE_URL}/isbn/{isbns[0]}.json")
+        )
+
     return {
         "title": (doc.get("title") or "").strip(),
         "author": " & ".join(names),
@@ -357,6 +395,8 @@ def fetch_title_author_metadata(title: str, author: Optional[str] = None) -> Opt
         "date": str(year) if year else "",
         "description": _work_description([doc.get("key")]),
         "isbn": isbns[0] if isbns else "",
+        "series_name": series_name,
+        "series_index": series_index,
     }
 
 
@@ -371,6 +411,11 @@ def _words(text) -> list:
 def _year(text) -> str:
     match = re.search(r"\d{4}", str(text or ""))
     return match.group(0) if match else ""
+
+
+def _format_index(index) -> str:
+    """3.0 -> '3', 3.5 -> '3.5' (same look as the Series Position field)."""
+    return str(int(index)) if float(index) == int(index) else str(index)
 
 
 def build_suggestions(current: dict, lookup: dict, edition_exact: bool) -> dict:
@@ -426,6 +471,21 @@ def build_suggestions(current: dict, lookup: dict, edition_exact: bool) -> dict:
     if found("description") and not have("description"):
         suggestions["description"] = found("description")
 
+    # Series: only ever fills blanks. A book with no series gets the name
+    # and position together; a book with the same series name but no
+    # position gets just the position. A series someone already set (even
+    # under a slightly different name) is never replaced.
+    series_name = found("series_name")
+    series_index = lookup.get("series_index")
+    if series_name:
+        mine = _loose(have("series_name"))
+        if not mine:
+            suggestions["series_name"] = series_name
+            if series_index is not None:
+                suggestions["series_index"] = _format_index(series_index)
+        elif mine == _loose(series_name) and not have("series_index") and series_index is not None:
+            suggestions["series_index"] = _format_index(series_index)
+
     return suggestions
 
 
@@ -445,7 +505,7 @@ def run_lookup(search_type: str, current: dict, book=None) -> dict:
     has 'suggestions' ({field: value}) and 'found' (title, author, isbn
     of the Open Library record, for the status line).
     """
-    current = {field: str((current or {}).get(field) or "") for field in SUGGESTED_FIELDS}
+    current = {field: str((current or {}).get(field) or "") for field in SUGGESTED_FIELDS + SERIES_FIELDS}
 
     try:
         if search_type == "isbn":

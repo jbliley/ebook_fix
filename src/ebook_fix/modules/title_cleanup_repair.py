@@ -21,7 +21,11 @@ TitleCleanupConfig), none needing a Calibre sidecar as a second source:
    record it, in both the Calibre and EPUB 3 conventions (ebook_fix.series
    already writes both). A book that already has a series is never
    overwritten.
-3. fix_author_order -- "Last, First" becomes "First Last" (Jacob's
+3. read_embedded_series -- a series tag written inside an otherwise
+   ordinary title ("Title (Series #3)") is taken out of the title and
+   recorded as the series, again only when the book has none yet and only
+   with an explicit marker (#, Book, Vol).
+4. fix_author_order -- "Last, First" becomes "First Last" (Jacob's
    preferred form), only when the OPF's own file-as value is the same
    text or the title started with it; see author_first_last(). The
    file-as sort name keeps the comma form, and is added if missing.
@@ -86,14 +90,16 @@ class TitleCleanupRepair:
             fix_title=self.config.strip_author_from_title,
             fix_series=self.config.read_series_from_title,
             fix_author=self.config.fix_author_order,
+            fix_embedded=self.config.read_embedded_series,
         )
         verb = "" if write else " will be"
 
+        embedded = suggestion.parse is not None and suggestion.parse.kind == "embedded"
         if suggestion.title is not None:
             if not write or write_core_field(book, "title", suggestion.title):
                 report.add(
                     "content.opf",
-                    f"Filename-style title{verb} cleaned",
+                    f"Series tag{verb} taken out of the title" if embedded else f"Filename-style title{verb} cleaned",
                     f"{title!r} -> {suggestion.title!r}",
                 )
                 if write:

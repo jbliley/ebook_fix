@@ -283,6 +283,11 @@ class TitleCleanupConfig:
     # Rewrite a "Last, First" author as "First Last" when something else
     # confirms it is a sort name stored as a display name.
     fix_author_order: bool = True
+    # Take a series tag written inside the title ("Title (Series #3)",
+    # "Series, Book 3 - Title") out of the title and record it as the
+    # series, when the book has no series set yet. Needs an explicit
+    # marker (#, Book, Vol) so ordinary parentheses are left alone.
+    read_embedded_series: bool = True
 
 
 @dataclass(slots=True)
@@ -1105,6 +1110,14 @@ read_series_from_title = true
 # it. The sort name keeps the comma form. Several authors, suffixes
 # like "Jr." and company names are left alone.
 fix_author_order = true
+
+# Take a series tag written inside the title out of it and record it as
+# the book's series, but only if the book has no series set yet. Forms
+# recognized: "Title (Series #3)", "Title (Series, Book 3)", "Title
+# [Series Vol. 3]", "Title (Book 3 of the Series)", "Series #3: Title" and
+# "Series, Book 3 - Title". A tag with no marker ("Title (Series 3)") is
+# left alone, since a bare number could be an edition or part of the title.
+read_embedded_series = true
 
 # ---------------------------------------------------------------------
 # Identifier Standardize

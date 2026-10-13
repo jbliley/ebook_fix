@@ -29,6 +29,20 @@ once the author is taken off:
 A separator is a hyphen, en dash or em dash with a space on each side,
 so hyphenated words and ranges are never split.
 
+A second, separate rule needs no author at all (see parse_embedded_series):
+a series tag written into the title itself, but only with an explicit
+marker, so ordinary parentheses are never mistaken for one:
+
+  Title (Series #3)              -> Title, series "Series", number 3
+  Title (Series, Book 3)         -> Title, series "Series", number 3
+  Title [Series Vol. 3]          -> Title, series "Series", number 3
+  Title (Book 3 of the Series)   -> Title, series "Series", number 3
+  Series #3: Title               -> Title, series "Series", number 3
+  Series, Book 3 - Title         -> Title, series "Series", number 3
+
+A tag with no marker ("Title (Series 3)") is left alone, because a bare
+number could just as well be an edition or a part of the title.
+
 Author order is a separate, smaller rule (see fix_author_order): a
 single "Last, First" author is rewritten as "First Last", Jacob's
 preferred form, but only when something else confirms the comma form
@@ -74,6 +88,9 @@ class TitleParse:
     author_was_comma_form: bool = False
     # Which end of the title the author piece was on, for reporting.
     author_position: str = "start"
+    # "filename" for a title that was a leftover filename, "embedded" for
+    # a series tag found inside an otherwise ordinary title.
+    kind: str = "filename"
 
 
 def _fold(text: str) -> str:
@@ -110,6 +127,129 @@ def _series_from(piece: str):
         except ValueError:
             continue
         return series, index
+    return None
+
+
+# Words that look like a series name in front of a number but are not one
+# ("Book 2", "Part 1", "Volume 3"), compared with periods removed.
+_NOT_A_SERIES = {
+    "book", "bk", "vol", "volume", "part", "pt", "chapter", "no", "number",
+    "issue", "edition", "ed", "season", "episode", "tome", "the", "a", "an",
+}
+
+_MARKER = r"(?:#|book\s*|bk\.?\s*|vol\.?\s*|volume\s*)"
+
+# "Series #3", "Series, #3", "Series Book 3", "Series, Vol. 3" (marker required)
+_MARKED_NUMBER_LAST = re.compile(
+    rf"^(?P<series>.*?\S)[\s,]+{_MARKER}(?P<index>{_NUMBER})$", re.IGNORECASE
+)
+
+# "Book 3 of the Series", "#3 in Series"
+_BOOK_OF = re.compile(
+    rf"^{_MARKER}(?P<index>{_NUMBER})\s+(?:of|in)\s+(?:the\s+)?(?P<series>\S.*)$",
+    re.IGNORECASE,
+)
+
+# A trailing "(...)" or "[...]" on a title.
+_TRAILING_TAG = re.compile(r"^(?P<title>.*\S)\s*[(\[](?P<tag>[^()\[\]]+)[)\]]\s*$")
+
+# "Series #3: Title", "Series, Book 3 - Title"
+_LEADING_SERIES = re.compile(
+    rf"^(?P<series>\S.*?)[\s,]+{_MARKER}(?P<index>{_NUMBER})\s*(?::|[-\u2013\u2014])\s+(?P<title>\S.*)$",
+    re.IGNORECASE,
+)
+
+
+def _plausible_series(name: str) -> bool:
+    name = (name or "").strip(" ,:-")
+    if not name or not _has_letters(name):
+        return False
+    folded = re.sub(r"[.,]", "", name).casefold()
+    return folded not in _NOT_A_SERIES
+
+
+def _marked_series(text: str):
+    """(series, index) if `text` is a series name with a marked number
+    ("Series #3", "Series, Book 3", "Book 3 of the Series"), else None."""
+    text = (text or "").strip()
+    for pattern in (_BOOK_OF, _MARKED_NUMBER_LAST):
+        match = pattern.match(text)
+        if match is None:
+            continue
+        series = match.group("series").strip(" ,:-")
+        if not _plausible_series(series):
+            continue
+        try:
+            return series, float(match.group("index"))
+        except ValueError:
+            continue
+    return None
+
+
+def parse_embedded_series(title: str) -> TitleParse | None:
+    """Finds a series tag written into the title (see the module
+    docstring for the exact forms) and returns the title without it plus
+    the series name and number, or None when the title has no such tag."""
+    title = (title or "").strip()
+    if not title:
+        return None
+
+    match = _TRAILING_TAG.match(title)
+    if match is not None:
+        found = _marked_series(match.group("tag"))
+        if found is not None:
+            return TitleParse(
+                title=match.group("title").strip(" ,:-"),
+                series=found[0],
+                series_index=found[1],
+                kind="embedded",
+            )
+
+    match = _LEADING_SERIES.match(title)
+    if match is not None and _plausible_series(match.group("series")):
+        try:
+            index = float(match.group("index"))
+        except ValueError:
+            return None
+        return TitleParse(
+            title=match.group("title").strip(),
+            series=match.group("series").strip(" ,:-"),
+            series_index=index,
+            kind="embedded",
+        )
+    return None
+
+
+# Open Library (and library catalogs in general) write a series as free
+# text: "Sandman Slim ; 1", "Deathlands -- 1", "Dark Tower, bk. 1",
+# "Discworld (3)", "Discworld #3", or just "Discworld".
+_CATALOG_SERIES = re.compile(
+    r"^(?P<series>\S.*?)\s*(?:;|--|,|\(|#|\s)\s*(?:book\s*|bk\.?\s*|vol\.?\s*|v\.?\s*|no\.?\s*|#)?"
+    rf"(?P<index>{_NUMBER})\)?$",
+    re.IGNORECASE,
+)
+
+
+def parse_series_text(text: str):
+    """Splits a catalog's free-text series entry into (name, number).
+
+    The number is None when the entry has none ("Discworld"). Returns
+    None when there is no usable name at all. Unlike a series tag inside
+    a title, a catalog entry is known to BE a series, so a bare number
+    after the name is accepted here."""
+    text = " ".join(str(text or "").split()).strip(" ;,-")
+    if not text:
+        return None
+    match = _CATALOG_SERIES.match(text)
+    if match is not None:
+        series = match.group("series").strip(" ;,-(")
+        if _plausible_series(series):
+            try:
+                return series, float(match.group("index"))
+            except ValueError:
+                pass
+    if _plausible_series(text) and not re.search(r"(?:^|[\s,])(?:book|bk|vol|volume|part)\b", text, re.IGNORECASE):
+        return text, None
     return None
 
 
@@ -207,6 +347,7 @@ def suggest_from_filename_title(
     fix_title: bool = True,
     fix_series: bool = True,
     fix_author: bool = True,
+    fix_embedded: bool = True,
 ) -> FilenameSuggestion:
     """The single place that decides what a filename-style title and a
     "Last, First" author should become, so the Title Cleanup repair and
@@ -214,8 +355,9 @@ def suggest_from_filename_title(
 
     `single_author` is False when the book lists more than one author
     (an author is then never rearranged). `has_series` is True when the
-    book already has a series, which is never overwritten. The three
-    fix_ flags mirror the Title Cleanup switches."""
+    book already has a series, which is never overwritten. The fix_
+    flags mirror the Title Cleanup switches (fix_embedded is the series
+    tag written inside an ordinary title, which needs no author)."""
     suggestion = FilenameSuggestion()
     parse = parse_filename_title(title, author)
 
@@ -225,6 +367,18 @@ def suggest_from_filename_title(
         if parse.series and fix_series and not has_series:
             suggestion.series = parse.series
             suggestion.series_index = parse.series_index
+
+    # A series tag inside the title ("Title (Series #3)"). Never when the
+    # book already has a series, and never on top of a series the
+    # filename-style rule just found.
+    if fix_embedded and not has_series and suggestion.series is None:
+        base_title = suggestion.title if suggestion.title is not None else title
+        embedded = parse_embedded_series(base_title)
+        if embedded is not None and embedded.title:
+            suggestion.title = embedded.title
+            suggestion.series = embedded.series
+            suggestion.series_index = embedded.series_index
+            suggestion.parse = embedded
 
     if fix_author and author and single_author:
         confirmed_by_title = bool(parse and parse.author_was_comma_form)

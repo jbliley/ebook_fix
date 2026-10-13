@@ -3589,3 +3589,15 @@ Not caused by this work, noticed during checks: in both books the NCX still has
 an entry for the Project Gutenberg footer page (`#pg-footer-heading`) after
 Gutenberg Boilerplate removal deleted that page, so the NCX points at a missing
 file. It is not fixed here.
+
+## Series from the title and from Open Library (2026-10-13)
+
+Jacob noticed that some titles carry their series ("Title (Series #3)"), asked whether it could be suggested along with the title and author, and found that the ISBN lookup never filled in a series. The cause of the second part was simple: the lookup never asked Open Library for one, and the plan said series was not suggested.
+
+What changed:
+- `metadata/title_cleanup.py`: new `parse_embedded_series` reads a series tag inside a title (trailing `(...)` or `[...]`, or a leading `Series #N:`), with an explicit marker required (`#`, `Book`, `Vol`, or "Book N of the Series"). Words like Book, Part, Volume and Season are never taken as a series name. New `parse_series_text` splits a catalog entry such as `Sandman Slim ; 1`.
+- `suggest_from_filename_title` (the one place both the repair and the Metadata form use) applies the new rule when the book has no series yet. New setting `read_embedded_series` under `[title_cleanup]` (on by default). The report line reads "Series tag taken out of the title", and the Overview flags "title has the series written in it".
+- `isbn_lookup.py`: reads the edition's `series` list and suggests name and position as blanks-only suggestions; the title search checks the first edition found. The Metadata tab shows one combined blue note under the Series fields with a Use it button, and Use all suggestions includes it.
+- New planning note `docs/series_labeling_plan.md` for the larger series work.
+
+Results: a test copy of The Call of Cthulhu with the titles "The Call of Cthulhu (Mythos Tales, Book 2)" and "Mythos Tales #2: The Call of Cthulhu" repairs to "The Call of Cthulhu" with series "Mythos Tales", book 2 (both conventions); "The Call of Cthulhu (Unabridged)" is left alone. All 21 example books repair with no change to any title or series. Known limit: the Open Library part was tested only against records written in its documented format, because the build environment cannot reach the site, so please try a few real books and tell me what comes back.
