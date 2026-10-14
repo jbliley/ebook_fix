@@ -370,6 +370,31 @@ def build_parser():
         help="Replace the output file if it already exists."
     )
 
+    # Omnibus splitting
+    split_omnibus = sub.add_parser(
+        "split-omnibus",
+        help="Split an omnibus EPUB (several complete books in one file) into one EPUB per book. The original is never changed."
+    )
+    split_omnibus.add_argument(
+        "input",
+        help="Input EPUB"
+    )
+    split_omnibus.add_argument(
+        "-o",
+        "--output-dir",
+        help="Folder to write the new EPUBs into (default: the same folder as the input file)"
+    )
+    split_omnibus.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Only list the books that were found and the files that would be written."
+    )
+    split_omnibus.add_argument(
+        "--allow-medium",
+        action="store_true",
+        help="Also split when the books were found with only medium confidence (a book list with no chapter numbers to confirm it). Look at the --dry-run list first."
+    )
+
     # Init-config
     init_config = sub.add_parser(
         "init-config",
@@ -413,6 +438,43 @@ def main():
     if not epub.exists():
         print(f"ERROR: '{epub}' does not exist.")
         sys.exit(1)
+
+    if args.command == "split-omnibus":
+        from ebook_fix.omnibus_split import split_omnibus
+
+        result = split_omnibus(
+            epub,
+            args.output_dir,
+            allow_medium=args.allow_medium,
+            dry_run=args.dry_run,
+            log=print,
+        )
+        print(result.message)
+        for page, source_book, target_book, links in result.moved_pages:
+            print(f"  Moved {page} from book {source_book} to book {target_book} ({links} links from book {target_book} point at it)")
+        for page, books in result.shared_pages.items():
+            print(f"  {page} is used by books {', '.join(str(b) for b in books)}; each keeps a copy with only its own entries")
+        for output in result.outputs:
+            line = f"  Book {output.number}: {output.title}  ->  {output.path.name}"
+            if result.status == "split":
+                line += f"  ({output.pages} pages, {output.words} words"
+                if output.notes_entries_removed:
+                    line += f", {output.notes_entries_removed} notes for other books taken off the shared notes page"
+                if output.contents_entries_removed:
+                    line += f", {output.contents_entries_removed} entries for other books taken off the contents page"
+                if output.links_unlinked:
+                    line += f", {output.links_unlinked} links to other books turned into text"
+                line += ")"
+            else:
+                line += f"  ({output.pages} pages)"
+            print(line)
+            for problem in output.problems:
+                print(f"      PROBLEM: {problem}")
+        if result.status == "split":
+            print(f"Words in the original: {result.words_in}. Words across the new books: {result.words_out}.")
+        if result.status in ("not_omnibus", "needs_review"):
+            sys.exit(1)
+        return
 
     if args.command == "convert":
         if epub.suffix.lower() in FB2_EXTENSIONS:

@@ -3601,3 +3601,11 @@ What changed:
 - New planning note `docs/series_labeling_plan.md` for the larger series work.
 
 Results: a test copy of The Call of Cthulhu with the titles "The Call of Cthulhu (Mythos Tales, Book 2)" and "Mythos Tales #2: The Call of Cthulhu" repairs to "The Call of Cthulhu" with series "Mythos Tales", book 2 (both conventions); "The Call of Cthulhu (Unabridged)" is left alone. All 21 example books repair with no change to any title or series. Known limit: the Open Library part was tested only against records written in its documented format, because the build environment cannot reach the site, so please try a few real books and tell me what comes back.
+
+## Omnibus splitter: one EPUB per book (2026-10-14)
+
+The repair phase of `docs/omnibus_splitter_plan.md`, simple version. New `ebook_fix/omnibus_split.py` and a `split-omnibus` command (`--dry-run`, `--allow-medium`, `-o FOLDER`). It uses the existing detection, then writes one finished EPUB per book: own pages only (shared front matter to Book One, shared back matter to the last book), omnibus cover picture kept in every output, own title, a new unique ID per book, contents trimmed, unused pictures removed. Each output is checked after writing. The original is never touched.
+
+Two real cases turned up on `OmnibusExample.epub` and are handled: the omnibus's own contents page (other books' entries are removed from it), and a single notes page shared by both books (each book keeps a copy trimmed to its own notes; a page used by only one other book moves to it).
+
+Results: both omnibus files in `examples/` split correctly (the medium-confidence one only with `--allow-medium`), with zero broken links or anchors and every page's text unchanged except the contents and notes pages; all outputs repair without errors; the other 20 examples report no omnibus. Not tried: Ravaged Land, Tales of Talon and the Tarzan collection (not in `examples/`). Not wired into the GUI yet. Notes are not renumbered.

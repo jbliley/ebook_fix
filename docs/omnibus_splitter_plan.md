@@ -1,6 +1,6 @@
 # Omnibus Splitter -- Planning Doc
 
-**Status:** Detection done and verified (2026-10-01). Splitting (the repair phase) not started.
+**Status:** Detection done and verified (2026-10-01). Splitting built (2026-10-14) as the `split-omnibus` command, simple version; not yet wired into the GUI.
 **Started:** 2026-09-17 (scoping session). Detection built 2026-10-01 after Jacob supplied three real
 omnibus files to test against, which also led to finding two more already sitting in `examples/`
 under names that didn't say "omnibus" (`OmnibusExample.epub`, and a Russian-titled First Mountain Man
@@ -238,7 +238,27 @@ were real false positives at an earlier point in building this) produces zero fa
 **Not yet wired anywhere:** detect() isn't called from analyzer.py, the CLI, or the GUI yet -- that
 and the actual splitting/output-writing are the repair phase below, not started.
 
-## Repair phase: producing the output EPUBs -- not started
+## Repair phase: built, simple version (2026-10-14)
+
+Built as `ebook_fix/omnibus_split.py` and the `split-omnibus` command (not a pipeline module, since it writes several files from one input). Usage: `ebook-fix split-omnibus BOOK.epub [-o FOLDER] [--dry-run] [--allow-medium]`. The original is never changed. `--dry-run` lists the books and file names only. High confidence splits automatically; medium confidence stops with the list and needs `--allow-medium` (the GUI Review step for medium is not built yet).
+
+What each output gets, following the 2026-10-01 decisions:
+- Only its own book's pages. Shared front matter goes to Book One, shared back matter to the last book.
+- The omnibus cover picture and cover declaration stay in every output; only Book One keeps the cover page.
+- Its own title (an ALL CAPS contents label becomes Title Case) and one new unique ID (a UUID built from the source file and the book number, so the same split gives the same ID). The omnibus ISBN and sort title are dropped. Author, language, publisher, date, rights and series name are carried over; a series position is dropped, because the omnibus's number is not any one book's.
+- Contents (NCX and nav) trimmed to its own entries. Pictures nothing uses are removed.
+- File names: `{original}_Book{N}_{TitleInCamelCase}.epub`, with a long original name cut to 50 characters for Windows.
+- Each output is checked after writing (manifest files exist, reading order valid, pages well-formed, contents entries resolve) and any problem is printed.
+
+Found while building, not in the original scoping:
+- The omnibus's own HTML contents page lists every book, so Book One would still list Book Two. On a contents-style page (three or more links to other books, each a short label) those entries are removed; any other link to another book becomes plain text.
+- Finding 8 above was wrong for `OmnibusExample.epub`: it has ONE notes page serving both books (notes 1-10 from Creed, 11-23 from Guns), placed at the very end. A page that three or more links from a book's chapters point at is "used" by that book. Used by one other book only: it moves there. Used by several: each keeps its own copy, trimmed to the notes that book uses. Note numbers are not renumbered, so Book Two's notes start at 11.
+
+Verified: `OmnibusExample.epub` (high, 2 books) and the Russian-titled First Mountain Man file (medium, needs `--allow-medium`) split into the right books with zero broken links or anchors, every page's text unchanged except the contents and notes pages, and all outputs repair without errors. The other 20 examples report no omnibus. The three files Jacob uploaded earlier (Ravaged Land, Tales of Talon, the Tarzan collection) are not in `examples/`, so splitting was not tried on them (Tarzan, 25 books and 659 pages, is the scale test still to run).
+
+Still not built: GUI wiring (Review tab for medium, a Fix This Book option), per-book copies of shared front/back matter, a per-book ISBN from a copyright page, note renumbering, and a contents page for Book Two and later (only Book One gets the omnibus's own).
+
+## Repair phase: original design (kept for reference)
 
 
 
@@ -346,6 +366,8 @@ copyright extraction) and Phase 4 (footnotes) below are both mostly unneeded for
 Steps 1-2 are done (as `ebook_fix/omnibus.py`'s standalone `detect()`, not as an expansion of
 `analyzer.py` itself -- matching how `fonts.py`/`frontmatter.py`/`css.py` are each their own module
 that `analyzer.py` calls into, not inline code within it). Remaining:
+
+5-7 (the simple split, as a command rather than an engine module). Steps 3, 4, 8 and 9 remain.
 
 1. ~~Expand `analyzer.py` with omnibus detection~~ -- done differently: `ebook_fix/omnibus.py`,
    called from `analyzer.py` the same way every other analysis module is.
