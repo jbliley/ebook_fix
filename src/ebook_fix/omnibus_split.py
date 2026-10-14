@@ -56,8 +56,10 @@ from urllib.parse import unquote
 
 from lxml import etree
 
+from ebook_fix.models import TocEntry
 from ebook_fix.omnibus import OmnibusAnalysis, detect
 from ebook_fix.parser import EPUBParser
+from ebook_fix.toc_generate import build_nav_bytes, build_ncx_document
 from ebook_fix.writer import EPUBWriter
 from metadata.core_fields import write_core_field
 
@@ -87,6 +89,7 @@ class SplitOutput:
     contents_entries_removed: int = 0   # another book's entries taken off a contents page
     notes_entries_removed: int = 0      # another book's notes taken off a shared notes page
     images_removed: int = 0
+    toc_rebuilt: int = 0                # entries written when the TOC had to be rebuilt
     problems: list = field(default_factory=list)   # empty means it checked out
 
 
@@ -451,6 +454,107 @@ def _set_identity(book, title: str, uid: str) -> None:
     book.opf_modified = True
 
 
+# ---------------------------------------------------------------------
+# Rebuilding a thin table of contents from the book's own contents page
+# ---------------------------------------------------------------------
+
+_THIN_TOC = 3          # a split book with fewer entries than this gets a rebuilt TOC
+_MIN_CONTENTS_LINKS = 5
+
+
+def _toc_entry_count(book) -> int:
+    count = 0
+    if book.ncx_document is not None:
+        count = len(list(book.ncx_document.iter(f"{{{NCX_NS}}}navPoint")))
+    nav = book.nav_chapter
+    if nav is not None and nav.document is not None:
+        count = max(count, len([a for a in nav.document.iter() if _local(a) == "a"]))
+    return count
+
+
+def _rebuild_toc_from_contents_page(book, nav_href) -> int:
+    """A split book whose table of contents is down to a lone entry (the
+    omnibus only listed whole books) gets one rebuilt from the book's own
+    contents page: the page with the most links to other kept pages. Those
+    links are the author's own chapter list, so they are safer than
+    guessing chapters from the text. Returns the number of entries written,
+    or 0 when the book already has a real TOC or no contents page exists."""
+    if _toc_entry_count(book) >= _THIN_TOC:
+        return 0
+    pages = [c for c in book.chapters if c.href != nav_href and c.document is not None]
+    order = {c.href: i for i, c in enumerate(pages)}
+
+    best, best_links = None, []
+    for chapter in pages:
+        links, seen = [], set()
+        for a in chapter.document.iter():
+            if _local(a) != "a" or not a.get("href"):
+                continue
+            ref = a.get("href")
+            if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", ref):
+                continue
+            path, _, frag = ref.partition("#")
+            target = _resolve(chapter.href, path) if path else chapter.href
+            if target not in order or (target == chapter.href and not frag):
+                continue
+            label = " ".join("".join(a.itertext()).replace("\xa0", " ").split())
+            key = (target, frag)
+            if not label or key in seen:
+                continue
+            seen.add(key)
+            links.append((label, target + ("#" + frag if frag else "")))
+        if len(links) > len(best_links):
+            best, best_links = chapter, links
+    if best is None or len(best_links) < _MIN_CONTENTS_LINKS:
+        return 0
+
+    # Keep what the book already had (its title page entry) in front.
+    entries = []
+    if book.ncx_document is not None:
+        for point in book.ncx_document.iter(f"{{{NCX_NS}}}navPoint"):
+            text = point.find(f"{{{NCX_NS}}}navLabel/{{{NCX_NS}}}text")
+            content = point.find(f"{{{NCX_NS}}}content")
+            if text is not None and content is not None and content.get("src"):
+                href = _resolve(book.ncx_href, content.get("src"))
+                if href in order:
+                    entries.append((" ".join((text.text or "").split()), href))
+    seen_hrefs = {h for _l, h in entries}
+    entries += [(l, h) for l, h in best_links if h not in seen_hrefs]
+    entries.sort(key=lambda e: order.get(e[1].partition("#")[0], 10 ** 6))   # stable: keeps list order
+
+    tocs = [TocEntry(label=l, href=h) for l, h in entries]
+
+    def relative_to(base_href: str):
+        base_dir = posixpath.dirname(base_href)
+        return [TocEntry(label=e.label, href=posixpath.relpath(e.href.partition("#")[0], base_dir or ".")
+                         + (("#" + e.href.partition("#")[2]) if "#" in e.href else "")) for e in tocs]
+
+    if book.ncx_document is not None:
+        old = book.ncx_document
+        new = build_ncx_document(book, relative_to(book.ncx_href))
+        title = old.find(f"{{{NCX_NS}}}docTitle/{{{NCX_NS}}}text")
+        if title is not None:
+            new.find(f"{{{NCX_NS}}}docTitle/{{{NCX_NS}}}text").text = title.text
+        for meta in old.iter(f"{{{NCX_NS}}}meta"):
+            if meta.get("name") == "dtb:uid":
+                for m2 in new.iter(f"{{{NCX_NS}}}meta"):
+                    if m2.get("name") == "dtb:uid":
+                        m2.set("content", meta.get("content", ""))
+        book.ncx_document = new
+        book.ncx_modified = True
+
+    nav_chapter, nav_item = book.nav_chapter, book.nav_item
+    if nav_chapter is not None and nav_item is not None and nav_chapter.document is not None:
+        data = build_nav_bytes(book, relative_to(nav_item.href))
+        root = etree.fromstring(data)
+        doc = nav_chapter.document
+        nav_chapter.document = etree.ElementTree(root) if hasattr(doc, "getroot") else root
+        nav_chapter.modified = True
+
+    book.toc = tocs
+    return len(tocs)
+
+
 def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list, out_path: Path, title: str, uid: str, shared: dict | None = None) -> SplitOutput:
     """Loads a fresh copy of the omnibus and cuts it down to one book."""
     book = EPUBParser().load(source)
@@ -469,6 +573,7 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
     unlinked, entries_removed = _handle_dead_links(book, removed)
     images_removed = _prune_unused_media(book)
     _set_identity(book, title, uid)
+    toc_entries = _rebuild_toc_from_contents_page(book, nav_href)
     book.mark_modified()
 
     EPUBWriter().save(book, out_path)
@@ -484,6 +589,7 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
         contents_entries_removed=entries_removed,
         notes_entries_removed=notes_removed,
         images_removed=images_removed,
+        toc_rebuilt=toc_entries,
     )
 
 

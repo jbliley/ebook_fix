@@ -458,6 +458,8 @@ def main():
             line = f"  Book {output.number}: {output.title}  ->  {output.path.name}"
             if result.status == "split":
                 line += f"  ({output.pages} pages, {output.words} words"
+                if output.toc_rebuilt:
+                    line += f", table of contents rebuilt from the book's own contents page ({output.toc_rebuilt} entries)"
                 if output.notes_entries_removed:
                     line += f", {output.notes_entries_removed} notes for other books taken off the shared notes page"
                 if output.contents_entries_removed:
