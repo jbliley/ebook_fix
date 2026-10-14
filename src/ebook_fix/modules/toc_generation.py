@@ -58,6 +58,7 @@ from lxml import etree
 from ebook_fix.models import ManifestItem
 from ebook_fix.report import Report
 from ebook_fix.toc_generate import build_toc_entries, build_nav_bytes, build_ncx_document
+from ebook_fix.toc_corroborated import build_corroborated_title_entries
 
 OPF_NS = "http://www.idpf.org/2007/opf"
 NCX_NS_URI = "http://www.daisy.org/z3986/2005/ncx/"
@@ -115,12 +116,16 @@ class TocGenerationRepair:
         placeholder = self._is_placeholder_toc(book, analysis)
         chapter_summary = analysis.chapters if analysis is not None else None
         entries = build_toc_entries(book, chapter_summary=chapter_summary)
+        alt = self._corroborated_entries(book)
+        if alt and (not entries or self._looks_degenerate(entries, alt)):
+            entries = alt
         if not entries:
-            # Nothing confirmed the normal way -- see module docstring
-            # (case 3 books never get a generated TOC).
+            # Nothing confirmed the normal way or by the book's own
+            # contents page -- see module docstring (case 3 books never
+            # get a generated TOC from weak evidence alone).
             return report
 
-        confirmed = self._confirmed_count(analysis)
+        confirmed = max(self._confirmed_count(analysis), len(entries) if entries is alt else 0)
         if self._ncx_needs_generating(book, placeholder, confirmed):
             self._add_ncx(book, entries, report)
 
@@ -145,6 +150,23 @@ class TocGenerationRepair:
     def _count_entries(entries):
         return sum(1 + TocGenerationRepair._count_entries(e.children) for e in entries)
 
+    def _corroborated_entries(self, book):
+        """Entries from numbered-title chapters that the book's own
+        contents page confirms (see ebook_fix.toc_corroborated), or []."""
+        try:
+            return build_corroborated_title_entries(book)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _looks_degenerate(entries, alt):
+        """True when the normal detection's entries mostly point at one
+        file (a contents list read as chapters) while the corroborated
+        list spreads across the book."""
+        def distinct(es):
+            return len({e.href.partition("#")[0] for e in es})
+        return len(entries) >= 5 and distinct(entries) * 2 < len(entries) and distinct(alt) > distinct(entries)
+
     def _is_placeholder_toc(self, book, analysis):
         if not getattr(book, "toc_source", ""):
             return False
@@ -154,9 +176,9 @@ class TocGenerationRepair:
         if original > self._PLACEHOLDER_TOC_MAX_ENTRIES:
             return False
         summary = getattr(analysis, "chapters", None) if analysis is not None else None
-        if summary is None:
-            return False
-        return len(summary.confirmed_boundaries or []) >= self._PLACEHOLDER_TOC_MIN_CHAPTERS
+        if summary is not None and len(summary.confirmed_boundaries or []) >= self._PLACEHOLDER_TOC_MIN_CHAPTERS:
+            return True
+        return len(self._corroborated_entries(book)) >= self._PLACEHOLDER_TOC_MIN_CHAPTERS
 
     def _eligible(self, book, analysis=None):
         # book.toc_source is set once at parse time and never updated
