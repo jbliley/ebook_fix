@@ -433,3 +433,12 @@ that `analyzer.py` calls into, not inline code within it). Remaining:
 
 This file is the source of truth for omnibus splitting. Decisions and what was actually found while
 building are documented here as dated notes (see the 2026-09-17 and 2026-10-01 entries throughout).
+
+## GUI wiring: built (2026-10-14)
+
+- The Overview tab shows an omnibus card when a book is detected as an omnibus (high or medium confidence), with the list of books it would make.
+- High confidence: one button, "Split into N separate books".
+- Medium confidence: the same button, but only after ticking "These titles look right".
+- New books go in a folder named `<book name> (split)` next to the original. The original is never changed.
+- A result page lists each new book, its page and word counts, and any problems the built-in output check found.
+- Not built yet: opening a new book straight from the result page (use Browse for now), per-book ISBNs, per-book copies of shared front/back matter, note renumbering.

@@ -59,6 +59,23 @@
   {% endfor %}
 </div>
 
+{% if ov.omnibus %}
+<div class="ov-note" style="background:#fffaf0;border-color:#f6ad55;">
+  <strong>This looks like an omnibus of {{ ov.omnibus.books|length }} books</strong>
+  ({{ ov.omnibus.confidence }} confidence). {{ ov.omnibus.reason }}
+  <details class="ov-inner"><summary>Show the {{ ov.omnibus.books|length }} books</summary>
+    <ul>{% for b in ov.omnibus.books %}<li>{{ b.number }}. {{ b.title }}</li>{% endfor %}</ul>
+  </details>
+  <form method="post" action="{{ url_for('split_omnibus_route', session_id=session_id) }}" style="margin-top:0.5rem;">
+    {% if ov.omnibus.confidence != 'high' %}
+    <label><input type="checkbox" name="confirmed" value="1" required> These titles look right</label><br>
+    {% endif %}
+    <button type="submit">Split into {{ ov.omnibus.books|length }} separate books</button>
+    <span style="color:#777;font-size:0.82rem;"> New files go in a folder next to the original; the original is not changed.</span>
+  </form>
+</div>
+{% endif %}
+
 <div class="ov-totals">
   {% if ov.red_count %}<span class="red">{{ ov.red_count }} problem{{ '' if ov.red_count == 1 else 's' }} to look at.</span>{% else %}No problems found.{% endif %}
   <span id="ov-ready"></span>

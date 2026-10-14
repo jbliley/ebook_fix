@@ -62,6 +62,7 @@ from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.config import load_config
 from ebook_fix.engine import Engine, FIXED_LAYOUT_RISKY_MODULE_TYPES
 from ebook_fix.parser import EPUBParser
+from ebook_fix import omnibus_split
 from ebook_fix.splitter import SplitMarker, marker_number
 from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, _walk_structure_nodes, NodeKind
 from ebook_fix.writer import EPUBWriter
@@ -859,9 +860,9 @@ def _overview_cache_key(session_dir: Path, config) -> str:
         f"{attr}={int(bool(getattr(getattr(config, attr), 'enabled', True)))}"
         for attr, _label in _REPAIR_MODULES
     )
-    # "v2" because the cached data gained safe_splits and review_visible;
+    # "v3" because the cached data gained omnibus (v2: safe_splits and review_visible);
     # an older cache written without them is simply rebuilt.
-    return f"v2-{stat.st_mtime_ns}-{stat.st_size}-{enabled}"
+    return f"v3-{stat.st_mtime_ns}-{stat.st_size}-{enabled}"
 
 
 def _review_summary(book) -> dict:
@@ -933,6 +934,25 @@ def _overview_data(session_dir: Path, filename: str) -> dict:
         return _compute_overview_data(session_dir, filename, config, key, cache_path)
 
 
+def _omnibus_card(book, source: Path, filename: str):
+    """What the Overview page's omnibus card shows: None when the book
+    is not an omnibus, otherwise the book list the splitter would make."""
+    try:
+        analysis = omnibus_split.detect(book)
+        if not analysis.is_omnibus or analysis.confidence not in ("high", "medium"):
+            return None
+        stem = Path(filename).stem or source.stem
+        plan = omnibus_split.plan_names(Path(stem + ".epub"), analysis)
+        return {
+            "confidence": analysis.confidence,
+            "reason": analysis.reason,
+            "books": [{"number": n, "title": t} for n, t, _name in plan],
+        }
+    except Exception:
+        # The card is a convenience; never let it break the Overview.
+        return None
+
+
 def _compute_overview_data(session_dir: Path, filename: str, config, key: str, cache_path: Path) -> dict:
     book, analysis_report = _load_analysis(session_dir)
     module_reports = {}
@@ -969,8 +989,36 @@ def _compute_overview_data(session_dir: Path, filename: str, config, key: str, c
     )
     data["safe_splits"] = review["safe_splits"]
     data["review_visible"] = review["visible"]
+    data["omnibus"] = _omnibus_card(book, _source_path(session_dir), filename)
     cache_path.write_text(json.dumps({"key": key, "data": data}), encoding="utf-8")
     return data
+
+
+@app.route("/book/<session_id>/split-omnibus", methods=["POST"])
+@_handle_missing_source
+def split_omnibus_route(session_id):
+    """Splits an omnibus into one EPUB per book, in a folder next to the
+    original (the original is not touched). A medium-confidence list is
+    only split once the person has ticked that the titles look right."""
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    source = _source_path(session_dir)
+    real = _real_path(session_dir)
+    out_dir = real.parent / f"{real.stem} (split)"
+    result = omnibus_split.split_omnibus(
+        source,
+        out_dir=out_dir,
+        allow_medium=bool(request.form.get("confirmed")),
+    )
+    # Files are named after the original, not a converted temporary copy.
+    return render_template(
+        "split_result.html",
+        active_tab="overview",
+        session_id=session_id,
+        filename=filename,
+        result=result,
+        out_dir=str(out_dir),
+    )
 
 
 @app.context_processor
