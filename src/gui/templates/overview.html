@@ -70,9 +70,26 @@
     {% if ov.omnibus.confidence != 'high' %}
     <label><input type="checkbox" name="confirmed" value="1" required> These titles look right</label><br>
     {% endif %}
-    <button type="submit">Split into {{ ov.omnibus.books|length }} separate books</button>
+    <button type="submit" id="split-btn">Split into {{ ov.omnibus.books|length }} separate books</button>
+    <div id="split-progress" style="margin-top:0.4rem;font-size:0.88rem;color:#2c5282;"></div>
     <span style="color:#777;font-size:0.82rem;"> New files go in a folder next to the original; the original is not changed.</span>
   </form>
+  <script>
+    (function () {
+      var form = document.currentScript.parentNode;
+      form.addEventListener('submit', function () {
+        var btn = document.getElementById('split-btn');
+        var line = document.getElementById('split-progress');
+        setTimeout(function () { btn.disabled = true; }, 0);   // after the form data is read
+        line.textContent = 'Splitting. This can take a while for a big book\u2026';
+        setInterval(function () {
+          fetch('/progress').then(function (r) { return r.json(); }).then(function (p) {
+            if (p.text) line.textContent = p.text;
+          }).catch(function () {});
+        }, 600);
+      });
+    })();
+  </script>
 </div>
 {% endif %}
 

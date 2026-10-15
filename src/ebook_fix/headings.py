@@ -55,13 +55,17 @@ def chapter_marker_elements(chapter_summary) -> set:
     sequence = getattr(chapter_summary, "best_sequence", None)
     if sequence is not None:
         groups.append(sequence.candidates)
-    for name in ("confirmed_boundaries", "unnumbered_chapters", "parts"):
+    for name in ("confirmed_boundaries", "unnumbered_chapters", "parts", "corroborated_titles"):
         groups.append(getattr(chapter_summary, name, None) or [])
     for candidates in groups:
         for candidate in candidates:
             element = getattr(candidate, "element", None)
             if element is not None:
                 found.add(element)
+                # A title inside a styled <p> ("<p><span>1. TITLE</span></p>") has
+                # its paragraph as the real header block, and the detectors compare
+                # whole blocks, so the block counts too.
+                found.add(split_header_block(element))
     return found
 
 

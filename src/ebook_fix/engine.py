@@ -114,6 +114,9 @@ class Engine:
         self.verbose = verbose
         self.config = config or Config()
         self.auto_repair_container = auto_repair_container
+        # Optional function that receives a short plain-English line as each
+        # repair starts (the GUI shows it so a long run does not look frozen).
+        self.progress = None
         self.modules = self._build_modules()
 
     def _build_modules(self):
@@ -2036,11 +2039,15 @@ class Engine:
         while True:
             if pass_num > 1:
                 self.log(f"\n[Pass {pass_num}] Re-analyzing for anything the previous pass's own edits uncovered...")
+                if self.progress is not None:
+                    self.progress(f"Checking the book again (pass {pass_num})\u2026")
                 analysis_report = analyzer.analyze(book)
 
             changes_this_pass = 0
-            for module in modules:
+            for module_number, module in enumerate(modules, start=1):
                 self.log(f"Repairing: {module.name}")
+                if self.progress is not None:
+                    self.progress(f"Fixing: {module.name} ({module_number} of {len(modules)})")
                 repair_report = module.repair(book, analysis_report)
                 if repair_report is None:
                     continue

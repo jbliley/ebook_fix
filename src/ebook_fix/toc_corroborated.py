@@ -77,20 +77,22 @@ def _block_of(element):
     return element
 
 
-def build_corroborated_title_entries(book) -> list:
-    """TocEntry list for a book whose numbered-title chapters are
-    confirmed by its own contents page, or [] when they are not."""
+def find_corroborated_titles(book):
+    """(candidates, hits) for a numbered-title chapter list that the
+    book's own contents page confirms, or ([], []) when it does not.
+    `hits[i]` is (id, label) for candidate i when the contents page links
+    to it, else None."""
     summary = analyze_case3_book_chapters(book)
     best = summary.best_sequence
     if best is None:
-        return []
+        return [], []
     candidates = list(best.candidates)
     numbers = [c.number for c in candidates]
     if len(candidates) < MIN_CHAPTERS or numbers != list(range(1, len(numbers) + 1)):
-        return []
+        return [], []
 
     targets = _link_targets(book)
-    found = []          # (candidate, id, label) for the ones the contents page links to
+    found = []          # (id, label) for the ones the contents page links to
     for c in candidates:
         block = _block_of(getattr(c, "element", None))
         hit = None
@@ -102,6 +104,15 @@ def build_corroborated_title_entries(book) -> list:
                     break
         found.append(hit)
     if sum(1 for h in found if h) < max(MIN_CHAPTERS, MIN_CORROBORATED_SHARE * len(candidates)):
+        return [], []
+    return candidates, found
+
+
+def build_corroborated_title_entries(book) -> list:
+    """TocEntry list for a book whose numbered-title chapters are
+    confirmed by its own contents page, or [] when they are not."""
+    candidates, found = find_corroborated_titles(book)
+    if not candidates:
         return []
 
     # The few the contents page does not link to still sit in an unbroken

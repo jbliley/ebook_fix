@@ -215,6 +215,22 @@ _REPAIR_MODULE_CLASSES = {
 }
 
 
+# What the program is doing right now, in plain words, for the line under
+# "Opening ..." on the first page. Opening a big book takes a while and the
+# page cannot otherwise tell that work is happening. One person uses this
+# on their own computer, so a single shared line is enough.
+_PROGRESS = {"text": ""}
+
+
+def _set_progress(text: str = "") -> None:
+    _PROGRESS["text"] = text
+
+
+@app.route("/progress")
+def progress():
+    return jsonify({"text": _PROGRESS["text"]})
+
+
 def _session_dir(session_id: str) -> Path:
     """Resolves a session id to its folder, refusing anything that
     isn't a plain hex uuid -- session_id comes straight from the URL,
@@ -301,8 +317,9 @@ def _load_analysis(session_dir: Path):
     """Loads the book and runs the same EPUBAnalyzer pass engine.py's
     analyze() uses internally, returning (book, analysis_report). Used
     by every tab that needs structured data rather than printed text."""
+    _set_progress("Reading the book\u2026")
     book = EPUBParser().load(_source_path(session_dir))
-    analysis_report = EPUBAnalyzer().analyze(book)
+    analysis_report = EPUBAnalyzer().analyze(book, progress=_set_progress)
     return book, analysis_report
 
 
@@ -804,6 +821,7 @@ def _converted_epub_path(source: Path) -> Path:
 @app.route("/upload", methods=["POST"])
 def upload():
     typed_path = request.form.get("path", "").strip().strip('"')
+    _set_progress("Starting\u2026")
     if not typed_path:
         return render_template("index.html", error="No file was chosen.")
 
@@ -957,7 +975,8 @@ def _compute_overview_data(session_dir: Path, filename: str, config, key: str, c
     book, analysis_report = _load_analysis(session_dir)
     module_reports = {}
     module_enabled = {}
-    for attr, _label in _REPAIR_MODULES:
+    for number, (attr, label) in enumerate(_REPAIR_MODULES, start=1):
+        _set_progress(f"Checking for problems: {label} ({number} of {len(_REPAIR_MODULES)})\u2026")
         module_config = getattr(config, attr)
         report = _REPAIR_MODULE_CLASSES[attr](module_config).analyze(book, analysis_report)
         module_reports[attr] = {
@@ -982,14 +1001,18 @@ def _compute_overview_data(session_dir: Path, filename: str, config, key: str, c
             if issubclass(_REPAIR_MODULE_CLASSES[attr], FIXED_LAYOUT_RISKY_MODULE_TYPES)
         }
 
+    _set_progress("Working out what needs your review\u2026")
     review = _review_summary(book)
+    _set_progress("Putting the summary together\u2026")
     data = overview_view.build_overview_page(
         book, analysis_report, module_reports, _REPAIR_MODULES,
         module_enabled, review["counts"], filename, module_skipped,
     )
     data["safe_splits"] = review["safe_splits"]
     data["review_visible"] = review["visible"]
+    _set_progress("Checking whether this is several books in one\u2026")
     data["omnibus"] = _omnibus_card(book, _source_path(session_dir), filename)
+    _set_progress("")
     cache_path.write_text(json.dumps({"key": key, "data": data}), encoding="utf-8")
     return data
 
@@ -1005,11 +1028,16 @@ def split_omnibus_route(session_id):
     source = _source_path(session_dir)
     real = _real_path(session_dir)
     out_dir = real.parent / f"{real.stem} (split)"
-    result = omnibus_split.split_omnibus(
-        source,
-        out_dir=out_dir,
-        allow_medium=bool(request.form.get("confirmed")),
-    )
+    _set_progress("Getting ready to split\u2026")
+    try:
+        result = omnibus_split.split_omnibus(
+            source,
+            out_dir=out_dir,
+            allow_medium=bool(request.form.get("confirmed")),
+            log=_set_progress,
+        )
+    finally:
+        _set_progress("")
     # Files are named after the original, not a converted temporary copy.
     return render_template(
         "split_result.html",
@@ -1690,6 +1718,7 @@ def fix_book(session_id):
     Repair tab's Apply Everything.)"""
     session_dir = _session_dir(session_id)
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    _set_progress("Getting ready to fix the book\u2026")
 
     selected = _selected_modules(session_dir, filename)
     replace_requested = request.form.get("replace_original") == "1"
@@ -1840,13 +1869,15 @@ def fix_book(session_id):
         # here actually changes what those modules do this pass, not
         # just what the Review tab displayed.
         frontmatter_labels = staged_review.get("frontmatter_labels", {}) if staged_review is not None else {}
-        analysis_report = EPUBAnalyzer().analyze(book, frontmatter_overrides=frontmatter_labels)
+        analysis_report = EPUBAnalyzer().analyze(book, frontmatter_overrides=frontmatter_labels, progress=_set_progress)
 
         engine = Engine(config=config)
+        engine.progress = _set_progress
         reports_by_module, pass_num = engine.run_selected_repairs(book, engine.modules, analysis_report, max_passes=5)
     engine_output = buf.getvalue()
 
     output_path = _fixed_output_path(session_dir)
+    _set_progress("Saving the fixed book\u2026")
     EPUBWriter().save(book, output_path)
 
     # Calibre sync (metadata.opf always, metadata.db only if
@@ -1905,6 +1936,7 @@ def fix_book(session_id):
     # original was just replaced, since that file now IS the fixed book).
     _cleanup_converted_epub(session_dir)
 
+    _set_progress("")
     already_replaced = _replaced_flag_path(session_dir).exists()
     return render_template(
         "fix_result.html",

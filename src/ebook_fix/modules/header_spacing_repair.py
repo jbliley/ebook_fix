@@ -48,7 +48,7 @@ import re
 
 from ebook_fix.config import HeaderSpacingConfig
 from ebook_fix.css import COMMENT_RE, RULE_RE
-from ebook_fix.headings import MARKER_ATTR, SPLIT_MARKER_ATTR, chapter_marker_elements
+from ebook_fix.headings import MARKER_ATTR, SPLIT_MARKER_ATTR, chapter_marker_elements, split_header_block
 from ebook_fix.modules.paragraph_indent_repair import _book_rules
 from ebook_fix.modules.paragraph_spacing_repair import _to_em
 from ebook_fix.report import Report
@@ -255,9 +255,16 @@ def _headers(book, analysis):
             if el.get(MARKER_ATTR) or el.get(SPLIT_MARKER_ATTR) or el in markers:
                 found.append((chapter, el))
     # A header that holds another header (a wrapper) is not itself one.
+    # A marker is often an inline <span> or <strong> inside the real header
+    # paragraph; the gap goes around the paragraph, not inside it.
+    found = [(chapter, split_header_block(el)) for chapter, el in found]
     found_ids = {id(x) for _c, x in found}
+    seen = set()
     for chapter, el in found:
+        if id(el) in seen:
+            continue
         if not any(id(d) in found_ids for d in el.iterdescendants()):
+            seen.add(id(el))
             yield chapter, el
 
 

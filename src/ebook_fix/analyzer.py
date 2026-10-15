@@ -17,6 +17,7 @@ from ebook_fix.css import BookCSSSummary, analyze_book_css
 from ebook_fix.color import BookColorSummary, analyze_book_color
 from ebook_fix.fonts import BookFontSummary, analyze_book_font_usage
 from ebook_fix.chapters import BookChapterSummary, analyze_book_chapters
+from ebook_fix.toc_corroborated import find_corroborated_titles
 from ebook_fix.images import BookImageSummary, analyze_book_images
 from ebook_fix.packaging import BookPackagingSummary, analyze_book_packaging
 from ebook_fix.headings import chapter_marker_elements
@@ -167,7 +168,11 @@ class AnalysisReport:
     merged_core_fields:MergedCoreFields=field(default_factory=MergedCoreFields)
 
 class EPUBAnalyzer:
-    def analyze(self,book,frontmatter_overrides=None):
+    def analyze(self,book,frontmatter_overrides=None,progress=None):
+        """`progress`, if given, is called with a short plain-English line
+        ("Looking for chapters...") as each stage starts, so the GUI can
+        show that a large book is being worked on and not frozen."""
+        say=progress or (lambda _text: None)
         r=AnalysisReport()
 
         # Computed ahead of the per-chapter loop below (rather than at
@@ -185,11 +190,23 @@ class EPUBAnalyzer:
         # r.scene_breaks, and r.paragraphs below all reuse this same
         # r.frontmatter object rather than recomputing their own, so a
         # reviewer's correction reaches every one of them for free.
+        say("Looking for chapter starts\u2026")
         r.chapters=analyze_book_chapters(book)
+        if not r.chapters.confirmed_boundaries:
+            # "1. TITLE" chapters the book's own contents page confirms: not
+            # trusted for splitting, but safe to recognize as chapter headers.
+            try:
+                r.chapters.corroborated_titles=find_corroborated_titles(book)[0]
+            except Exception:
+                r.chapters.corroborated_titles=[]
+        say("Finding front and back matter\u2026")
         r.frontmatter=analyze_book_frontmatter(book,chapter_summary=r.chapters,overrides=frontmatter_overrides)
         matter_by_href={m.href:m for m in r.frontmatter.chapters}
 
-        for ch in book.chapters:
+        total_chapters=len(book.chapters)
+        for chapter_number,ch in enumerate(book.chapters,start=1):
+            if chapter_number==1 or chapter_number%25==0:
+                say(f"Reading page {chapter_number} of {total_chapters}\u2026")
             c=ChapterAnalysis(href=getattr(ch,"href",""),title=getattr(ch,"title",""))
             tree=getattr(ch,"document",None)
             last_level=0
@@ -266,6 +283,7 @@ class EPUBAnalyzer:
         # r.identifiers hold the full detail for anything that needs it
         # (e.g. a future repair module writing normalized identifiers
         # back out).
+        say("Checking title, author and other details\u2026")
         r.core_fields=analyze_book_core_fields(book)
         r.summary.title=r.core_fields.title
         r.summary.author=r.core_fields.author
@@ -278,6 +296,7 @@ class EPUBAnalyzer:
         r.summary.series=r.core_fields.series
         r.summary.series_index=r.core_fields.series_index
 
+        say("Checking identifiers (ISBN and others)\u2026")
         r.identifiers=analyze_book_identifiers(book)
         primary_identifier=r.identifiers.primary
         r.summary.identifier=primary_identifier.normalized_value if primary_identifier else ""
@@ -317,22 +336,28 @@ class EPUBAnalyzer:
         r.summary.spine_entry_count=len(getattr(book,"spine",[]) or [])
 
         r.typography=summarize_book([(c.href,c.typography) for c in r.chapter_reports])
+        say("Checking styles, colors and fonts\u2026")
         r.css=analyze_book_css(book,r.chapter_reports)
         r.color=analyze_book_color(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
         r.fonts=analyze_book_font_usage(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
+        say("Checking images and packaging\u2026")
         r.images=analyze_book_images(book)
         r.packaging=analyze_book_packaging(book)
         header_markers=chapter_marker_elements(r.chapters)
+        say("Checking paragraphs, line breaks and spacing\u2026")
         r.paragraphs=analyze_book_paragraphs(book,frontmatter_summary=r.frontmatter,chapter_markers=header_markers)
         r.linebreaks=analyze_book_linebreaks(book,frontmatter_summary=r.frontmatter,chapter_markers=header_markers)
         r.whitespace=analyze_book_whitespace(book)
         r.ellipsis=analyze_book_ellipsis(book)
+        say("Checking scene breaks, quotes and apostrophes\u2026")
         r.scene_breaks=analyze_book_scene_breaks(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
         r.apostrophes=analyze_book_apostrophes(book)
         r.possessives=analyze_book_possessives(book)
+        say("Checking the table of contents\u2026")
         r.toc=analyze_book_toc(book,chapter_reports=r.chapter_reports)
         r.summary.toc_entry_count=r.toc.entry_count
         r.summary.toc_source=r.toc.source
+        say("Checking cover, running titles and layout\u2026")
         r.gutenberg=analyze_book_gutenberg(book)
         r.cover=analyze_book_cover(book)
         r.span_soup=analyze_book_span_soup(book)

@@ -151,7 +151,15 @@
       busy = true;
       button.disabled = true;
       button.textContent = "Fixing... this can take a minute";
-      var go = function() { form.submit(); };
+      var go = function() {
+        form.submit();
+        // Show what is happening so a long run does not look frozen.
+        setInterval(function() {
+          fetch("/progress").then(function(r) { return r.json(); }).then(function(p) {
+            if (p.text) button.textContent = p.text;
+          }).catch(function() {});
+        }, 700);
+      };
       if (window.flushPendingSaves) { window.flushPendingSaves().then(go, go); } else { go(); }
     });
   })();

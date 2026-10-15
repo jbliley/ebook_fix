@@ -184,6 +184,10 @@ class ChapterSequence:
 class BookChapterSummary:
     candidates: list = field(default_factory=list)
     confirmed_boundaries: list = field(default_factory=list)
+    # Numbered-title chapters ("1. OUT TO SEA") that the book's own contents
+    # page confirms; only filled in when nothing was confirmed the normal way
+    # (see toc_corroborated.py). Used to recognize chapter headers.
+    corroborated_titles: list = field(default_factory=list)
     best_sequence: ChapterSequence | None = None
     other_sequences: list = field(default_factory=list)
     parts: list = field(default_factory=list)  # detected Book/Part/Volume-level markers, in book order
