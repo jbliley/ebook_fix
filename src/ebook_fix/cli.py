@@ -454,6 +454,10 @@ def main():
             print(f"  Moved {page} from book {source_book} to book {target_book} ({links} links from book {target_book} point at it)")
         for page, books in result.shared_pages.items():
             print(f"  {page} is used by books {', '.join(str(b) for b in books)}; each keeps a copy with only its own entries")
+        if result.front_pages:
+            print(f"  Shared front matter copied into every other book: {', '.join(result.front_pages)}")
+        if result.back_pages:
+            print(f"  Shared back matter copied into every other book: {', '.join(result.back_pages)}")
         for output in result.outputs:
             line = f"  Book {output.number}: {output.title}  ->  {output.path.name}"
             if result.status == "split":
@@ -466,6 +470,14 @@ def main():
                     line += f", {output.contents_entries_removed} entries for other books taken off the contents page"
                 if output.links_unlinked:
                     line += f", {output.links_unlinked} links to other books turned into text"
+                if output.isbn:
+                    line += f", its own ISBN {output.isbn}"
+                if output.front_copies:
+                    line += f", {output.front_copies} shared front matter pages copied in"
+                if output.back_copies:
+                    line += f", {output.back_copies} shared back matter pages copied in"
+                if output.notes_renumbered:
+                    line += f", {output.notes_renumbered} notes renumbered from 1"
                 line += ")"
             else:
                 line += f"  ({output.pages} pages)"

@@ -72,6 +72,8 @@ class OmnibusBook:
     start_index: int   # index into book.chapters (spine order); inclusive
     end_index: int      # exclusive -- the next book's start_index, or len(book.chapters) for the last one
     chapter_count: int = 0   # numbered chapters found in this span, where that signal exists; 0 for _detect_title_list
+    title_index: int = -1    # index (spine order) of the page that carries this book's own title; -1 if unknown.
+                             # For Book One this is where its shared front matter ends.
 
 
 @dataclass
@@ -150,7 +152,7 @@ def _detect_nested(book) -> OmnibusAnalysis | None:
     books = []
     for i, (start, title, chapter_count) in enumerate(candidates):
         end = candidates[i + 1][0] if i + 1 < len(candidates) else len(book.chapters)
-        books.append(OmnibusBook(title=title, start_index=start, end_index=end, chapter_count=chapter_count))
+        books.append(OmnibusBook(title=title, start_index=start, end_index=end, chapter_count=chapter_count, title_index=start))
     return OmnibusAnalysis(
         is_omnibus=True,
         confidence="high",
@@ -223,6 +225,7 @@ def _detect_restart(book) -> OmnibusAnalysis | None:
                 title=flat[marker].label,
                 start_index=0 if i == 0 else index,   # book 1 also gets whatever comes before its own marker
                 end_index=next_index if next_index is not None else len(book.chapters),
+                title_index=index,
             )
         )
 
@@ -305,7 +308,7 @@ def _detect_title_list(book) -> OmnibusAnalysis | None:
                 break
             continue   # not a real book on its own (a title page, a teaser) -- merge forward into the next candidate,
                        # keeping THIS (earlier, so usually the more complete) title rather than the later one
-        books.append(OmnibusBook(title=pending_title, start_index=pending_start, end_index=next_start))
+        books.append(OmnibusBook(title=pending_title, start_index=pending_start, end_index=next_start, title_index=pending_start))
         pending_start, pending_title = None, None
 
     if len(books) < 2:

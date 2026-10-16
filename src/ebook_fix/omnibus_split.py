@@ -31,8 +31,7 @@ The simple version first, as Jacob decided (2026-10-01):
   book's span (a shared notes page at the end of the omnibus) moves to
   the book that links to it. A page that several books link to (one
   notes page for the whole omnibus) is kept by each of them, trimmed to
-  the notes that book uses. Note numbers are not renumbered, so a later
-  book's notes may start above 1.
+  the notes that book uses, and the notes are renumbered to start at 1.
 - The contents (NCX and nav document) keep only that book's entries.
 - Pictures that no kept page or stylesheet uses are removed.
 - A link from a kept page to a page now in another book can no longer
@@ -40,11 +39,26 @@ The simple version first, as Jacob decided (2026-10-01):
   page) the other book's entries are removed; elsewhere the link is
   turned into plain text (the link text stays).
 
-Not built, on purpose: renumbering notes, per-book copies of shared front/back matter, and reading a
-per-book ISBN out of a copyright page.
+Added 2026-10-16 (the splitter's loose ends):
+
+- Each book's own ISBN is read from a copyright-style page inside that
+  book's own pages and written as a second identifier (the generated
+  unique ID stays the main one). The omnibus's own ISBN, a number that
+  appears in more than one book, and anything on the shared front or back
+  matter are never used.
+- Shared front matter (before Book One's own title page: cover, copyright,
+  ad pages, author's note) and shared back matter (author-level pages at
+  the very end: books by, newsletter, about the author) are copied into
+  every other book, in the same place, and listed in each book's
+  contents. The omnibus's own title page and contents page are not
+  copied, since they describe the whole bundle.
+- When a book keeps only its own notes from a shared notes page, the
+  visible note numbers count 1, 2, 3 again (only when the numbering is a
+  clean count-up; otherwise nothing is touched).
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import posixpath
 import re
@@ -56,7 +70,10 @@ from urllib.parse import unquote
 
 from lxml import etree
 
-from ebook_fix.models import TocEntry
+from ebook_fix.chapters import _classify
+from ebook_fix.frontmatter import MatterLabel, _label_from_href, _label_from_text
+from ebook_fix.isbn_lookup import clean_isbn, find_isbn_candidates, is_valid_isbn
+from ebook_fix.models import Chapter, ManifestItem, TocEntry
 from ebook_fix.omnibus import OmnibusAnalysis, detect
 from ebook_fix.parser import EPUBParser
 from ebook_fix.toc_generate import build_nav_bytes, build_ncx_document
@@ -90,6 +107,10 @@ class SplitOutput:
     notes_entries_removed: int = 0      # another book's notes taken off a shared notes page
     images_removed: int = 0
     toc_rebuilt: int = 0                # entries written when the TOC had to be rebuilt
+    isbn: str = ""                      # this book's own ISBN, when its copyright page had one
+    front_copies: int = 0               # shared front matter pages copied into this book
+    back_copies: int = 0                # shared back matter pages copied into this book
+    notes_renumbered: int = 0           # notes renumbered to start again at 1
     problems: list = field(default_factory=list)   # empty means it checked out
 
 
@@ -102,6 +123,8 @@ class SplitResult:
     outputs: list = field(default_factory=list)       # list[SplitOutput]
     moved_pages: list = field(default_factory=list)   # (page, from book, to book, link count)
     shared_pages: dict = field(default_factory=dict)  # page -> book numbers that each keep a trimmed copy
+    front_pages: list = field(default_factory=list)   # shared front matter pages every other book gets a copy of
+    back_pages: list = field(default_factory=list)    # shared back matter pages every other book gets a copy of
     words_in: int = 0
     words_out: int = 0
 
@@ -555,7 +578,553 @@ def _rebuild_toc_from_contents_page(book, nav_href) -> int:
     return len(tocs)
 
 
-def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list, out_path: Path, title: str, uid: str, shared: dict | None = None) -> SplitOutput:
+# ---------------------------------------------------------------------
+# A book's own ISBN, read from its own copyright page
+# ---------------------------------------------------------------------
+
+_ISBN_AT = re.compile(r"isbn(?:-?1[03])?\s*[:#]?\s*((?:97[89][\s\-]?)?[0-9][0-9\s\-]{7,14}[0-9Xx])", re.IGNORECASE)
+_COPYRIGHT_CUE = re.compile(r"copyright|©|all rights reserved|first printing|first edition|published by", re.IGNORECASE)
+_EBOOK_CUE = re.compile(r"e-?book|epub|digital|electronic|e-?isbn", re.IGNORECASE)
+_SKIP_TEXT = {"style", "script", "title"}
+
+
+def _visible_text(chapter) -> str:
+    """The page's text without <style>/<script> contents or the hidden
+    <title> (which is often a running title naming every book)."""
+    if chapter.document is None:
+        return ""
+    parts = []
+    for el in chapter.document.iter():
+        if not isinstance(el.tag, str):
+            continue
+        if _local(el).lower() not in _SKIP_TEXT and el.text:
+            parts.append(el.text)
+        if el.tail:
+            parts.append(el.tail)
+    return "".join(parts)
+
+
+def _isbn13(digits: str) -> str:
+    """Any valid ISBN-10 or ISBN-13 as an ISBN-13."""
+    if len(digits) == 13:
+        return digits
+    core = "978" + digits[:9]
+    total = sum(int(ch) * (3 if i % 2 else 1) for i, ch in enumerate(core))
+    return core + str((10 - total % 10) % 10)
+
+
+def _valid_prefix(raw: str):
+    """The valid ISBN at the start of `raw` (digits and hyphens, maybe
+    followed by stray digits), or None."""
+    digits = clean_isbn(raw)
+    for size in (13, 10):
+        candidate = digits[:size]
+        if len(candidate) == size and is_valid_isbn(candidate):
+            return candidate
+    return None
+
+
+def find_book_isbns(book, hrefs: list, skip_pages: set, titles: list | None = None) -> dict:
+    """{book number: ISBN-13} for each book whose own pages carry one.
+
+    Only copyright-style pages inside that book's own span are read, and
+    never the shared front matter, the omnibus's own contents, or a
+    copyright page that names two or more of the books (that one is the
+    omnibus's own copyright page, whatever its ISBN is). A number
+    is skipped when it is the omnibus's own ISBN (from its metadata), when
+    it shows up in more than one book, or when a book lists several and
+    only one is not marked as an e-book number. A book left out here just
+    keeps its generated unique ID."""
+    try:
+        valid, _bad = find_isbn_candidates(book)
+        omnibus = {_isbn13(v) for v in valid}
+    except Exception:
+        omnibus = set()
+
+    by_href = {c.href: c for c in book.chapters}
+    per_book = []
+    for pages in hrefs:
+        found = []
+        for href in pages:
+            chapter = by_href.get(href)
+            if href in skip_pages or chapter is None or chapter.document is None:
+                continue
+            text = " ".join(_visible_text(chapter).split())
+            if not _COPYRIGHT_CUE.search(text):
+                continue
+            flat = _norm(text)
+            if sum(1 for t in (titles or []) if t and t in flat) >= 2:
+                continue
+            for match in _ISBN_AT.finditer(text):
+                digits = _valid_prefix(match.group(1))
+                if digits is None:
+                    continue
+                isbn = _isbn13(digits)
+                if isbn not in omnibus:
+                    found.append((isbn, text[max(0, match.start() - 60):match.end() + 30]))
+        per_book.append(found)
+
+    seen_in: dict = {}
+    for i, found in enumerate(per_book):
+        for isbn, _ctx in found:
+            seen_in.setdefault(isbn, set()).add(i)
+
+    result = {}
+    for i, found in enumerate(per_book):
+        distinct = []
+        for isbn, ctx in found:
+            if len(seen_in[isbn]) > 1 or isbn in [d for d, _c in distinct]:
+                continue
+            distinct.append((isbn, ctx))
+        if len(distinct) == 1:
+            result[i + 1] = distinct[0][0]
+        elif len(distinct) > 1:
+            marked = [d for d, ctx in distinct if _EBOOK_CUE.search(ctx)]
+            if len(marked) == 1:
+                result[i + 1] = marked[0]
+    return result
+
+
+def _add_isbn(book, isbn: str) -> None:
+    """Adds the book's own ISBN as a second identifier. The generated
+    unique ID stays the package's main identifier."""
+    opf = book.opf_document
+    metadata = opf.find(f"{{{OPF_NS}}}metadata")
+    if metadata is None or not isbn:
+        return
+    existing = metadata.findall(f"{{{DC_NS}}}identifier")
+    el = etree.Element(f"{{{DC_NS}}}identifier")
+    if (opf.get("version") or "").startswith("3"):
+        el.text = f"urn:isbn:{isbn}"
+    else:
+        el.set(f"{{{OPF_NS}}}scheme", "ISBN")
+        el.text = isbn
+    if existing:
+        existing[0].addnext(el)
+    else:
+        metadata.append(el)
+    book.opf_modified = True
+
+
+# ---------------------------------------------------------------------
+# Shared front and back matter, copied into every book
+# ---------------------------------------------------------------------
+
+# A trailing page counts as shared back matter when its heading (or its
+# contents label) is one of these. They are the author-level pages that
+# sit after the last book: other books, newsletter, about the author.
+_BACK_CUE = re.compile(
+    r"about the authors?|also by|books by|other books|more books|other titles|"
+    r"newsletter|mailing list|sign up|follow (?:me|the author)",
+    re.IGNORECASE,
+)
+_OMNIBUS_ONLY_LABEL = re.compile(r"title\s*page|^\s*(?:table of )?contents\s*$", re.IGNORECASE)
+_SHORT_BACK_PAGE_WORDS = 600
+
+
+def _toc_labels(book) -> dict:
+    """page file -> the label its (first) contents entry gives it."""
+    labels: dict = {}
+
+    def walk(entries) -> None:
+        for entry in entries:
+            labels.setdefault(entry.href.split("#", 1)[0], entry.label)
+            walk(entry.children)
+
+    walk(book.toc)
+    return labels
+
+
+def _image_only(chapter, text: str) -> bool:
+    """A page that is just a picture (a cover page): almost no text."""
+    if len(text.split()) > 5 or chapter.document is None:
+        return False
+    return any(isinstance(el.tag, str) and _local(el) in ("img", "image", "svg") for el in chapter.document.iter())
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def _internal_page_links(chapter, pages: set) -> int:
+    count = 0
+    for a in chapter.document.iter():
+        if isinstance(a.tag, str) and _local(a) == "a" and a.get("href"):
+            target = _resolve(chapter.href, a.get("href"))
+            if target and target != chapter.href and target in pages:
+                count += 1
+    return count
+
+
+_SHORT_TITLE_PAGE_WORDS = 80
+_AUTHOR_ONLY_WORDS = 30
+
+
+def _front_copy_ok(chapter, label, titles: list, creator_words: list, pages: set) -> bool:
+    """Shared front matter worth giving to every book: a cover page, a
+    copyright page, an ad page, a foreword or author's note. Not the
+    omnibus's own title page (even one split over several files), nor its
+    contents page, which describe the whole bundle."""
+    text = " ".join(_visible_text(chapter).split())
+    words = len(text.split())
+    if _image_only(chapter, text):
+        return True                      # a cover page
+    if not words:
+        return False
+    if label and _OMNIBUS_ONLY_LABEL.search(label):
+        return False
+    hint = _label_from_href(chapter.href)
+    if hint and hint[0] in (MatterLabel.TITLE_PAGE, MatterLabel.TABLE_OF_CONTENTS):
+        return False
+    found, _conf = _label_from_text(text, words)
+    if found == MatterLabel.TABLE_OF_CONTENTS:
+        return False
+    if re.search(r"\bcontents\b", text[:80], re.IGNORECASE) or _internal_page_links(chapter, pages) >= 3:
+        return False                     # a contents page with no entry of its own
+    if found == MatterLabel.COPYRIGHT:
+        return True                      # copyright pages name the books, and are meant to be copied
+    if words <= _SHORT_TITLE_PAGE_WORDS:
+        flat = _norm(text)
+        if any(t and t in flat for t in titles):
+            return False                 # a short page naming a book: part of the omnibus title page
+    if words <= _AUTHOR_ONLY_WORDS and creator_words:
+        flat = _norm(text)
+        if any(w in flat.split() for w in creator_words):
+            return False                 # the author's name on its own: part of the omnibus title page
+    return True
+
+
+def _back_copy_ok(chapter, label) -> bool:
+    """Shared back matter worth giving to every book."""
+    if label and _classify(label) is not None:
+        return False                     # a chapter or part label: that is the book itself
+    text = _visible_text(chapter)
+    words = len(text.split())
+    if not words:
+        return False
+    if label and _BACK_CUE.search(label):
+        return True
+    if _BACK_CUE.search(text[:400]):
+        return True
+    if words <= _SHORT_BACK_PAGE_WORDS:
+        found, _conf = _label_from_text(text, words)
+        return found in (MatterLabel.ABOUT_AUTHOR, MatterLabel.COLOPHON)
+    return False
+
+
+def plan_shared_matter(book, analysis: OmnibusAnalysis, hrefs: list, excluded: set) -> tuple:
+    """(front pages, back pages) that every other book gets its own copy
+    of. Front matter is what sits before Book One's own title page; back
+    matter is the run of author-level pages at the very end of the last
+    book. `excluded` holds pages already handled another way (notes)."""
+    order = {c.href: i for i, c in enumerate(book.chapters)}
+    by_href = {c.href: c for c in book.chapters}
+    pages = set(by_href)
+    labels = _toc_labels(book)
+    titles = [t for t in (_norm(nice_title(b.title)) for b in analysis.books) if len(t) >= 6]
+    creator_words = [w for w in _norm(getattr(book.metadata, "creator", "")).split() if len(w) >= 4]
+
+    front = []
+    first = analysis.books[0]
+    if first.title_index > 0:
+        for href in hrefs[0]:
+            chapter = by_href.get(href)
+            if href in excluded or chapter is None or chapter.document is None:
+                continue
+            if order.get(href, 10 ** 9) >= first.title_index:
+                continue
+            if _front_copy_ok(chapter, labels.get(href), titles, creator_words, pages):
+                front.append(href)
+
+    back = []
+    floor = max(analysis.books[-1].title_index, 0)
+    for href in reversed(hrefs[-1]):
+        chapter = by_href.get(href)
+        if chapter is None or chapter.document is None:
+            continue
+        if order.get(href, -1) <= floor:
+            break                        # never reach into the book's own pages
+        if href in excluded:
+            continue
+        if not _back_copy_ok(chapter, labels.get(href)):
+            break
+        back.append(href)
+    back.reverse()
+    return front, back
+
+
+def _unique(value: str, taken: set) -> str:
+    if value not in taken:
+        return value
+    n = 2
+    while f"{value}{n}" in taken:
+        n += 1
+    return f"{value}{n}"
+
+
+def _clone_page(book, source_chapter, position: int, taken_hrefs: set, taken_ids: set):
+    """Adds a copy of one page to the book's manifest, reading order and
+    chapter list. The copy sits in the same folder, so every relative
+    link in it still works. `position` is the index in book.chapters to
+    insert at. Returns the new Chapter."""
+    src = PurePosixPath(source_chapter.href)
+    href = _unique(str(src.with_name(f"{src.stem}_copy{src.suffix}")), taken_hrefs)
+    new_id = _unique(f"{source_chapter.id}_copy", taken_ids)
+    taken_hrefs.add(href)
+    taken_ids.add(new_id)
+
+    item = next((m for m in book.manifest if m.id == source_chapter.id), None)
+    properties = " ".join(p for p in ((item.properties if item else "") or "").split() if p != "nav")
+    media = item.media_type if item else source_chapter.media_type
+
+    opf = book.opf_document
+    manifest_el = opf.find(f"{{{OPF_NS}}}manifest")
+    item_el = etree.SubElement(manifest_el, f"{{{OPF_NS}}}item")
+    item_el.set("id", new_id)
+    item_el.set("href", href)
+    item_el.set("media-type", media)
+    if properties:
+        item_el.set("properties", properties)
+    book.manifest.append(ManifestItem(id=new_id, href=href, media_type=media, properties=properties))
+
+    chapter = Chapter(
+        id=new_id, href=href, media_type=source_chapter.media_type, title=source_chapter.title,
+        document=copy.deepcopy(source_chapter.document), modified=True,
+    )
+    book.chapters.insert(position, chapter)
+    book.opf_modified = True
+    return chapter
+
+
+def _spine_insert(book, new_chapters: list, anchor_id: str, after: bool) -> None:
+    """Puts the copies in the reading order next to the page `anchor_id`
+    (just before it, or just after it), keeping their own order."""
+    opf = book.opf_document
+    spine_el = opf.find(f"{{{OPF_NS}}}spine")
+    if spine_el is None or anchor_id not in book.spine:
+        return
+    at = book.spine.index(anchor_id) + (1 if after else 0)
+    anchor_ref = next((r for r in spine_el.findall(f"{{{OPF_NS}}}itemref") if r.get("idref") == anchor_id), None)
+    for offset, chapter in enumerate(new_chapters):
+        book.spine.insert(at + offset, chapter.id)
+        ref = etree.Element(f"{{{OPF_NS}}}itemref")
+        ref.set("idref", chapter.id)
+        if anchor_ref is None:
+            spine_el.append(ref)
+        elif after:
+            # each copy goes right after the previous one
+            (anchor_ref if offset == 0 else previous_ref).addnext(ref)
+        else:
+            anchor_ref.addprevious(ref)   # each one lands just before the anchor, so their order is kept
+        previous_ref = ref
+    book.opf_modified = True
+
+
+def _add_shared_matter(book, index: int, total: int, keep: set, front: list, back: list) -> tuple:
+    """Gives this book its own copy of the shared front matter (every book
+    but the first, which already has the originals) and shared back matter
+    (every book but the last). Returns (front TOC entries, back TOC
+    entries, front pages copied, back pages copied); an entry is
+    (label, new file)."""
+    labels = _toc_labels(book)
+    by_href = {c.href: c for c in book.chapters}
+    taken_hrefs = {m.href for m in book.manifest}
+    taken_ids = {m.id for m in book.manifest}
+    kept = [c for c in book.chapters if c.href in keep]
+    if not kept:
+        return [], [], 0, 0
+
+    front_entries, back_entries, front_copied, back_copied = [], [], 0, 0
+    if index > 0 and front:
+        first = kept[0]
+        at = book.chapters.index(first)
+        made = []
+        for href in front:
+            source = by_href.get(href)
+            if source is None:
+                continue
+            chapter = _clone_page(book, source, at + len(made), taken_hrefs, taken_ids)
+            made.append(chapter)
+            if labels.get(href):
+                front_entries.append((labels[href], chapter.href))
+        _spine_insert(book, made, first.id, after=False)
+        front_copied = len(made)
+    if index < total - 1 and back:
+        last = kept[-1]
+        at = book.chapters.index(last) + 1
+        made = []
+        for href in back:
+            source = by_href.get(href)
+            if source is None:
+                continue
+            chapter = _clone_page(book, source, at + len(made), taken_hrefs, taken_ids)
+            made.append(chapter)
+            if labels.get(href):
+                back_entries.append((labels[href], chapter.href))
+        _spine_insert(book, made, last.id, after=True)
+        back_copied = len(made)
+    return front_entries, back_entries, front_copied, back_copied
+
+
+def _add_toc_entries(book, front_entries: list, back_entries: list) -> None:
+    """Lists the copied pages in the book's contents (NCX and nav), the
+    way the originals were listed: front copies first, back copies last."""
+    if not front_entries and not back_entries:
+        return
+
+    ncx = book.ncx_document
+    nav_map = ncx.find(f"{{{NCX_NS}}}navMap") if ncx is not None else None
+    if nav_map is not None:
+        base = posixpath.dirname(book.ncx_href) or "."
+        taken = {p.get("id") for p in ncx.iter(f"{{{NCX_NS}}}navPoint")}
+
+        def make(label: str, href: str, number: int):
+            pid = _unique(f"navpoint-copy-{number}", taken)
+            taken.add(pid)
+            point = etree.Element(f"{{{NCX_NS}}}navPoint")
+            point.set("id", pid)
+            nav_label = etree.SubElement(point, f"{{{NCX_NS}}}navLabel")
+            etree.SubElement(nav_label, f"{{{NCX_NS}}}text").text = label
+            etree.SubElement(point, f"{{{NCX_NS}}}content").set("src", posixpath.relpath(href, base))
+            return point
+
+        children = list(nav_map)
+        first_point = next((i for i, c in enumerate(children) if c.tag == f"{{{NCX_NS}}}navPoint"), len(children))
+        number = 0
+        for offset, (label, href) in enumerate(front_entries):
+            number += 1
+            nav_map.insert(first_point + offset, make(label, href, number))
+        for label, href in back_entries:
+            number += 1
+            nav_map.append(make(label, href, number))
+        for order, point in enumerate(nav_map.iter(f"{{{NCX_NS}}}navPoint"), start=1):
+            point.set("playOrder", str(order))
+        book.ncx_modified = True
+
+    nav_chapter, nav_item = book.nav_chapter, book.nav_item
+    if nav_chapter is not None and nav_item is not None and nav_chapter.document is not None:
+        doc = nav_chapter.document
+        root = doc.getroot() if hasattr(doc, "getroot") else doc
+        toc_ol = None
+        for nav in root.iter():
+            if isinstance(nav.tag, str) and _local(nav) == "nav":
+                kind = nav.get("{http://www.idpf.org/2007/ops}type") or ""
+                candidate = next((c for c in nav if isinstance(c.tag, str) and _local(c) == "ol"), None)
+                if candidate is not None and ("toc" in kind.split() or toc_ol is None):
+                    toc_ol = candidate
+                    if "toc" in kind.split():
+                        break
+        if toc_ol is not None:
+            namespace = etree.QName(toc_ol).namespace
+            tag = (lambda name: f"{{{namespace}}}{name}") if namespace else (lambda name: name)
+            base = posixpath.dirname(nav_item.href) or "."
+
+            def make_li(label: str, href: str):
+                li = etree.Element(tag("li"))
+                a = etree.SubElement(li, tag("a"))
+                a.set("href", posixpath.relpath(href, base))
+                a.text = label
+                return li
+
+            for offset, (label, href) in enumerate(front_entries):
+                toc_ol.insert(offset, make_li(label, href))
+            for label, href in back_entries:
+                toc_ol.append(make_li(label, href))
+            nav_chapter.modified = True
+
+
+# ---------------------------------------------------------------------
+# Renumbering the notes on a notes page a book kept part of
+# ---------------------------------------------------------------------
+
+_BARE_NUMBER = re.compile(r"^[\[\(]?\s*(\d+)\s*[\]\)\.:]?$")
+_LEADING_NUMBER = re.compile(r"^(\s*[\[\(]?)(\d+)([\]\)\.:]?)(?=\s|$)")
+
+
+def _number_slot(scopes: list, old: int):
+    """The text spot (element, "text" or "tail") that shows note number
+    `old` as its own leading number, looking inside each scope in turn."""
+    for scope in scopes:
+        if scope is None:
+            continue
+        candidates = [(scope, "tail")]
+        for el in scope.iter():
+            if not isinstance(el.tag, str):
+                continue
+            candidates.append((el, "text"))
+            for child in el:
+                candidates.append((child, "tail"))
+        for el, kind in candidates:
+            value = el.text if kind == "text" else el.tail
+            match = _LEADING_NUMBER.match(value or "")
+            if match and int(match.group(2)) == old:
+                return el, kind
+    return None
+
+
+def _renumber_notes(book, page_href: str) -> int:
+    """After a book has been cut down to its own notes, makes the visible
+    numbers count 1, 2, 3... again, both next to the note in the text and
+    on the notes page. Only the visible numbers change; every link and
+    anchor keeps working as before. All or nothing: if anything about the
+    numbering is not plainly a clean 1..N count-up (a note with no number,
+    a number used twice, numbers out of order) nothing is changed.
+    Returns how many notes were renumbered."""
+    page = next((c for c in book.chapters if c.href == page_href), None)
+    if page is None or page.document is None:
+        return 0
+    nav_href = book.nav_item.href if book.nav_item is not None else None
+
+    refs = []
+    for chapter in book.chapters:
+        if chapter.href in (page_href, nav_href) or chapter.document is None:
+            continue
+        for a in chapter.document.iter():
+            if isinstance(a.tag, str) and _local(a) == "a" and a.get("href") and "#" in a.get("href"):
+                if _resolve(chapter.href, a.get("href")) == page_href:
+                    refs.append((chapter, a, a.get("href").split("#", 1)[1]))
+    if not refs:
+        return 0
+
+    ids = {el.get("id"): el for el in page.document.iter() if isinstance(el.tag, str) and el.get("id")}
+    olds = []
+    plan = []
+    for chapter, a, fragment in refs:
+        match = _BARE_NUMBER.match("".join(a.itertext()).strip())
+        target = ids.get(fragment)
+        if match is None or target is None:
+            return 0
+        olds.append(int(match.group(1)))
+        plan.append((chapter, a, target, int(match.group(1))))
+    if len(set(olds)) != len(olds) or olds != sorted(olds):
+        return 0
+    if olds == list(range(1, len(olds) + 1)):
+        return 0
+    new_of = {old: rank for rank, old in enumerate(olds, start=1)}
+
+    edits = []
+    for chapter, a, target, old in plan:
+        in_text = _number_slot([a], old)
+        in_notes = _number_slot([target, target.getparent()], old)
+        if in_text is None or in_notes is None:
+            return 0
+        edits.append((chapter, in_text, old))
+        edits.append((page, in_notes, old))
+
+    for chapter, (el, kind), old in edits:
+        value = el.text if kind == "text" else el.tail
+        replaced = _LEADING_NUMBER.sub(lambda m: m.group(1) + str(new_of[old]) + m.group(3), value, count=1)
+        if kind == "text":
+            el.text = replaced
+        else:
+            el.tail = replaced
+        chapter.modified = True
+    return len(olds)
+
+
+def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list, out_path: Path, title: str, uid: str,
+               shared: dict | None = None, isbn: str = "", front: list | None = None, back: list | None = None,
+               notes_pages: list | None = None) -> SplitOutput:
     """Loads a fresh copy of the omnibus and cuts it down to one book."""
     book = EPUBParser().load(source)
     keep = set(hrefs[index])
@@ -567,13 +1136,22 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
         if index + 1 in shared[page]:
             notes_removed += _trim_shared_page(book, page, keep - {page} | {page}, removed)
 
+    # Copies of the shared front/back matter are made before the originals
+    # go, and are never part of `removed` (they are new files).
+    front_entries, back_entries, front_copies, back_copies = _add_shared_matter(
+        book, index, len(hrefs), keep, front or [], back or [])
+
     _drop_chapters(book, removed)
     _prune_ncx(book, removed, title, uid)
     _prune_nav(book, removed)
     unlinked, entries_removed = _handle_dead_links(book, removed)
+    renumbered = sum(_renumber_notes(book, page) for page in (notes_pages or []))
     images_removed = _prune_unused_media(book)
     _set_identity(book, title, uid)
+    if isbn:
+        _add_isbn(book, isbn)
     toc_entries = _rebuild_toc_from_contents_page(book, nav_href)
+    _add_toc_entries(book, front_entries, back_entries)
     book.mark_modified()
 
     EPUBWriter().save(book, out_path)
@@ -590,6 +1168,10 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
         notes_entries_removed=notes_removed,
         images_removed=images_removed,
         toc_rebuilt=toc_entries,
+        isbn=isbn,
+        front_copies=front_copies,
+        back_copies=back_copies,
+        notes_renumbered=renumbered,
     )
 
 
@@ -817,19 +1399,37 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
     hrefs, result.moved_pages, result.shared_pages = reassign_shared_pages(book, hrefs)
     result.words_in = sum(_words(c) for c in book.chapters if c.href != nav_href)
 
+    # Notes pages are handled by trimming/moving, not by copying.
+    excluded = set(result.shared_pages) | {page for page, _from, _to, _n in result.moved_pages}
+    result.front_pages, result.back_pages = plan_shared_matter(book, analysis, hrefs, excluded)
+    first_title = analysis.books[0].title_index
+    omnibus_front = {c.href for c in book.chapters[:first_title]} if first_title > 0 else set()
+    titles = [t for t in (_norm(nice_title(b.title)) for b in analysis.books) if len(t) >= 6]
+    isbns = find_book_isbns(book, hrefs, omnibus_front | set(result.back_pages) | excluded, titles)
+    total = len(plan)
+
+    def describe(number: int, title: str, name: str, **extra) -> SplitOutput:
+        return SplitOutput(
+            number, title, out_dir / name,
+            isbn=isbns.get(number, ""),
+            front_copies=len(result.front_pages) if number > 1 else 0,
+            back_copies=len(result.back_pages) if number < total else 0,
+            **extra,
+        )
+
     if analysis.confidence != "high" and not allow_medium:
         result.status = "needs_review"
         result.message = (
             f"Found {len(plan)} books, but only with {analysis.confidence} confidence "
             f"({analysis.reason}) so nothing was split. Check the list, then run again with --allow-medium."
         )
-        result.outputs = [SplitOutput(n, t, out_dir / name, pages=len(hrefs[n - 1])) for n, t, name in plan]
+        result.outputs = [describe(n, t, name, pages=len(hrefs[n - 1])) for n, t, name in plan]
         return result
 
     if dry_run:
         result.status = "dry_run"
         result.message = f"Would split into {len(plan)} books ({analysis.method}, {analysis.confidence} confidence)."
-        result.outputs = [SplitOutput(n, t, out_dir / name, pages=len(hrefs[n - 1])) for n, t, name in plan]
+        result.outputs = [describe(n, t, name, pages=len(hrefs[n - 1])) for n, t, name in plan]
         return result
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -837,7 +1437,13 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
         say(f"Writing book {number} of {len(plan)}: {title}")
         out_path = out_dir / name
         uid = _unique_id(source, number)
-        output = _build_one(source, analysis, number - 1, hrefs, out_path, title, uid, result.shared_pages)
+        notes_pages = [page for page, books in result.shared_pages.items() if number in books]
+        notes_pages += [page for page, _from, to, _n in result.moved_pages if to == number]
+        output = _build_one(
+            source, analysis, number - 1, hrefs, out_path, title, uid, result.shared_pages,
+            isbn=isbns.get(number, ""), front=result.front_pages, back=result.back_pages,
+            notes_pages=notes_pages,
+        )
         output.problems = verify_output(out_path)
         result.outputs.append(output)
 

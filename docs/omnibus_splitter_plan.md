@@ -1,6 +1,6 @@
 # Omnibus Splitter -- Planning Doc
 
-**Status:** Detection done and verified (2026-10-01). Splitting built (2026-10-14) as the `split-omnibus` command, simple version; not yet wired into the GUI.
+**Status:** Detection done and verified (2026-10-01). Splitting built (2026-10-14) as the `split-omnibus` command and wired into the GUI the same day. Loose ends (per-book ISBN, copies of shared front/back matter, note renumbering) built and tested 2026-10-16.
 **Started:** 2026-09-17 (scoping session). Detection built 2026-10-01 after Jacob supplied three real
 omnibus files to test against, which also led to finding two more already sitting in `examples/`
 under names that didn't say "omnibus" (`OmnibusExample.epub`, and a Russian-titled First Mountain Man
@@ -256,7 +256,7 @@ Found while building, not in the original scoping:
 
 Verified: `OmnibusExample.epub` (high, 2 books) and the Russian-titled First Mountain Man file (medium, needs `--allow-medium`) split into the right books with zero broken links or anchors, every page's text unchanged except the contents and notes pages, and all outputs repair without errors. The other 20 examples report no omnibus. The three files Jacob uploaded earlier (Ravaged Land, Tales of Talon, the Tarzan collection) are not in `examples/`, so splitting was not tried on them (Tarzan, 25 books and 659 pages, is the scale test still to run).
 
-Still not built: GUI wiring (Review tab for medium, a Fix This Book option), per-book copies of shared front/back matter, a per-book ISBN from a copyright page, note renumbering, and a contents page for Book Two and later (only Book One gets the omnibus's own).
+Still not built at that point: GUI wiring, per-book copies of shared front/back matter, a per-book ISBN from a copyright page, note renumbering, and a contents page for Book Two and later (only Book One gets the omnibus's own). GUI wiring was done 2026-10-14 (see the end of this doc); the rest was done 2026-10-16 (see "Splitter loose ends" at the end). A contents page for Book Two and later is still not built.
 
 ## Repair phase: original design (kept for reference)
 
@@ -441,4 +441,21 @@ building are documented here as dated notes (see the 2026-09-17 and 2026-10-01 e
 - Medium confidence: the same button, but only after ticking "These titles look right".
 - New books go in a folder named `<book name> (split)` next to the original. The original is never changed.
 - A result page lists each new book, its page and word counts, and any problems the built-in output check found.
-- Not built yet: opening a new book straight from the result page (use Browse for now), per-book ISBNs, per-book copies of shared front/back matter, note renumbering.
+- Not built yet: opening a new book straight from the result page (use Browse for now). Per-book ISBNs, per-book copies of shared front/back matter and note renumbering were added 2026-10-16 (below).
+
+## Splitter loose ends: built (2026-10-16)
+
+Item 2 of Jacob's 2026-10-15 list. All three changes are in `omnibus_split.py`; the only change to `omnibus.py` is that each detected book now records `title_index`, the spine position of the page that carries its own title (for Book One that is where its shared front matter ends).
+
+**Per-book ISBN.** Each book's own pages are searched for an ISBN written next to the word "ISBN" on a copyright-style page, with a valid check digit (an ISBN-10 is converted to ISBN-13). It is used only when exactly one qualifies. Never used: the omnibus's own ISBN, anything on the shared front or back matter, a number found in more than one book, and a page that names two or more of the omnibus's books (that is the omnibus's own copyright page). If a book has several candidates, one marked as the e-book edition wins; otherwise none is written. It goes in as a second identifier (`opf:scheme="ISBN"` on EPUB 2, `urn:isbn:` on EPUB 3); the generated UUID stays the package ID, so a book with no ISBN of its own still gets only the UUID, as decided 2026-10-01.
+
+**Copies of shared front and back matter.** Front matter is what sits before Book One's own title page; back matter is the run of author-level pages at the very end ("Books by", "About the author", mailing list or newsletter, colophon). Each is copied into every book that does not already hold the original, in the same place (front copies first, back copies last) and listed in that book's contents. A copy is a new file next to the original with `_copy` added to its name, so its links and pictures still work. Not copied: the omnibus's own title page (including one split over several files), its contents page, and the notes page (which is trimmed or moved instead).
+
+**Notes renumbered.** On a notes page a book keeps, the visible numbers count 1, 2, 3 again, both next to the note in the text and on the notes page. Only the visible numbers change; links and anchors are untouched. All or nothing per page: if a note mark has no plain number, a number repeats, or the numbers are out of order, that page is left alone.
+
+Results (checked with scratch test scripts that are not part of the repo): OmnibusExample (Guns now has notes 1 to 13; they were 11 to 23, every note mark matches its entry), Ravaged Land (4 front and 3 back pages copied), the First Mountain Man file (medium) and the 25-book Tarzan collection (13 seconds) all split with zero problems from the built-in check; broken links in the outputs equal the original's (Tarzan's 20 are the placeholder X links, a separate fix); splitting twice gives byte-identical files; the normal repair runs on sample outputs with no errors and a second repair changes nothing; the other 19 single-book examples report no omnibus. Per-book ISBNs were proven on a synthetic copy of OmnibusExample (one ISBN-10 ending in X, one ISBN-13); none of the real files has a per-book ISBN, and the First Mountain Man file correctly gets none because its only ISBN is the omnibus's.
+
+Known limits:
+- The omnibus's own copyright page is a front page like any other, so it is copied as written, including the omnibus's ISBN and the list of every title in it. Say if you would rather have it left in Book One only.
+- A publisher's foreword ("Dear Readers" in the Mountain Man books) is copied into every book.
+- A contents page for Book Two and later is still not built.
