@@ -546,6 +546,12 @@ def run_lookup(search_type: str, current: dict, book=None) -> dict:
     except LookupFailure as failure:
         return {"status": failure.code, "message": failure.message}
 
+    # One series, one spelling: the proper name with its leading "The" when
+    # the library (or series_names.txt) knows it.
+    if result.get("series_name"):
+        from ebook_fix.series_names import tidy_for_book
+        result["series_name"] = tidy_for_book(result["series_name"], getattr(book, "source", None))
+
     suggestions = build_suggestions(current, result, edition_exact)
 
     heading = f'Found "{result["title"]}"' if result["title"] else "Found a record"

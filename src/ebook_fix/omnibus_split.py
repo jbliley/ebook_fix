@@ -552,6 +552,12 @@ def _rebuild_toc_from_contents_page(book, nav_href) -> int:
     entries += [(l, h) for l, h in best_links if h not in seen_hrefs]
     entries.sort(key=lambda e: order.get(e[1].partition("#")[0], 10 ** 6))   # stable: keeps list order
 
+    return _write_toc(book, entries, order)
+
+
+def _write_toc(book, entries: list, order: dict) -> int:
+    """Writes `entries` ([(label, href[#fragment])]) as the book's NCX and
+    nav document. Returns the number of entries."""
     tocs = [TocEntry(label=l, href=h) for l, h in entries]
 
     def relative_to(base_href: str):
@@ -583,6 +589,98 @@ def _rebuild_toc_from_contents_page(book, nav_href) -> int:
 
     book.toc = tocs
     return len(tocs)
+
+
+
+
+_MIN_CHAPTER_ENTRIES = 3   # fewer confirmed chapters than this is not trusted as a contents list
+
+
+def _rebuild_toc_from_chapters(book, nav_href) -> int:
+    """A split book that is still left with a thin table of contents and
+    has no contents page of its own (Book Two onward in an omnibus whose
+    only contents page lists whole books) gets one built from its own
+    chapter headings, the same chapter detection the Review tab uses.
+    Only a complete numbered run counts (at least 3 chapters, 1 to N with
+    none missing); anything weaker leaves the book as it is, so
+    no guessed headings end up in a contents list. Each heading gets an
+    id when it has none, so the entry can point straight at it. Returns
+    the number of entries written, or 0."""
+    from ebook_fix.chapters import analyze_book_chapters
+
+    if _toc_entry_count(book) >= _THIN_TOC:
+        return 0
+    pages = [c for c in book.chapters if c.href != nav_href and c.document is not None]
+    order = {c.href: i for i, c in enumerate(pages)}
+    summary = analyze_book_chapters(book)
+    boundaries = [c for c in summary.confirmed_boundaries if c.element is not None and c.href in order]
+    if summary.best_sequence is None or len(boundaries) < _MIN_CHAPTER_ENTRIES:
+        return 0
+    # Only a complete count-up counts: 1, 2, 3 ... N with nothing missing.
+    # A run that starts at 4, or skips numbers, means some chapter
+    # headings were not recognized, and a contents list with holes in it
+    # is worse than none.
+    numbers = sorted(c.number for c in summary.best_sequence.candidates if c.number is not None)
+    if len(numbers) != len(summary.best_sequence.candidates) or numbers[0] > 1 \
+            or numbers != list(range(numbers[0], numbers[-1] + 1)):
+        return 0
+    boundaries.sort(key=lambda c: (order[c.href], c.book_order))
+
+    # The next number up must not turn up later in the book as something
+    # the sequence skipped over (chapters 15 to 32 sitting under headings
+    # the sequence did not take).
+    last = boundaries[-1]
+    last_number = max(numbers)
+    if any(c.number in (last_number + 1, last_number + 2) and c.book_order > last.book_order
+           and c.href in order and c.element is not None for c in summary.candidates):
+        return 0
+
+    # Nothing may be left unrecognized at the end: the text from the last
+    # chapter on must not dwarf a typical chapter, or later headings were
+    # missed (a run that stops at 10 in a book of 30 passes the count-up
+    # test but would list a third of the chapters).
+    words = [_words(c) for c in pages]
+    first_i, last_i = order[boundaries[0].href], order[boundaries[-1].href]
+    if last_i > first_i:
+        average_before = sum(words[first_i:last_i]) / max(1, len(boundaries) - 1)
+        if sum(words[last_i:]) > 3 * max(average_before, 1500):
+            return 0
+
+    used = {href: {e.get("id") for e in c.document.iter() if isinstance(e.tag, str) and e.get("id")}
+            for href, c in ((c.href, c) for c in pages)}
+    by_href = {c.href: c for c in pages}
+    new_entries = []
+    for number, cand in enumerate(boundaries, start=1):
+        el = cand.element
+        frag = el.get("id")
+        if not frag:
+            base = f"chapter-{number}"
+            frag, n = base, 2
+            while frag in used[cand.href]:
+                frag, n = f"{base}-{n}", n + 1
+            el.set("id", frag)
+            used[cand.href].add(frag)
+            by_href[cand.href].modified = True
+        label = " ".join(cand.text.split()) or f"Chapter {number}"
+        new_entries.append((label, f"{cand.href}#{frag}"))
+
+    entries = []
+    if book.ncx_document is not None:
+        for point in book.ncx_document.iter(f"{{{NCX_NS}}}navPoint"):
+            text = point.find(f"{{{NCX_NS}}}navLabel/{{{NCX_NS}}}text")
+            content = point.find(f"{{{NCX_NS}}}content")
+            if text is not None and content is not None and content.get("src"):
+                href = _resolve(book.ncx_href, content.get("src"))
+                if href in order:
+                    entries.append((" ".join((text.text or "").split()), href))
+    seen_hrefs = {h.partition("#")[0] for _l, h in entries}
+    # An existing entry for a page that now has chapter entries is dropped
+    # in favour of them (a lone "book" entry pointing at the same file).
+    chapter_files = {h.partition("#")[0] for _l, h in new_entries}
+    entries = [(l, h) for l, h in entries if h.partition("#")[0] not in chapter_files or h.partition("#")[0] != h]
+    entries += new_entries
+    entries.sort(key=lambda e: order.get(e[1].partition("#")[0], 10 ** 6))
+    return _write_toc(book, entries, order)
 
 
 # ---------------------------------------------------------------------
@@ -1156,10 +1254,13 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
     renumbered = sum(_renumber_notes(book, page) for page in (notes_pages or []))
     images_removed = _prune_unused_media(book)
     _set_identity(book, title, uid)
+    _remove_extra_page_breaks(book)
     labeled_series, labeled_number = _label_series(book, title, series_name, series_number)
     if isbn:
         _add_isbn(book, isbn)
     toc_entries = _rebuild_toc_from_contents_page(book, nav_href)
+    if not toc_entries:
+        toc_entries = _rebuild_toc_from_chapters(book, nav_href)
     _add_toc_entries(book, front_entries, back_entries)
     book.mark_modified()
 
@@ -1184,6 +1285,24 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
         series=labeled_series,
         series_number=labeled_number,
     )
+
+
+def _remove_extra_page_breaks(book) -> None:
+    """Splitting can leave a forced page break as the last thing in a
+    book's file (the break that used to separate it from the next book's
+    chapter), which only adds an empty page. Same cleanup as the Extra
+    Page Break Removal repair, run on each new book."""
+    from ebook_fix.page_breaks import redundant_forced_breaks, _strip_break_props
+
+    for chapter in book.chapters:
+        doc = getattr(chapter, "document", None)
+        if doc is None:
+            continue
+        found = redundant_forced_breaks(doc)
+        for el, props in found:
+            _strip_break_props(el, set(props))
+        if found:
+            chapter.modified = True
 
 
 def _label_series(book, title: str, series_name: str, series_number: float | None) -> tuple:
@@ -1417,6 +1536,9 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
     say = log or (lambda _line: None)
     source = Path(source)
     out_dir = Path(out_dir) if out_dir else source.parent
+    if (series or "").strip():
+        from ebook_fix.series_names import tidy_for_book
+        series = tidy_for_book(series, source)
 
     book = EPUBParser().load(source)
     analysis = detect(book)

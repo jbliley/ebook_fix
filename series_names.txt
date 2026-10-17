@@ -1,0 +1,8 @@
+# Proper series names, one per line. A series spelled a different way
+# ("Dark Tower", "Dark Tower Series") is changed to the spelling below.
+# Names already in your Calibre library are known automatically; list a
+# name here only to add one the library does not have yet, or to override
+# the library's spelling. Lines starting with # are ignored.
+#
+# Example:
+# The Dark Tower

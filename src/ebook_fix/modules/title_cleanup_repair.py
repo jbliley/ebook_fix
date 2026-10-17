@@ -38,6 +38,7 @@ from __future__ import annotations
 from lxml import etree
 
 from ebook_fix import series as series_metadata
+from ebook_fix.series_names import tidy_for_book
 from ebook_fix.config import TitleCleanupConfig
 from ebook_fix.report import Report
 from metadata.core_fields import write_core_field
@@ -107,6 +108,7 @@ class TitleCleanupRepair:
                     self._fix_title_sort(book, title, suggestion.title, report)
 
             if suggestion.series is not None:
+                suggestion.series = tidy_for_book(suggestion.series, getattr(book, "source", None))
                 if write:
                     series_metadata.write(book, suggestion.series, suggestion.series_index)
                 number = series_metadata.format_index(suggestion.series_index)
