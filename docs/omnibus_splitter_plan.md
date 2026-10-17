@@ -459,3 +459,7 @@ Known limits:
 - The omnibus's own copyright page is a front page like any other, so it is copied as written, including the omnibus's ISBN and the list of every title in it. Say if you would rather have it left in Book One only.
 - A publisher's foreword ("Dear Readers" in the Mountain Man books) is copied into every book.
 - A contents page for Book Two and later is still not built.
+
+## Placeholder X links (2026-10-16)
+
+Item 3 of Jacob's 2026-10-15 list. The links are in the original omnibus too, so the splitter only carries them along; the fix lives in Dead Link Cleanup (`modules/dead_link_repair.py`), which now relinks them to the chapter whose heading matches the link text instead of removing them. 18 of the 20 in the Tarzan collection relink; the 2 in Book 2 (a chapter that starts partway down another page) are still removed with their text kept. See `docs/analysis_roadmap.md`, "Placeholder X links relinked to their chapters", for the rules and results.

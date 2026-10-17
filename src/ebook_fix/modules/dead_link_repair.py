@@ -27,6 +27,16 @@ Two kinds of dead link, each with its own switch:
    to that file and loses the spot; a link to a spot in its own file,
    which would only jump to the top of the same page, is removed.
 
+Added 2026-10-16 (found on the books split out of the Tarzan omnibus):
+when no contents entry matches, a dead link is also pointed at the
+chapter whose opening heading is the link's text. The Tarzan contents
+pages list every chapter, but the entries for titles with quotation marks
+("Chapter 12. "Tomorrow Thou Diest!"") link to an address made of a long
+run of X's, so those chapters could not be reached from the list. The
+text is compared ignoring case, punctuation and a leading "Chapter", and
+has to match the heading at the top of exactly one other page, so a link
+that matches nothing, or two pages, is still removed as before.
+
 Never touched: web and email links (anything with a scheme such as
 `http:` or `mailto:`), a bare `#`, links to files that exist and have no
 spot named (pictures, stylesheets), and links in the navigation
@@ -131,6 +141,88 @@ def _unwrap(a) -> None:
     parent.remove(a)
 
 
+_PAGE_BREAK_ID = re.compile(r"^calibre_pb_\d+$")
+_CONTENTS_LIKE_LINKS = 8   # a page linking to this many pages is a contents page, not a chapter
+_HEADING_BLOCKS = 3        # how many text blocks at the top of a page count as its heading
+_BLOCK_NAMES = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "td", "blockquote", "section"}
+
+
+def _local_name(el) -> str:
+    tag = el.tag if isinstance(el.tag, str) else ""
+    return tag.rsplit("}", 1)[-1].lower()
+
+
+def _heading_key(text) -> str:
+    """A heading or link text reduced to its words: lowercase, no
+    punctuation, no leading "Chapter". 'Chapter 12. "Tomorrow Thou
+    Diest!"' and '12. "TOMORROW THOU DIEST!"' both become
+    '12 tomorrow thou diest'."""
+    words = re.findall(r"\w+", (text or "").casefold())
+    if words and words[0] == "chapter":
+        words = words[1:]
+    return " ".join(words)
+
+
+def _anchor_for(block) -> str:
+    """The id a link can use to reach this block: its own id, an anchor
+    inside it, or an empty anchor just before it. Empty when there is none
+    (the link then goes to the top of the page)."""
+    candidates = []
+    if block.get("id"):
+        candidates.append(block.get("id"))
+    for el in block.iter():
+        if not isinstance(el.tag, str):
+            continue
+        value = el.get("id") or (el.get("name") if _local_name(el) == "a" else None)
+        if value:
+            candidates.append(value)
+    previous = block.getprevious()
+    for _ in range(2):
+        if previous is None:
+            break
+        if isinstance(previous.tag, str):
+            if previous.get("id") and not "".join(previous.itertext()).strip():
+                candidates.append(previous.get("id"))
+            if "".join(previous.itertext()).strip():
+                break
+        previous = previous.getprevious()
+    # A page-break marker (calibre_pb_12) is the sort of thing other
+    # repairs tidy away, so the heading's own anchor is preferred.
+    for value in candidates:
+        if not _PAGE_BREAK_ID.match(value):
+            return value
+    return candidates[0] if candidates else ""
+
+
+def _link_count(document) -> int:
+    """How many different pages a page's links go to (a contents page has many)."""
+    targets = set()
+    for a in document.iter():
+        if isinstance(a.tag, str) and _local_name(a) == "a":
+            href = (a.get("href") or "").strip()
+            if href and not href.startswith("#") and not _SCHEME.match(href):
+                targets.add(href.partition("#")[0])
+    return len(targets)
+
+
+def _top_blocks(document) -> list:
+    """The first few text-bearing blocks of a page, as (element, text)."""
+    root = document.getroot() if hasattr(document, "getroot") else document
+    body = next((el for el in root.iter() if isinstance(el.tag, str) and _local_name(el) == "body"), root)
+    found = []
+    for el in body.iter():
+        if not isinstance(el.tag, str) or _local_name(el) not in _BLOCK_NAMES:
+            continue
+        if any(isinstance(child.tag, str) and _local_name(child) in _BLOCK_NAMES for child in el.iterdescendants()):
+            continue                      # only the innermost block holds the text
+        text = " ".join("".join(el.itertext()).split())
+        if text:
+            found.append((el, text))
+            if len(found) >= _HEADING_BLOCKS:
+                break
+    return found
+
+
 class DeadLinkRepair:
     name = "Dead Link Cleanup"
 
@@ -204,6 +296,24 @@ class DeadLinkRepair:
 
         toc_labels = self._toc_labels(book, exists)
 
+        # Built the first time a dead link needs it (most books have none).
+        headings_cache: list = []
+
+        def headings() -> dict:
+            if not headings_cache:
+                index: dict = {}
+                for page in book.chapters:
+                    if page.document is None or _is_nav_document(page.document):
+                        continue
+                    if _link_count(page.document) >= _CONTENTS_LIKE_LINKS:
+                        continue          # a contents page lists chapters; it is not one
+                    for block, text in _top_blocks(page.document):
+                        key = _heading_key(text)
+                        if len(key) >= 3:
+                            index.setdefault(key, []).append((page.href, _anchor_for(block)))
+                headings_cache.append(index)
+            return headings_cache[0]
+
         findings = []
         for chapter in book.chapters:
             doc = chapter.document
@@ -231,7 +341,7 @@ class DeadLinkRepair:
 
                 if not exists(target):
                     findings.append(
-                        self._missing_file(chapter, a, href, text, toc_labels, chapter_dir)
+                        self._missing_file(chapter, a, href, text, toc_labels, chapter_dir, headings)
                     )
                     continue
 
@@ -261,12 +371,23 @@ class DeadLinkRepair:
             labels.setdefault(label, []).append(entry.href)
         return labels
 
-    def _missing_file(self, chapter, a, href, text, toc_labels, chapter_dir) -> _Finding:
+    def _missing_file(self, chapter, a, href, text, toc_labels, chapter_dir, headings=None) -> _Finding:
         if self.config.repoint_from_contents and text:
             matches = toc_labels.get(_fold(text), [])
             if len(matches) == 1:
                 target_path, _, target_fragment = matches[0].partition("#")
                 if target_path != chapter.href:
+                    new_href = posixpath.relpath(target_path, chapter_dir or ".")
+                    if target_fragment:
+                        new_href += "#" + target_fragment
+                    return _Finding(chapter, a, "missing file", href, "repoint", new_href, text)
+
+            # No contents entry matched: try the chapters' own headings.
+            key = _heading_key(text)
+            if headings is not None and len(key) >= 3:
+                found = [hit for hit in headings().get(key, []) if hit[0] != chapter.href]
+                if len(found) == 1:
+                    target_path, target_fragment = found[0]
                     new_href = posixpath.relpath(target_path, chapter_dir or ".")
                     if target_fragment:
                         new_href += "#" + target_fragment

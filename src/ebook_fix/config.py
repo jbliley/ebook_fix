@@ -81,7 +81,9 @@ class ChapterTitleCleanupConfig:
 class DeadLinkConfig:
     enabled: bool = True
     # Point a dead link at the table of contents entry whose label
-    # matches the link text (exactly one match), instead of removing it.
+    # matches the link text (exactly one match), or else at the one
+    # chapter whose opening heading is the link text, instead of
+    # removing it.
     repoint_from_contents: bool = True
     # Fix a link to a spot (#something) that does not exist.
     fix_missing_anchors: bool = True
@@ -717,8 +719,9 @@ fill_blank_labels = true
 # A link in the book's text to a file that is not in the book (a
 # Contents page written for a deleted layout, say) is pointed at the
 # table of contents entry whose label matches the link's text, when
-# there is exactly one such entry. Otherwise the link is removed and its
-# text is kept.
+# there is exactly one such entry, or else at the one chapter whose
+# opening heading is the link's text (ignoring case, punctuation and a
+# leading "Chapter"). Otherwise the link is removed and its text is kept.
 repoint_from_contents = true
 
 # A link to a spot (#something) that does not exist: a link into another
