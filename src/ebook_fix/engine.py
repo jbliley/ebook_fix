@@ -64,6 +64,7 @@ from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.paragraph_indent_repair import ParagraphIndentRepair
 from ebook_fix.modules.header_spacing_repair import HeaderSpacingRepair
 from ebook_fix.modules.text_size_repair import TextSizeRepair
+from ebook_fix.modules.extra_page_break_repair import ExtraPageBreakRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair, resolve_target_apostrophe_char
 from ebook_fix.apostrophes import normalize_apostrophes_text
 from ebook_fix import series as series_metadata
@@ -98,6 +99,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
     TextSizeRepair,
+    ExtraPageBreakRepair,
     RunningTitleRepair,
     EmbeddedStylesheetRepair,
     HyphenLeftoverRepair,
@@ -217,6 +219,11 @@ class Engine:
         # Skipped on fixed-layout books like the other style repairs.
         if getattr(self.config, "text_size_repair", None) and getattr(self.config.text_size_repair, "enabled", True):
             modules.append(TextSizeRepair(self.config.text_size_repair))
+        # After Chapter Markup, Header Spacing and the paragraph repairs: drops
+        # a forced page break that only adds an empty page before a chapter.
+        # Skipped on fixed-layout books like the other markup repairs.
+        if getattr(self.config, "extra_page_break_repair", None) and getattr(self.config.extra_page_break_repair, "enabled", True):
+            modules.append(ExtraPageBreakRepair(self.config.extra_page_break_repair))
         if getattr(self.config, "image_repair", None) and getattr(self.config.image_repair, "enabled", True):
             modules.append(ImageRepair(self.config.image_repair))
         # Runs right after Image Repair, the other module that deals

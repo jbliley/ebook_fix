@@ -38,7 +38,7 @@ from enum import Enum
 
 from lxml import etree
 
-from ebook_fix.contents_filter import ContentsPageDetector, drop_embedded_contents_lists
+from ebook_fix.contents_filter import ContentsPageDetector, drop_embedded_contents_lists, drop_link_list_candidates
 
 # Block-level tags we consider as chapter-marker candidates. "div" is
 # deliberately excluded: a div very often wraps a whole chapter's worth
@@ -1214,6 +1214,10 @@ def analyze_book_chapters(book) -> BookChapterSummary:
     # lines of bare numbers at the top of the story's own file), which the
     # whole-file check above cannot see.
     all_candidates, _embedded_contents = drop_embedded_contents_lists(all_candidates)
+
+    # ...and a list of links to the chapters, wherever it sits (a second
+    # contents page at the end of the book, say).
+    all_candidates, _link_lists = drop_link_list_candidates(all_candidates)
 
     # "Chapter One" sections that each restart the numbering at 1 are
     # section dividers, not the chapters themselves.

@@ -62,7 +62,7 @@ from lxml import etree
 from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE, THEME_FIGHTING_PROPERTIES
 from ebook_fix.class_map import SIMPLE_CLASS_SELECTOR_RE
 from ebook_fix.report import Report
-from ebook_fix.page_breaks import closest_preceding_block, mark_page_break_after
+from ebook_fix.page_breaks import chapter_break_target, mark_page_break_after, closest_preceding_block
 
 VALID_ROLES = ("chapter-heading", "body-text", "theme-neutral")
 
@@ -341,7 +341,7 @@ class ClassStandardizeRepair:
                     classes = (el.get("class") or "").split()
                     if not any(c in self.chapter_heading_new_names for c in classes):
                         continue
-                    target = closest_preceding_block(el)
+                    target = chapter_break_target(el)
                     if target is None:
                         continue  # first thing in its chapter file -- already a fresh page
                     if mark_page_break_after(target):

@@ -141,3 +141,70 @@ def codes_equivalent(code_a: str, code_b: str) -> bool:
         return True
 
     return ALPHA2_TO_ALPHA3.get(a) == b or ALPHA2_TO_ALPHA3.get(b) == a
+
+
+# ---------------------------------------------------------------------
+# Default language
+# ---------------------------------------------------------------------
+# dc:language values that mean "nobody ever set this" (blank, "und"
+# undetermined, "unknown" ...). The Metadata tab's default-language button
+# is meant mainly for these.
+UNDETERMINED_CODES = {"", "und", "unk", "unknown", "undetermined", "zxx", "mis", "mul"}
+
+
+def is_undetermined(code: str) -> bool:
+    return _normalize(code or "") in UNDETERMINED_CODES
+
+
+def system_language_code() -> str:
+    """Two-letter code of this computer's language (Windows display
+    language, or the LANG/locale elsewhere). "" when it can't be told."""
+    import locale
+    import os
+    import sys
+
+    candidates = []
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            buf = ctypes.create_unicode_buffer(85)
+            if ctypes.windll.kernel32.GetUserDefaultLocaleName(buf, 85):
+                candidates.append(buf.value)          # e.g. "en-US"
+        except Exception:
+            pass
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
+        if os.environ.get(var):
+            candidates.append(os.environ[var])
+    try:
+        candidates.append(locale.getlocale()[0] or "")
+    except Exception:
+        pass
+
+    for value in candidates:
+        base = (value or "").replace("_", "-").split(".")[0].split("-")[0].strip().lower()
+        if base in ALPHA2_TO_ALPHA3:
+            return base
+        # "English_United States" style (older Windows locale names)
+        for code, _name in COMMON_LANGUAGES:
+            if base and _name.lower() == base:
+                return code
+    return ""
+
+
+def resolve_default_language(setting: str) -> str:
+    """The config's default_language as a two-letter code: "system" (the
+    computer's language, English if that can't be told), a code such as
+    "en", or "" when turned off ("off" / "none" / blank)."""
+    value = (setting or "").strip().lower()
+    if value in ("", "off", "none", "false"):
+        return ""
+    if value == "system":
+        return system_language_code() or "en"
+    return _normalize(value)
+
+
+def language_name(code: str) -> str:
+    for c, name in COMMON_LANGUAGES:
+        if c == code:
+            return name
+    return code

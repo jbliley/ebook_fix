@@ -30,6 +30,7 @@ paragraph_spacing_repair = true
 paragraph_indent_repair = true
 header_spacing_repair = true
 text_size_repair = true
+extra_page_break_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
@@ -507,6 +508,12 @@ enabled = true
 # itself (not just the EPUB), so the correction shows up in Calibre
 # and Calibre-Web too, not only in the repaired EPUB file.
 sync_calibre_opf = true
+
+# Language the Metadata tab's "Use default language" button sets (handy for
+# books whose language is blank or "undetermined"). "system" uses this
+# computer's language (English if it can't be told), or give a code such
+# as "en". "off" hides the button.
+default_language = "system"
 
 # Also write the same values into Calibre's own metadata.db via the
 # calibredb command-line tool, so Calibre's library view reflects the

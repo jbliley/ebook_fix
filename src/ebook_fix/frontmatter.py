@@ -81,6 +81,9 @@ class MatterLabel(Enum):
     FICTION_DISCLAIMER = "fiction disclaimer"
     FRONT_MATTER = "front matter"   # zone known, no more specific label matched
     BACK_MATTER = "back matter"     # zone known, no more specific label matched
+    # A preview of another book ("Turn the page for an exciting preview
+    # of ...") after the story. Back matter: not part of this book.
+    TEASER_CHAPTER = "teaser chapter"
     MAIN_CONTENT = "main content"
     # A bare Prologue/Epilogue -- Jacob's call (docs/analysis_roadmap.md):
     # these are unnumbered chapters of the main story, not front/back
@@ -100,6 +103,7 @@ FRONT_LABELS = {
 BACK_LABELS = {
     MatterLabel.ACKNOWLEDGMENTS, MatterLabel.AFTERWORD,
     MatterLabel.ABOUT_AUTHOR, MatterLabel.COLOPHON, MatterLabel.BACK_MATTER,
+    MatterLabel.TEASER_CHAPTER,
 }
 
 
@@ -155,6 +159,21 @@ _ACK_RE = re.compile(r"acknowledge?ments", re.IGNORECASE)
 _AFTERWORD_RE = re.compile(r"\bafterword\b", re.IGNORECASE)
 _ABOUT_AUTHOR_RE = re.compile(r"about the author", re.IGNORECASE)
 _COLOPHON_RE = re.compile(r"\bcolophon\b", re.IGNORECASE)
+# Opening words of a preview of another book, matched on the letters only
+# (page text often has words run together where tags were: "PAGEFOR").
+# Only looked for in the first few hundred characters of a page that comes
+# after the last chapter.
+_TEASER_PHRASES = (
+    "turnthepagefor", "previewof", "excerptfrom", "sneakpeek", "readonforapreview",
+    "readonforanexcerpt", "teaserchapter", "firstchapterof", "chapterofthenew",
+)
+
+
+def _looks_like_teaser(text: str) -> bool:
+    letters = re.sub(r"[^a-z]", "", text[:500].lower())
+    return any(phrase in letters for phrase in _TEASER_PHRASES)
+
+
 # The standard "this is a work of fiction" boilerplate found on the
 # page right after the title page in most novels. Distinctive enough
 # wording (nobody writes "entirely/purely coincidental" about anything
@@ -483,6 +502,10 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
             label = MatterLabel.EPILOGUE
             confidence = "high"
             reason = "recognized as an epilogue -- treated as an unnumbered chapter of the main story"
+        elif zone == BACK_ZONE and _looks_like_teaser(text):
+            label = MatterLabel.TEASER_CHAPTER
+            confidence = "medium"
+            reason = "opens like a preview of another book"
         elif zone == FRONT_ZONE:
             label = MatterLabel.FRONT_MATTER
             confidence = "medium" if word_count <= SHORT_PAGE_WORD_THRESHOLD else "low"

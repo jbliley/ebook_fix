@@ -129,3 +129,142 @@ def mark_page_break_after(el) -> bool:
         parts.append(f"{prop}: {val}")
     el.set("style", "; ".join(parts) + ";")
     return True
+
+
+# ---------------------------------------------------------------------
+# Redundant breaks (a forced break that can only produce a blank page)
+# ---------------------------------------------------------------------
+# Every spine file already starts on a fresh page in a reading app. A
+# forced page break with nothing visible between it and the start (or end)
+# of its file adds a second break on top of that one, which shows up as an
+# empty page before every chapter. Found in "The Loner: Crossfire": each
+# chapter file opened with a blank paragraph carrying page-break-after.
+
+BREAK_PROPERTIES = ("page-break-after", "break-after", "page-break-before", "break-before")
+_FORCED_VALUES = {"always", "page", "left", "right", "recto", "verso"}
+_VISIBLE_TAGS = {"img", "svg", "image", "video", "audio", "object", "hr", "table", "canvas", "math"}
+_SKIP_TEXT = {"style", "script", "title"}
+
+
+def _style_dict(el) -> list:
+    out = []
+    for part in (el.get("style") or "").split(";"):
+        if ":" in part:
+            k, v = part.split(":", 1)
+            out.append((k.strip(), v.strip()))
+    return out
+
+
+def forced_break_props(el) -> dict:
+    """{property: 'after'|'before'} for each forced-break declaration in
+    el's inline style."""
+    found = {}
+    for k, v in _style_dict(el):
+        kl = k.lower()
+        if kl in BREAK_PROPERTIES and v.lower().replace("!important", "").strip() in _FORCED_VALUES:
+            found[kl] = "after" if kl.endswith("after") else "before"
+    return found
+
+
+def _strip_break_props(el, props) -> None:
+    kept = [(k, v) for k, v in _style_dict(el) if k.lower() not in props]
+    if kept:
+        el.set("style", "; ".join(f"{k}: {v}" for k, v in kept) + ";")
+    elif "style" in el.attrib:
+        del el.attrib["style"]
+
+
+def _own_visible(el, tail: bool) -> bool:
+    text = el.tail if tail else el.text
+    return bool(text and text.replace(" ", " ").strip())
+
+
+def redundant_forced_breaks(root) -> list:
+    """[(element, [properties])] for forced breaks in one document that
+    have no visible content between them and the start/end of the file
+    (or the previous kept break). Document order walk."""
+    body = None
+    for el in root.iter():
+        if isinstance(el.tag, str) and etree.QName(el).localname.lower() == "body":
+            body = el
+            break
+    if body is None:
+        return []
+
+    redundant = []
+    kept_after = []        # kept break-after elements, for the end-of-file check
+    visible = False        # visible content since file start / last kept break
+    for event, el in etree.iterwalk(body, events=("start", "end")):
+        if not isinstance(el.tag, str):
+            continue
+        name = etree.QName(el).localname.lower()
+        if event == "start":
+            props = forced_break_props(el)
+            before = [p for p, side in props.items() if side == "before"]
+            if before:
+                if visible:
+                    visible = False
+                else:
+                    redundant.append((el, before))
+            if name in _VISIBLE_TAGS:
+                visible = True
+            elif name not in _SKIP_TEXT and _own_visible(el, tail=False):
+                visible = True
+        else:
+            props = forced_break_props(el)
+            after = [p for p, side in props.items() if side == "after"]
+            if after:
+                if visible:
+                    visible = False
+                    kept_after.append((el, after))
+                else:
+                    redundant.append((el, after))
+            if _own_visible(el, tail=True):
+                visible = True
+
+    # A kept break-after with nothing visible after it, up to the end of
+    # the file, is redundant too (the next file starts a new page anyway).
+    if kept_after and not visible:
+        redundant.append(kept_after[-1])
+    return redundant
+
+
+def chapter_break_target(marker):
+    """closest_preceding_block(marker), or None when a forced break there
+    would be redundant: nothing visible comes before the marker in its own
+    file, so the file boundary is already the page break."""
+    target = closest_preceding_block(marker)
+    if target is None:
+        return None
+    # Visible content before the marker (other than blank blocks)?
+    prev_text = marker.xpath(
+        "preceding::text()[normalize-space(translate(., ' ', ' '))]"
+        "[not(ancestor::*[local-name()='head'])]"
+    )
+    prev_media = marker.xpath(
+        "preceding::*[local-name()='img' or local-name()='svg' or local-name()='image' or local-name()='hr']"
+    )
+    # Text inside the marker's own ancestors that precedes it is counted by
+    # the XPath above already; ancestors' own text nodes before the marker
+    # are in "preceding" as well.
+    if not prev_text and not prev_media:
+        return None
+    # A forced break already sits between the last visible content and this
+    # marker (on a blank spacer paragraph, say): marking the nearest block
+    # again would only stack a second break and show an empty page.
+    for el in reversed(marker.xpath("preceding::*")):
+        if forced_break_props(el):
+            return None   # a break-after OR break-before (an empty page-break <div>, say)
+        name = etree.QName(el).localname.lower() if isinstance(el.tag, str) else ""
+        if name in _VISIBLE_TAGS or (name not in _SKIP_TEXT and name != "head" and _own_visible(el, tail=False)) \
+                or _own_visible(el, tail=True):
+            # Last visible content: a wrapper around it (not around the
+            # marker) may carry the break.
+            marker_ancestors = {id(a) for a in marker.iterancestors()}
+            for anc in el.iterancestors():
+                if id(anc) in marker_ancestors:
+                    break
+                if forced_break_props(anc).keys() & {"page-break-after", "break-after"}:
+                    return None
+            break
+    return target

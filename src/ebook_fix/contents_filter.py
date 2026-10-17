@@ -105,13 +105,24 @@ class ContentsPageDetector:
 
         # Only check the first few files in spine order (contents pages
         # are almost always near the beginning)
-        chapters_to_check = book.chapters[:10] if len(book.chapters) > 10 else book.chapters
-
-        for chapter in chapters_to_check:
-            if self._looks_like_contents_page(chapter):
-                contents_files.add(chapter.href)
+        # A second copy of the contents list is often left at the very end
+        # of the book (after the copyright page). Files past the first ten
+        # are only accepted when "Contents" is also the first thing on the
+        # page, a stricter bar than near the front (found in "The Loner:
+        # Crossfire": a linked chapter list after the last page).
+        for index, chapter in enumerate(book.chapters):
+            if not self._looks_like_contents_page(chapter):
+                continue
+            if index >= 10 and not self._opens_with_contents_label(chapter):
+                continue
+            contents_files.add(chapter.href)
 
         return contents_files
+
+    @staticmethod
+    def _opens_with_contents_label(chapter) -> bool:
+        text = "".join(chapter.document.itertext()).strip()
+        return bool(re.search(r"\bcontents\b|\bchapter\s+list\b", text[:150], re.IGNORECASE))
 
     def _looks_like_contents_page(self, chapter) -> bool:
         """Check if a single file looks like a contents page.
@@ -375,8 +386,8 @@ def drop_embedded_contents_lists(candidates: List) -> tuple:
         if first.number is not None:
             run_ids = {id(c) for c in run}
             for i, cand in enumerate(ordered):
-                if cand.book_order <= last.book_order or id(cand) in run_ids:
-                    continue
+                if id(cand) in run_ids:
+                    continue   # (earlier OR later: a second contents list can follow the story)
                 if cand.number != first.number or cand.element is None:
                     continue
                 nxt = ordered[i + 1] if i + 1 < len(ordered) else None
@@ -386,6 +397,63 @@ def drop_embedded_contents_lists(candidates: List) -> tuple:
 
         if labelled or later_real:
             removed_ids.update(id(c) for c in run)
+
+    kept = [c for c in candidates if id(c) not in removed_ids]
+    removed = [c for c in candidates if id(c) in removed_ids]
+    return kept, removed
+
+
+# ---------------------------------------------------------------------
+# A list of links to the chapters
+# ---------------------------------------------------------------------
+_LINK_LIST_MIN_ENTRIES = 5
+
+
+def _entirely_a_link_elsewhere(cand):
+    """The target of the link when the candidate's whole text is one
+    hyperlink pointing somewhere other than the candidate itself, else
+    None. A chapter heading is where a link ends up, not a link."""
+    el = cand.element
+    if el is None:
+        return None
+    text = "".join(el.itertext()).strip()
+    if not text:
+        return None
+    links = [a for a in el.iter() if isinstance(a.tag, str) and etree.QName(a).localname.lower() == "a" and a.get("href")]
+    if not links:
+        # <a> wrapping the candidate element
+        for anc in el.iterancestors():
+            if isinstance(anc.tag, str) and etree.QName(anc).localname.lower() == "a" and anc.get("href"):
+                links = [anc]
+            break
+    if len(links) != 1:
+        return None
+    link_text = "".join(links[0].itertext()).strip()
+    if link_text != text:
+        return None
+    return links[0].get("href")
+
+
+def drop_link_list_candidates(candidates: List) -> tuple:
+    """Removes chapter-marker candidates that are entries of a list of
+    links (a table of contents page, wherever it sits in the book).
+
+    Five or more candidates in one file whose whole text is a link, each
+    pointing to a different place, are a contents list: nothing a person
+    would want to split. A run of headings that all link to the same place
+    (a "back to contents" link around each title) is not affected.
+    Returns (kept, removed).
+    """
+    by_href: dict = {}
+    for cand in candidates:
+        target = _entirely_a_link_elsewhere(cand)
+        if target is not None:
+            by_href.setdefault(cand.href, []).append((cand, target))
+
+    removed_ids: set = set()
+    for _href, entries in by_href.items():
+        if len(entries) >= _LINK_LIST_MIN_ENTRIES and len({t for _c, t in entries}) >= _LINK_LIST_MIN_ENTRIES:
+            removed_ids.update(id(c) for c, _t in entries)
 
     kept = [c for c in candidates if id(c) not in removed_ids]
     removed = [c for c in candidates if id(c) in removed_ids]

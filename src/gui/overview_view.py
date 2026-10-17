@@ -43,7 +43,7 @@ BOXES = [
         "key": "structure",
         "title": "Structure and Navigation",
         "sections": ["Book Structure", "Structure", "Table of Contents"],
-        "modules": ["chapter_markup", "chapter_title_cleanup", "toc_cleanup", "dead_link_repair", "toc_generation", "header_spacing_repair"],
+        "modules": ["chapter_markup", "chapter_title_cleanup", "toc_cleanup", "dead_link_repair", "toc_generation", "header_spacing_repair", "extra_page_break_repair"],
     },
     {
         "key": "text",
@@ -101,6 +101,7 @@ PLAIN_NAMES = {
     "paragraph_spacing_repair": "Remove the gap between indented paragraphs",
     "paragraph_indent_repair": "Add paragraph indents where the book has none",
     "text_size_repair": "Fix text that shows too large or small in some apps",
+    "extra_page_break_repair": "Remove extra page breaks that cause blank pages before chapters",
     "image_repair": "Fix broken images",
     "cover_repair": "Fix the cover declaration",
     "color_repair": "Remove decorative text colors",

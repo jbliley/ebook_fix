@@ -188,8 +188,12 @@
         <div style="margin-top:0.5rem;">
           <select name="fm_{{ item.href }}">
             <option value="" {% if not item.resolution %}selected{% endif %}>Not yet reviewed (keep as shown above)</option>
-            {% for value, display in frontmatter_label_choices %}
-            <option value="{{ value }}" {% if item.resolution == value %}selected{% endif %}>{{ display }}</option>
+            {% for group_name, group_items in frontmatter_label_groups %}
+            <optgroup label="&mdash; {{ group_name }} &mdash;">
+              {% for value, display in group_items %}
+              <option value="{{ value }}" {% if item.resolution == value %}selected{% endif %}>{{ display }}</option>
+              {% endfor %}
+            </optgroup>
             {% endfor %}
           </select>
         </div>

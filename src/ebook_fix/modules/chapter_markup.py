@@ -50,7 +50,7 @@ from lxml import etree
 
 from ebook_fix.chapters import analyze_book_chapters
 from ebook_fix.report import Report
-from ebook_fix.page_breaks import closest_preceding_block, mark_page_break_after
+from ebook_fix.page_breaks import chapter_break_target, mark_page_break_after, closest_preceding_block
 
 EPUB_OPS_NS = "http://www.idpf.org/2007/ops"
 MARKER_ATTR = "data-ebookfix-chapter"
@@ -226,7 +226,7 @@ class ChapterMarkupRepair:
                 # see ebook_fix.page_breaks for why -after and not
                 # -before, and why this has to be a DOM walk rather than
                 # a CSS rule.
-                break_target = closest_preceding_block(marker_block)
+                break_target = chapter_break_target(marker_block)
 
             # --- STEP B: CLEAN UP ANCHORS FROM PRECEDING SIBLING ---
             # Check if the element directly preceding this chapter marker has anchor tags at the end

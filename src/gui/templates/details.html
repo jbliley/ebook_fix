@@ -165,11 +165,22 @@
           <option value="{{ code }}" {% if code == language_value %}selected{% endif %}>{{ choice_label }}</option>
           {% endfor %}
         </select>
+        {% if default_language_code %}
+        <div style="margin-top:0.4rem;">
+          <button type="button" class="button secondary" style="margin-top:0; padding:0.3rem 0.8rem; font-size:0.85rem;"
+                  onclick='var e = document.getElementById("field-language"); e.value = {{ default_language_code|tojson }}; e.dispatchEvent(new Event("input", {bubbles: true})); e.dispatchEvent(new Event("change", {bubbles: true}));'>
+            Use default language ({{ default_language_name }})
+          </button>
+          {% if language_undetermined %}<span class="mismatch-note">This book's language is undetermined.</span>{% endif %}
+        </div>
+        {% endif %}
         <div class="fix-note" data-note="language" hidden></div>
         <div class="mismatch-note">
           Sets the EPUB's own language directly. Calibre and EPUB use different, both-correct
           code formats (eng vs en), so this never shows as a mismatch to pick between. Use
-          this dropdown only if the language itself is actually wrong.
+          this dropdown only if the language itself is actually wrong. The default language
+          button follows the <code>default_language</code> setting in ebook_fix.toml
+          ("system" uses this computer's language).
           {% if language_note %}{{ language_note }}{% endif %}
         </div>
       </div>

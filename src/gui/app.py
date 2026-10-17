@@ -105,6 +105,7 @@ from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.paragraph_indent_repair import ParagraphIndentRepair
 from ebook_fix.modules.header_spacing_repair import HeaderSpacingRepair
 from ebook_fix.modules.text_size_repair import TextSizeRepair
+from ebook_fix.modules.extra_page_break_repair import ExtraPageBreakRepair
 from ebook_fix.modules.apostrophe_repair import ApostropheRepair
 from ebook_fix.modules.color_strip import ColorStripRepair
 from ebook_fix.modules.font_strip import FontStripRepair
@@ -113,7 +114,7 @@ from gui import overview_view
 from gui import file_swap
 from metadata.core_fields import write_core_field
 from metadata import calibre_detect
-from metadata.language_codes import language_options
+from metadata.language_codes import language_options, resolve_default_language, language_name, is_undetermined
 
 app = Flask(__name__)
 
@@ -157,6 +158,7 @@ _REPAIR_MODULES = [
     ("paragraph_spacing_repair", "Paragraph Spacing"),
     ("paragraph_indent_repair", "Paragraph Indent"),
     ("text_size_repair", "Text Size"),
+    ("extra_page_break_repair", "Extra Page Break Removal"),
     ("image_repair", "Image Repair"),
     ("cover_repair", "Cover Repair"),
     ("color_repair", "Color Strip"),
@@ -198,6 +200,7 @@ _REPAIR_MODULE_CLASSES = {
     "paragraph_spacing_repair": ParagraphSpacingRepair,
     "paragraph_indent_repair": ParagraphIndentRepair,
     "text_size_repair": TextSizeRepair,
+    "extra_page_break_repair": ExtraPageBreakRepair,
     "image_repair": ImageRepair,
     "cover_repair": CoverRepair,
     "color_repair": ColorStripRepair,
@@ -682,6 +685,28 @@ def _frontmatter_review_groups(book):
 # matter dropdown -- MatterLabel's own declaration order already reads
 # front-to-back-to-main, so no separate ordering is needed here.
 FRONTMATTER_LABEL_CHOICES = [(label.value, label.value.title()) for label in MatterLabel]
+
+# The same labels as the dropdown shows them: grouped by where in the book
+# they sit, so front-of-book choices (Title Page, Prologue ...) are together
+# at the top and back-of-book ones (Epilogue, Teaser Chapter ...) at the
+# bottom, with a heading between each group. Display only: Prologue and
+# Epilogue still count as part of the main story (see MatterLabel).
+_FRONT_GROUP = [
+    MatterLabel.COVER, MatterLabel.TITLE_PAGE, MatterLabel.COPYRIGHT, MatterLabel.PUBLISHER,
+    MatterLabel.DEDICATION, MatterLabel.EPIGRAPH, MatterLabel.TABLE_OF_CONTENTS,
+    MatterLabel.FICTION_DISCLAIMER, MatterLabel.FRONT_MATTER, MatterLabel.PROLOGUE,
+]
+_BACK_GROUP = [
+    MatterLabel.EPILOGUE, MatterLabel.TEASER_CHAPTER, MatterLabel.ACKNOWLEDGMENTS,
+    MatterLabel.AFTERWORD, MatterLabel.ABOUT_AUTHOR, MatterLabel.COLOPHON, MatterLabel.BACK_MATTER,
+]
+_MAIN_GROUP = [MatterLabel.MAIN_CONTENT]
+FRONTMATTER_LABEL_GROUPS = [
+    ("Front of the book", [(l.value, l.value.title()) for l in _FRONT_GROUP]),
+    ("Main story", [(l.value, l.value.title()) for l in _MAIN_GROUP]),
+    ("Back of the book", [(l.value, l.value.title()) for l in _BACK_GROUP]),
+]
+assert {v for _g, items in FRONTMATTER_LABEL_GROUPS for v, _d in items} == {v for v, _d in FRONTMATTER_LABEL_CHOICES}
 
 
 @contextmanager
@@ -1414,7 +1439,7 @@ def book_review(session_id):
         has_font_findings=bool(font_groups),
         frontmatter_items=frontmatter_items,
         has_frontmatter_items=bool(frontmatter_items),
-        frontmatter_label_choices=FRONTMATTER_LABEL_CHOICES,
+        frontmatter_label_groups=FRONTMATTER_LABEL_GROUPS,
         is_staged=staged is not None,
         split_result=None,
     )
@@ -1553,7 +1578,7 @@ def save_review(session_id):
         has_font_findings=bool(font_groups),
         frontmatter_items=frontmatter_items,
         has_frontmatter_items=bool(frontmatter_items),
-        frontmatter_label_choices=FRONTMATTER_LABEL_CHOICES,
+        frontmatter_label_groups=FRONTMATTER_LABEL_GROUPS,
         is_staged=True,
         split_result={
             "would_split": would_split,
@@ -1690,6 +1715,14 @@ def book_details(session_id):
     # own field is simply blank.
     current_language = (staged_metadata.get("language") if staged_metadata else None) or merged.language.epub_value or merged.language.display_value
 
+    default_language_code = resolve_default_language(load_config(None).metadata_repair.default_language)
+    language_choices = language_options(current_language)
+    if default_language_code and not any(code.lower() == default_language_code for code, _l in language_choices):
+        language_choices = sorted(
+            language_choices + [(default_language_code, f"{language_name(default_language_code)} ({default_language_code})")],
+            key=lambda pair: pair[1].lower(),
+        )
+
     return render_template(
         "details.html",
         active_tab="details",
@@ -1700,7 +1733,10 @@ def book_details(session_id):
         calibre_cover_preview=calibre_cover_preview,
         staged_cover_preview=staged_cover_preview,
         language_value=current_language,
-        language_choices=language_options(current_language),
+        language_choices=language_choices,
+        default_language_code=default_language_code,
+        default_language_name=language_name(default_language_code) if default_language_code else "",
+        language_undetermined=is_undetermined(current_language),
         language_note=merged.language.note,
         series_name=staged_metadata.get("series_name") if staged_metadata else (series_info.name or ""),
         series_index=series_metadata.format_index(staged_metadata.get("series_index") if staged_metadata else series_info.index),

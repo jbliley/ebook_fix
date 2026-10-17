@@ -212,6 +212,11 @@ class TextSizeConfig:
 
 
 @dataclass(slots=True)
+class ExtraPageBreakConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class HeaderSpacingConfig:
     enabled: bool = True
     # Blank lines kept under each chapter header, between the header and
@@ -378,6 +383,11 @@ class MetadataRepairConfig:
     # the machine running this, and a live library to test against).
     # See docs/metadata_plan.md and metadata/calibredb_write.py.
     sync_calibre_db: bool = False
+    # Language the Metadata tab's "Use default language" button sets, for
+    # books whose language is blank or undetermined: "system" (this
+    # computer's language, English if it can't be told), a code such as
+    # "en", or "off" to hide the button.
+    default_language: str = "system"
 
 
 @dataclass(slots=True)
@@ -404,6 +414,7 @@ class Config:
     paragraph_indent_repair: ParagraphIndentConfig = field(default_factory=ParagraphIndentConfig)
     header_spacing_repair: HeaderSpacingConfig = field(default_factory=HeaderSpacingConfig)
     text_size_repair: TextSizeConfig = field(default_factory=TextSizeConfig)
+    extra_page_break_repair: ExtraPageBreakConfig = field(default_factory=ExtraPageBreakConfig)
     cover_repair: CoverRepairConfig = field(default_factory=CoverRepairConfig)
     running_title_repair: RunningTitleRepairConfig = field(default_factory=RunningTitleRepairConfig)
     metadata_repair: MetadataRepairConfig = field(default_factory=MetadataRepairConfig)
@@ -470,6 +481,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.paragraph_indent_repair, modules, "paragraph_indent_repair")
     _apply_module_toggle(config.header_spacing_repair, modules, "header_spacing_repair")
     _apply_module_toggle(config.text_size_repair, modules, "text_size_repair")
+    _apply_module_toggle(config.extra_page_break_repair, modules, "extra_page_break_repair")
     _apply_module_toggle(config.cover_repair, modules, "cover_repair")
     _apply_module_toggle(config.running_title_repair, modules, "running_title_repair")
     _apply_module_toggle(config.metadata_repair, modules, "metadata_repair")
@@ -501,6 +513,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.paragraph_indent_repair, "paragraph_indent_repair", data.get("paragraph_indent_repair", {}))
     _apply_section(config.header_spacing_repair, "header_spacing_repair", data.get("header_spacing_repair", {}))
     _apply_section(config.text_size_repair, "text_size_repair", data.get("text_size_repair", {}))
+    _apply_section(config.extra_page_break_repair, "extra_page_break_repair", data.get("extra_page_break_repair", {}))
     _apply_section(config.cover_repair, "cover_repair", data.get("cover_repair", {}))
     _apply_section(config.running_title_repair, "running_title_repair", data.get("running_title_repair", {}))
     _apply_section(config.metadata_repair, "metadata_repair", data.get("metadata_repair", {}))
@@ -600,6 +613,7 @@ paragraph_spacing_repair = true
 paragraph_indent_repair = true
 header_spacing_repair = true
 text_size_repair = true
+extra_page_break_repair = true
 cover_repair = true
 running_title_repair = true
 metadata_repair = true
@@ -926,6 +940,18 @@ remove_unused_cover_copy = true
 enabled = true
 
 # ---------------------------------------------------------------------
+# Extra Page Break Removal
+# ---------------------------------------------------------------------
+[extra_page_break_repair]
+
+# Removes a forced page break that can only add an empty page: every
+# file already starts on a new page, so a break with nothing visible
+# between it and the start (or end) of its file shows up as a blank page
+# before the chapter. Only the break itself is removed from the style;
+# a break that follows visible text is never touched.
+enabled = true
+
+# ---------------------------------------------------------------------
 # Chapter Header Spacing
 # ---------------------------------------------------------------------
 [header_spacing_repair]
@@ -1080,6 +1106,12 @@ enabled = true
 # itself (not just the EPUB), so the correction shows up in Calibre
 # and Calibre-Web too, not only in the repaired EPUB file.
 sync_calibre_opf = true
+
+# Language the Metadata tab's "Use default language" button sets (handy for
+# books whose language is blank or "undetermined"). "system" uses this
+# computer's language (English if it can't be told), or give a code such
+# as "en". "off" hides the button.
+default_language = "system"
 
 # Also write the same values into Calibre's own metadata.db via the
 # calibredb command-line tool, so Calibre's library view reflects the
