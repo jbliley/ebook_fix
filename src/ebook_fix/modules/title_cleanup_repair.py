@@ -87,6 +87,7 @@ class TitleCleanupRepair:
             file_as=file_as,
             single_author=len(creators) == 1,
             has_series=bool(series_metadata.read(book).name),
+            existing_series=series_metadata.read(book).name,
             fix_title=self.config.strip_author_from_title,
             fix_series=self.config.read_series_from_title,
             fix_author=self.config.fix_author_order,

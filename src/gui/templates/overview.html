@@ -70,6 +70,11 @@
     {% if ov.omnibus.confidence != 'high' %}
     <label><input type="checkbox" name="confirmed" value="1" required> These titles look right</label><br>
     {% endif %}
+    <div style="margin:0.4rem 0;">
+      <label style="font-weight:normal;">Series name (optional): <input type="text" name="series" size="28" placeholder="e.g. Tarzan"></label>
+      <label style="font-weight:normal;margin-left:0.6rem;">First book is number <input type="text" name="series_start" size="3" value="1"></label>
+      <div style="color:#777;font-size:0.82rem;">If you fill in a series name, each new book is labeled with it and numbered in order. Leave it blank to keep whatever series the omnibus already has.</div>
+    </div>
     <button type="submit" id="split-btn">Split into {{ ov.omnibus.books|length }} separate books</button>
     <div id="split-progress" style="margin-top:0.4rem;font-size:0.88rem;color:#2c5282;"></div>
     <span style="color:#777;font-size:0.82rem;"> New files go in a folder next to the original; the original is not changed.</span>

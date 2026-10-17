@@ -395,6 +395,17 @@ def build_parser():
         help="Also split when the books were found with only medium confidence (a book list with no chapter numbers to confirm it). Look at the --dry-run list first."
     )
 
+    split_omnibus.add_argument(
+        "--series",
+        help="Name of the series the books belong to. Each new book is labeled with it and numbered in order."
+    )
+    split_omnibus.add_argument(
+        "--series-start",
+        type=float,
+        default=1,
+        help="Series number of the first book (default 1). Only used with --series."
+    )
+
     # Init-config
     init_config = sub.add_parser(
         "init-config",
@@ -448,6 +459,8 @@ def main():
             allow_medium=args.allow_medium,
             dry_run=args.dry_run,
             log=print,
+            series=args.series or "",
+            series_start=args.series_start,
         )
         print(result.message)
         for page, source_book, target_book, links in result.moved_pages:
@@ -470,6 +483,9 @@ def main():
                     line += f", {output.contents_entries_removed} entries for other books taken off the contents page"
                 if output.links_unlinked:
                     line += f", {output.links_unlinked} links to other books turned into text"
+                if output.series:
+                    from ebook_fix.series import format_index
+                    line += f", series {output.series}" + (f" #{format_index(output.series_number)}" if output.series_number is not None else "")
                 if output.isbn:
                     line += f", its own ISBN {output.isbn}"
                 if output.front_copies:

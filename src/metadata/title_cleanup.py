@@ -139,14 +139,54 @@ _NOT_A_SERIES = {
 
 _MARKER = r"(?:#|book\s*|bk\.?\s*|vol\.?\s*|volume\s*)"
 
+# A tag number may also be spelled out ("Book Three") or a roman numeral
+# ("Vol. IV"). Only ever read after an explicit marker, never bare, and a
+# roman numeral must be written in capitals and stay small, so a word such
+# as "Mix" or "Civil" is never taken for one.
+_WORD_NUMBERS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+}
+_ROMAN_STRICT = re.compile(r"^(?=[IVXL])(XL|L?X{0,3})(IX|IV|V?I{0,3})$")
+_TAG_NUMBER = (
+    rf"(?:{_NUMBER}|(?:twenty|thirty|forty|fifty)[\s-](?:one|two|three|four|five|six|seven|eight|nine)"
+    r"|(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen"
+    r"|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)|[IVXL]{1,6})"
+)
+
+
+def _tag_number(text: str) -> float | None:
+    """Value of a tag number written as digits, a number word or a capital
+    roman numeral, or None when it is none of those."""
+    text = (text or "").strip()
+    if re.fullmatch(_NUMBER, text):
+        return float(text)
+    folded = re.sub(r"[\s-]+", " ", text.casefold())
+    if folded in _WORD_NUMBERS:
+        return float(_WORD_NUMBERS[folded])
+    parts = folded.split(" ")
+    if len(parts) == 2 and parts[0] in _WORD_NUMBERS and parts[1] in _WORD_NUMBERS \
+            and _WORD_NUMBERS[parts[0]] >= 20 and _WORD_NUMBERS[parts[1]] < 10:
+        return float(_WORD_NUMBERS[parts[0]] + _WORD_NUMBERS[parts[1]])
+    if text.isupper() and _ROMAN_STRICT.match(text):
+        values = {"I": 1, "V": 5, "X": 10, "L": 50}
+        total = 0
+        for i, ch in enumerate(text):
+            v = values[ch]
+            total += -v if i + 1 < len(text) and values[text[i + 1]] > v else v
+        return float(total)
+    return None
+
 # "Series #3", "Series, #3", "Series Book 3", "Series, Vol. 3" (marker required)
 _MARKED_NUMBER_LAST = re.compile(
-    rf"^(?P<series>.*?\S)[\s,]+{_MARKER}(?P<index>{_NUMBER})$", re.IGNORECASE
+    rf"^(?P<series>.*?\S)[\s,]+{_MARKER}(?P<index>{_TAG_NUMBER})$", re.IGNORECASE
 )
 
 # "Book 3 of the Series", "#3 in Series"
 _BOOK_OF = re.compile(
-    rf"^{_MARKER}(?P<index>{_NUMBER})\s+(?:of|in)\s+(?:the\s+)?(?P<series>\S.*)$",
+    rf"^{_MARKER}(?P<index>{_TAG_NUMBER})\s+(?:of|in)\s+(?:the\s+)?(?P<series>\S.*)$",
     re.IGNORECASE,
 )
 
@@ -155,7 +195,7 @@ _TRAILING_TAG = re.compile(r"^(?P<title>.*\S)\s*[(\[](?P<tag>[^()\[\]]+)[)\]]\s*
 
 # "Series #3: Title", "Series, Book 3 - Title"
 _LEADING_SERIES = re.compile(
-    rf"^(?P<series>\S.*?)[\s,]+{_MARKER}(?P<index>{_NUMBER})\s*(?::|[-\u2013\u2014])\s+(?P<title>\S.*)$",
+    rf"^(?P<series>\S.*?)[\s,]+{_MARKER}(?P<index>{_TAG_NUMBER})\s*(?::|[-\u2013\u2014])\s+(?P<title>\S.*)$",
     re.IGNORECASE,
 )
 
@@ -179,10 +219,10 @@ def _marked_series(text: str):
         series = match.group("series").strip(" ,:-")
         if not _plausible_series(series):
             continue
-        try:
-            return series, float(match.group("index"))
-        except ValueError:
+        number = _tag_number(match.group("index"))
+        if number is None:
             continue
+        return series, number
     return None
 
 
@@ -207,9 +247,8 @@ def parse_embedded_series(title: str) -> TitleParse | None:
 
     match = _LEADING_SERIES.match(title)
     if match is not None and _plausible_series(match.group("series")):
-        try:
-            index = float(match.group("index"))
-        except ValueError:
+        index = _tag_number(match.group("index"))
+        if index is None:
             return None
         return TitleParse(
             title=match.group("title").strip(),
@@ -348,6 +387,7 @@ def suggest_from_filename_title(
     fix_series: bool = True,
     fix_author: bool = True,
     fix_embedded: bool = True,
+    existing_series: str = "",
 ) -> FilenameSuggestion:
     """The single place that decides what a filename-style title and a
     "Last, First" author should become, so the Title Cleanup repair and
@@ -378,6 +418,14 @@ def suggest_from_filename_title(
             suggestion.title = embedded.title
             suggestion.series = embedded.series
             suggestion.series_index = embedded.series_index
+            suggestion.parse = embedded
+
+    # The book already has this very series set and its title still carries
+    # the tag: only the tag comes out of the title, the series is untouched.
+    if fix_embedded and has_series and existing_series and suggestion.title is None:
+        embedded = parse_embedded_series(title)
+        if embedded is not None and embedded.title and _fold(embedded.series) == _fold(existing_series):
+            suggestion.title = embedded.title
             suggestion.parse = embedded
 
     if fix_author and author and single_author:

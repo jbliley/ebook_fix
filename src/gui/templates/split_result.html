@@ -19,6 +19,7 @@
     <div>{{ o.title }} <span class="sp-file">({{ o.pages }} pages, {{ o.words }} words)</span></div>
     <div class="sp-file">{{ o.path.name }}</div>
     {% if o.toc_rebuilt %}<div class="sp-file">Table of contents rebuilt from the book's own contents page ({{ o.toc_rebuilt }} entries).</div>{% endif %}
+    {% if o.series %}<div class="sp-file">Series: {{ o.series }}{% if o.series_number is not none %} #{{ o.series_number|int if o.series_number == o.series_number|int else o.series_number }}{% endif %}.</div>{% endif %}
     {% if o.isbn %}<div class="sp-file">Its own ISBN, found on its copyright page: {{ o.isbn }}.</div>{% endif %}
     {% if o.front_copies or o.back_copies %}<div class="sp-file">Copies of the shared front and back pages added: {{ o.front_copies }} at the start, {{ o.back_copies }} at the end.</div>{% endif %}
     {% if o.notes_renumbered %}<div class="sp-file">{{ o.notes_renumbered }} notes renumbered to start again at 1.</div>{% endif %}

@@ -1042,6 +1042,15 @@ def _compute_overview_data(session_dir: Path, filename: str, config, key: str, c
     return data
 
 
+def _series_start_from_form(raw: str) -> float:
+    """The first book's series number from the Overview form; 1 when blank or not a number."""
+    try:
+        value = float((raw or "").strip())
+    except ValueError:
+        return 1.0
+    return value if 0 < value < 1000 else 1.0
+
+
 @app.route("/book/<session_id>/split-omnibus", methods=["POST"])
 @_handle_missing_source
 def split_omnibus_route(session_id):
@@ -1060,6 +1069,8 @@ def split_omnibus_route(session_id):
             out_dir=out_dir,
             allow_medium=bool(request.form.get("confirmed")),
             log=_set_progress,
+            series=request.form.get("series", "").strip(),
+            series_start=_series_start_from_form(request.form.get("series_start", "")),
         )
     finally:
         _set_progress("")

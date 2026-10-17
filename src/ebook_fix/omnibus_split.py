@@ -26,7 +26,11 @@ The simple version first, as Jacob decided (2026-10-01):
   gives the same ID). The omnibus's ISBN is never reused on a book that
   is not the omnibus. Other metadata (author, language, publisher, date,
   rights, series name) is carried over. A series position number is
-  dropped, since the omnibus's own number is not any one book's.
+  dropped, since the omnibus's own number is not any one book's. Each book
+  gets its own position only when it is known: a series tag in the book's
+  own title ("Title (Series #3)", "Series, Book Three: Title"), or a series
+  name (and optional starting number) given by the person, which numbers
+  the books in order (Book One gets the starting number, then +1 each).
 - A page that one book's chapters link to but that sits inside another
   book's span (a shared notes page at the end of the omnibus) moves to
   the book that links to it. A page that several books link to (one
@@ -76,6 +80,7 @@ from ebook_fix.isbn_lookup import clean_isbn, find_isbn_candidates, is_valid_isb
 from ebook_fix.models import Chapter, ManifestItem, TocEntry
 from ebook_fix.omnibus import OmnibusAnalysis, detect
 from ebook_fix.parser import EPUBParser
+from ebook_fix import series as series_metadata
 from ebook_fix.toc_generate import build_nav_bytes, build_ncx_document
 from ebook_fix.writer import EPUBWriter
 from metadata.core_fields import write_core_field
@@ -111,6 +116,8 @@ class SplitOutput:
     front_copies: int = 0               # shared front matter pages copied into this book
     back_copies: int = 0                # shared back matter pages copied into this book
     notes_renumbered: int = 0           # notes renumbered to start again at 1
+    series: str = ""                    # series this book was labeled with (name only when no position known)
+    series_number: float | None = None  # its position in that series, when known
     problems: list = field(default_factory=list)   # empty means it checked out
 
 
@@ -1124,7 +1131,8 @@ def _renumber_notes(book, page_href: str) -> int:
 
 def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list, out_path: Path, title: str, uid: str,
                shared: dict | None = None, isbn: str = "", front: list | None = None, back: list | None = None,
-               notes_pages: list | None = None) -> SplitOutput:
+               notes_pages: list | None = None, series_name: str = "",
+               series_number: float | None = None) -> SplitOutput:
     """Loads a fresh copy of the omnibus and cuts it down to one book."""
     book = EPUBParser().load(source)
     keep = set(hrefs[index])
@@ -1148,6 +1156,7 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
     renumbered = sum(_renumber_notes(book, page) for page in (notes_pages or []))
     images_removed = _prune_unused_media(book)
     _set_identity(book, title, uid)
+    labeled_series, labeled_number = _label_series(book, title, series_name, series_number)
     if isbn:
         _add_isbn(book, isbn)
     toc_entries = _rebuild_toc_from_contents_page(book, nav_href)
@@ -1172,7 +1181,33 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
         front_copies=front_copies,
         back_copies=back_copies,
         notes_renumbered=renumbered,
+        series=labeled_series,
+        series_number=labeled_number,
     )
+
+
+def _label_series(book, title: str, series_name: str, series_number: float | None) -> tuple:
+    """Series name and position for one split book. A name given by the
+    person wins and numbers the books in order (a tag in the book's own
+    title with the same series overrides that position, since the book
+    says so itself). With no name given, a series tag in the title labels
+    the book; otherwise the carried-over series name stays without a
+    position, as before. Returns (name, position) as written ("" and None
+    when the book has no series)."""
+    from metadata.title_cleanup import _fold, parse_embedded_series
+
+    tag = parse_embedded_series(title)
+    if series_name:
+        number = series_number
+        if tag is not None and tag.series_index is not None and _fold(tag.series) == _fold(series_name):
+            number = tag.series_index
+        series_metadata.write(book, series_name, number)
+        return series_name, number
+    if tag is not None and tag.series and tag.series_index is not None:
+        series_metadata.write(book, tag.series, tag.series_index)
+        return tag.series, tag.series_index
+    existing = series_metadata.read(book)
+    return existing.name, None
 
 
 # ---------------------------------------------------------------------
@@ -1368,7 +1403,8 @@ def plan_names(source: Path, analysis: OmnibusAnalysis) -> list:
     return plan
 
 
-def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: bool = False, log=None) -> SplitResult:
+def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: bool = False, log=None,
+                  series: str = "", series_start: float = 1) -> SplitResult:
     """Detects the books in `source` and writes one EPUB per book into
     `out_dir` (the source's own folder by default).
 
@@ -1376,7 +1412,8 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
     one (see omnibus.py) is reported as "needs_review" unless
     `allow_medium` is True. `dry_run` reports the plan and writes
     nothing. `log` is an optional function that receives progress
-    lines."""
+    lines. `series` (optional) names the series every book belongs to;
+    the books are then numbered in order starting at `series_start`."""
     say = log or (lambda _line: None)
     source = Path(source)
     out_dir = Path(out_dir) if out_dir else source.parent
@@ -1443,6 +1480,8 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
             source, analysis, number - 1, hrefs, out_path, title, uid, result.shared_pages,
             isbn=isbns.get(number, ""), front=result.front_pages, back=result.back_pages,
             notes_pages=notes_pages,
+            series_name=(series or "").strip(),
+            series_number=(series_start + number - 1) if (series or "").strip() else None,
         )
         output.problems = verify_output(out_path)
         result.outputs.append(output)
