@@ -458,15 +458,47 @@ def _trailing_glue_sensitive(host, attr: str) -> bool:
         # own, and also treating this side as sensitive would collapse
         # each side to its own single space independently, leaving two
         # spaces where the book only ever needed one.
-        if host.tail and not host.tail[:1].isspace():
+        if host.tail:
+            if host.tail[:1].isspace():
+                return False
             return _local_tag(host) in INLINE_TAGS
-        return False
+        # No tail at all: whatever follows host's closing tag is the
+        # next sibling (or, failing that, what follows its parent).
+        # Missed before: "<span>have to </span><span><i>have</i></span>"
+        # has no tail, so the trailing space was stripped and the two
+        # runs glued together ("tohave"). Only matters when host is
+        # itself inline; a block host ends the line anyway.
+        if _local_tag(host) not in INLINE_TAGS:
+            return False
+        return _inline_follows(host)
     # attr == "tail": after host.tail is host's next sibling, if any.
-    nxt = host.getnext()
-    if nxt is not None and isinstance(nxt.tag, str):
-        return _local_tag(nxt) in INLINE_TAGS
-    # No next sibling: after this tail is the parent closing -- the
-    # parent's own tail slot governs whatever comes after that.
+    return _inline_follows(host)
+
+
+def _inline_follows(el) -> bool:
+    """
+    True if, after `el` and its tail, the next thing in the document
+    flow is inline content (so a space at the end of el's last text
+    must be kept as a single space, not stripped). Climbs out of
+    inline parents when el is the last child; stops at the first
+    block-level boundary.
+    """
+    while el is not None:
+        nxt = el.getnext()
+        while nxt is not None and not isinstance(nxt.tag, str):
+            # Skip comments/PIs, but their tail text counts.
+            if nxt.tail:
+                return not nxt.tail[:1].isspace()
+            nxt = nxt.getnext()
+        if nxt is not None:
+            return _local_tag(nxt) in INLINE_TAGS
+        parent = el.getparent()
+        if parent is None or _local_tag(parent) not in INLINE_TAGS:
+            return False
+        if parent.tail:
+            # Parent's tail starts with its own whitespace, or not.
+            return not parent.tail[:1].isspace()
+        el = parent
     return False
 
 
