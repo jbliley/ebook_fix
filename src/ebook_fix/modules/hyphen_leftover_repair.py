@@ -10,16 +10,27 @@ as the evidence. A hyphenated pair "AAA-BBB" is joined only when all of
 these hold:
 
 - Both halves are plain lowercase letters (the first half may start with a
-  capital), at least two letters each. All-capital words, names written
+  capital), at least three letters each ("Pa-pa", "Do-reen" and other
+  short stutters or names are left alone). All-capital words, names written
   with a capital after the hyphen and anything with three or more parts
   ("mother-in-law") are left alone.
 - The first half is not a common prefix ("re", "co", "non", "self", "mid"
   and so on), because those hyphens are a spelling choice, not a leftover.
-- At least one half is not a word in its own right anywhere in the book.
-  "colum" never appears on its own, so "colum-barium" qualifies, while
-  "bear-claws", "gun-fighter" and "wheel-chair" (every half is an ordinary
-  word elsewhere in the book) are left alone, since a hyphen between two
-  real words is a spelling choice, not a leftover.
+- Neither half is a word in its own right anywhere in the book. "colum"
+  and "barium" never appear on their own, so "colum-barium" qualifies,
+  while "bear-claws", "bow-legged", "barrel-chested", "sun-baked" and
+  "gun-fighter" (the first half is an ordinary word elsewhere in the book)
+  are left alone, since a real word followed by a hyphen is a compound the
+  author spelled that way, not a leftover. This is deliberately strict: a
+  leftover hyphen that is not joined is a small blemish, while a real
+  hyphen that is removed changes the author's spelling. (Before 2026-10-18
+  only one half had to be a non-word, which joined real compounds such as
+  "bow-legged" and "demi-god" whenever the book also spelled them closed
+  once.)
+- The pair appears hyphenated only once in the whole book. A word that is
+  hyphenated the same way two or more times ("orang-utans", "zig-zag",
+  "Sugar-loaf") is the author's spelling; a line-break leftover is a
+  one-off.
 - The joined word "AAABBB" appears elsewhere in the book as an ordinary
   word, at least as often as the hyphenated pair does. The book's own
   spelling is the only evidence used, so a word that appears only once, as
@@ -70,7 +81,7 @@ _SKIPPED_ANCESTORS = frozenset({
     "h1", "h2", "h3", "h4", "h5", "h6",
 })
 
-MIN_HALF_LENGTH = 2
+MIN_HALF_LENGTH = 3
 
 
 class HyphenLeftoverRepair:
@@ -192,7 +203,9 @@ class HyphenLeftoverRepair:
                 continue
             if first in PREFIXES:
                 continue
-            if standalone.get(first, 0) >= 1 and standalone.get(second, 0) >= 1:
+            if hyphenated >= 2:
+                continue
+            if standalone.get(first, 0) >= 1 or standalone.get(second, 0) >= 1:
                 continue
             joined_count = standalone.get(first + second, 0)
             if joined_count < 1 or joined_count < hyphenated:
