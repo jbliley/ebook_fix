@@ -209,6 +209,13 @@ class ParagraphSpacingConfig:
 @dataclass(slots=True)
 class TextSizeConfig:
     enabled: bool = True
+    # Also pull runs of text inside a paragraph (small caps and the like)
+    # back toward the normal text size. A run shown at less than
+    # inline_min or more than inline_max times the normal size is moved to
+    # that limit.
+    fix_inline_size: bool = True
+    inline_min: float = 0.9
+    inline_max: float = 1.1
 
 
 @dataclass(slots=True)
@@ -938,6 +945,17 @@ remove_unused_cover_copy = true
 # 0.41667em with 1.8em on every span of text). Stylesheet-only, and does
 # nothing when the stylesheet is too unusual to be sure.
 enabled = true
+
+# Also finds runs of text inside a paragraph (small caps and the like)
+# that show far smaller or larger than the normal text, such as 0.556em
+# on a name in capitals, and moves them to the nearest limit below. Only
+# acts when every use of that size is a run inside normal-sized text.
+fix_inline_size = true
+
+# A run shown at less than inline_min or more than inline_max times the
+# normal text size is moved to that limit (0.9 and 1.1 by default).
+inline_min = 0.9
+inline_max = 1.1
 
 # ---------------------------------------------------------------------
 # Extra Page Break Removal
