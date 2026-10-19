@@ -238,7 +238,7 @@ def _drop_chapters(book, remove: set) -> None:
     book.opf_modified = True
 
 
-def _prune_ncx(book, removed: set, title: str, uid: str) -> None:
+def _prune_ncx(book, removed: set, title: str | None = None, uid: str | None = None) -> None:
     ncx = book.ncx_document
     if ncx is None:
         return
@@ -270,12 +270,14 @@ def _prune_ncx(book, removed: set, title: str, uid: str) -> None:
         if content is not None and _resolve(ncx_href, content.get("src", "")) in removed:
             target.getparent().remove(target)
 
-    text = ncx.find(f"{{{NCX_NS}}}docTitle/{{{NCX_NS}}}text")
-    if text is not None:
-        text.text = title
-    for meta in ncx.iter(f"{{{NCX_NS}}}meta"):
-        if meta.get("name") == "dtb:uid":
-            meta.set("content", uid)
+    if title is not None:
+        text = ncx.find(f"{{{NCX_NS}}}docTitle/{{{NCX_NS}}}text")
+        if text is not None:
+            text.text = title
+    if uid is not None:
+        for meta in ncx.iter(f"{{{NCX_NS}}}meta"):
+            if meta.get("name") == "dtb:uid":
+                meta.set("content", uid)
     book.ncx_modified = True
 
 
@@ -304,9 +306,12 @@ def _prune_nav(book, removed: set) -> None:
     nav_chapter.modified = True
 
 
-def _prune_unused_media(book) -> int:
+def _prune_unused_media(book, only: set | None = None) -> int:
     """Removes pictures (and audio/video) that no kept page, stylesheet
-    or cover declaration uses. Returns how many were removed."""
+    or cover declaration uses. Returns how many were removed. With
+    `only` (a set of hrefs), nothing outside that set is considered, so
+    a caller can clean up after one removed page without touching other
+    unused files."""
     base = PurePosixPath(book.package_path).parent
     used: set = set()
 
@@ -354,6 +359,7 @@ def _prune_unused_media(book) -> int:
         m for m in book.manifest
         if (m.media_type.startswith(("image/", "audio/", "video/")))
         and m.href not in used and m.id not in cover_ids
+        and (only is None or m.href in only)
     ]
     if not drop or manifest_el is None:
         return 0

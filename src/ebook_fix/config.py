@@ -130,6 +130,28 @@ class GutenbergRepairConfig:
 
 
 @dataclass(slots=True)
+class ExtraContentRemovalConfig:
+    """Pages that are not part of the main book. Only plain
+    advertisements are on by default; see
+    ebook_fix/modules/extra_content_removal.py."""
+    enabled: bool = True
+    # How sure a page's label must be to be removed without a person
+    # looking: "high" or "medium". A page labeled on the Review tab counts
+    # as high.
+    automatic_confidence: str = "high"
+    # The same switch as gutenberg_repair.enabled, shown here so every
+    # removal choice is in one place. Setting it here turns the
+    # Gutenberg Boilerplate Removal module on or off.
+    remove_gutenberg: bool = True
+    remove_advertisements: bool = True
+    remove_newsletter_signups: bool = False
+    remove_teaser_chapters: bool = False
+    remove_books_by_author: bool = False
+    remove_about_author: bool = False
+    remove_publisher_pages: bool = False
+
+
+@dataclass(slots=True)
 class EllipsisRepairConfig:
     enabled: bool = True
     # "unicode" replaces every ASCII ("...") and spaced (". . .")
@@ -410,6 +432,7 @@ class Config:
     image_repair: ImageRepairConfig = field(default_factory=ImageRepairConfig)
     whitespace_repair: WhitespaceRepairConfig = field(default_factory=WhitespaceRepairConfig)
     gutenberg_repair: GutenbergRepairConfig = field(default_factory=GutenbergRepairConfig)
+    extra_content_removal: ExtraContentRemovalConfig = field(default_factory=ExtraContentRemovalConfig)
     ellipsis_repair: EllipsisRepairConfig = field(default_factory=EllipsisRepairConfig)
     apostrophe_repair: ApostropheRepairConfig = field(default_factory=ApostropheRepairConfig)
     scene_break_repair: SceneBreakRepairConfig = field(default_factory=SceneBreakRepairConfig)
@@ -477,6 +500,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.image_repair, modules, "image_repair")
     _apply_module_toggle(config.whitespace_repair, modules, "whitespace_repair")
     _apply_module_toggle(config.gutenberg_repair, modules, "gutenberg_repair")
+    _apply_module_toggle(config.extra_content_removal, modules, "extra_content_removal")
     _apply_module_toggle(config.ellipsis_repair, modules, "ellipsis_repair")
     _apply_module_toggle(config.apostrophe_repair, modules, "apostrophe_repair")
     _apply_module_toggle(config.scene_break_repair, modules, "scene_break_repair")
@@ -509,6 +533,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.image_repair, "image_repair", data.get("image_repair", {}))
     _apply_section(config.whitespace_repair, "whitespace_repair", data.get("whitespace_repair", {}))
     _apply_section(config.gutenberg_repair, "gutenberg_repair", data.get("gutenberg_repair", {}))
+    _apply_section(config.extra_content_removal, "extra_content_removal", data.get("extra_content_removal", {}))
     _apply_section(config.ellipsis_repair, "ellipsis_repair", data.get("ellipsis_repair", {}))
     _apply_section(config.apostrophe_repair, "apostrophe_repair", data.get("apostrophe_repair", {}))
     _apply_section(config.scene_break_repair, "scene_break_repair", data.get("scene_break_repair", {}))
@@ -528,6 +553,19 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.identifier_repair, "identifier_repair", data.get("identifier_repair", {}))
     _apply_section(config.color_repair, "color_repair", data.get("color_repair", {}))
     _apply_section(config.font_repair, "font_repair", data.get("font_repair", {}))
+    if config.extra_content_removal.automatic_confidence not in ("high", "medium"):
+        raise ValueError(
+            f"Invalid extra_content_removal.automatic_confidence: {config.extra_content_removal.automatic_confidence!r} "
+            '(must be "high" or "medium")'
+        )
+
+    # remove_gutenberg is the same switch as Gutenberg Boilerplate
+    # Removal's own "enabled", shown in the extra-content group. Only an
+    # explicit entry in that group changes anything.
+    if "remove_gutenberg" in data.get("extra_content_removal", {}):
+        config.gutenberg_repair.enabled = config.extra_content_removal.remove_gutenberg
+    config.extra_content_removal.remove_gutenberg = config.gutenberg_repair.enabled
+
     if config.ellipsis_repair.target_style not in ("unicode", "ascii"):
         raise ValueError(
             f"Invalid ellipsis_repair.target_style: {config.ellipsis_repair.target_style!r} "
@@ -556,6 +594,7 @@ def load_config(path: str | Path | None = None) -> Config:
         if section_config is not None and hasattr(section_config, "enabled") and not value:
             section_config.enabled = False
 
+    config.extra_content_removal.remove_gutenberg = config.gutenberg_repair.enabled
     return config
 
 
@@ -609,6 +648,7 @@ toc_generation = true
 image_repair = true
 whitespace_repair = true
 gutenberg_repair = true
+extra_content_removal = true
 ellipsis_repair = true
 apostrophe_repair = true
 scene_break_repair = true
@@ -853,6 +893,47 @@ fix_front_matter = true
 # the whole file when the marker's file is nothing but boilerplate,
 # otherwise a subtree cut like the front matter above.
 fix_back_matter = true
+
+# ---------------------------------------------------------------------
+# Extra Content Removal
+# ---------------------------------------------------------------------
+[extra_content_removal]
+
+# Removes whole pages that are not part of the book itself. Only plain
+# advertisements (and the Project Gutenberg boilerplate above) are on by
+# default. Everything else is off until you turn it on. Pages that are
+# part of the book (cover, title page, copyright, dedication, chapters,
+# prologue, epilogue and so on) are never removed.
+enabled = true
+
+# How sure the program must be about a page before it removes it without
+# anyone looking: "high" or "medium". A page you label on the Review tab
+# always counts as sure.
+automatic_confidence = "high"
+
+# Same switch as gutenberg_repair above: the Project Gutenberg header and
+# license.
+remove_gutenberg = true
+
+# Store and retailer ads, "buy now" pages, a publisher promoting its own
+# catalog.
+remove_advertisements = true
+
+# "Sign up for our newsletter" and "follow the author" pages.
+remove_newsletter_signups = false
+
+# A preview of another book after the story ("Turn the page for a
+# preview of ...").
+remove_teaser_chapters = false
+
+# "Also by" and "Books by" lists.
+remove_books_by_author = false
+
+# About the Author pages.
+remove_about_author = false
+
+# Publisher information and colophon pages.
+remove_publisher_pages = false
 
 # ---------------------------------------------------------------------
 # Ellipsis Normalizer

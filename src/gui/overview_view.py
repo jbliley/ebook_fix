@@ -54,7 +54,7 @@ BOXES = [
             "Possessive Candidates", "Possible Truncation",
         ],
         "modules": [
-            "gutenberg_repair", "running_title_repair", "linebreak_repair", "paragraph_repair",
+            "gutenberg_repair", "extra_content_removal", "running_title_repair", "linebreak_repair", "paragraph_repair",
             "scene_break_repair", "scene_opener_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "whitespace_repair",
         ],
     },
@@ -83,6 +83,7 @@ BOXES = [
 # real names alongside.
 PLAIN_NAMES = {
     "gutenberg_repair": "Remove Project Gutenberg boilerplate",
+    "extra_content_removal": "Remove ads and other pages that are not part of the book",
     "running_title_repair": "Remove repeated page headers",
     "linebreak_repair": "Remove stray line breaks",
     "paragraph_repair": "Tidy paragraphs",

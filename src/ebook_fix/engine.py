@@ -53,6 +53,7 @@ from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMap
 from ebook_fix.modules.color_strip import ColorStripRepair
 from ebook_fix.modules.font_strip import FontStripRepair
 from ebook_fix.modules.gutenberg_repair import GutenbergRepair
+from ebook_fix.modules.extra_content_removal import ExtraContentRemoval
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.ellipsis import normalize_ellipsis_text
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
@@ -128,6 +129,13 @@ class Engine:
         # deleted anyway.
         if getattr(self.config, "gutenberg_repair", None) and getattr(self.config.gutenberg_repair, "enabled", True):
             modules.append(GutenbergRepair(self.config.gutenberg_repair))
+        # Whole pages that are not part of the book (ads and, if switched
+        # on, newsletter, teaser and similar pages). Right after Gutenberg
+        # for the same reason: the content-editing modules below should
+        # not spend effort on pages that are about to be removed. Acts on
+        # the first pass only; see modules/extra_content_removal.py.
+        if getattr(self.config, "extra_content_removal", None) and getattr(self.config.extra_content_removal, "enabled", True):
+            modules.append(ExtraContentRemoval(self.config.extra_content_removal))
         # Runs right after Gutenberg Boilerplate Removal, for the same
         # reason that one runs first: this deletes a chapter's leading
         # running-title heading, so it should happen before anything

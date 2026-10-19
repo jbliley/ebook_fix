@@ -95,6 +95,7 @@ from ebook_fix.modules.author_initials_repair import AuthorInitialsRepair
 from ebook_fix.modules.title_cleanup_repair import TitleCleanupRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.gutenberg_repair import GutenbergRepair
+from ebook_fix.modules.extra_content_removal import ExtraContentRemoval
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
@@ -143,6 +144,7 @@ _EDITABLE_FIELDS = ("title", "author", "publisher", "date", "rights", "descripti
 # list the same as any other module.
 _REPAIR_MODULES = [
     ("gutenberg_repair", "Gutenberg Boilerplate Removal"),
+    ("extra_content_removal", "Extra Content Removal"),
     ("running_title_repair", "Running Title Removal"),
     ("linebreak_repair", "Stray Line Break Removal"),
     ("paragraph_repair", "Paragraph Repair"),
@@ -185,6 +187,7 @@ _REPAIR_MODULES = [
 # module regardless of its checked state.
 _REPAIR_MODULE_CLASSES = {
     "gutenberg_repair": GutenbergRepair,
+    "extra_content_removal": ExtraContentRemoval,
     "running_title_repair": RunningTitleRepair,
     "linebreak_repair": LineBreakRepair,
     "paragraph_repair": ParagraphRepair,
@@ -1968,6 +1971,16 @@ def fix_book(session_id):
         if report.count > 0
     ]
 
+    # Everything taken out of the book, so it can be checked (pages that
+    # are not part of the book, and Project Gutenberg boilerplate).
+    removed_items = [
+        {"location": issue.location, "what": issue.category, "detail": issue.description}
+        for name in (ExtraContentRemoval.name, GutenbergRepair.name)
+        if name in reports_by_module
+        for issue in reports_by_module[name].issues
+        if "removed" in issue.category.lower() or "trimmed" in issue.category.lower()
+    ]
+
     # Replace the original now if the person asked for that up front (the
     # checkbox next to the Fix button). Staged choices are only cleared
     # once the original has been replaced: a plain Fix leaves the original
@@ -2001,6 +2014,7 @@ def fix_book(session_id):
             "color_review_count": color_review_count,
             "font_review_count": font_review_count,
             "module_summaries": module_summaries,
+            "removed_items": removed_items,
             "pass_count": pass_num,
             "engine_output": engine_output,
             "opf_sync": opf_sync_status,

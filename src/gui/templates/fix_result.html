@@ -18,6 +18,14 @@
   {% elif not result.split_count %}
   <div class="result-summary">No repairs found anything to change.</div>
   {% endif %}
+  {% if result.removed_items %}
+  <div class="result-summary">
+    Removed from the book (check these if anything looks missing; the original file is untouched unless you replaced it):
+    <ul>
+      {% for r in result.removed_items %}<li><code>{{ r.location }}</code>: {{ r.detail }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
   {% if result.opf_sync and result.opf_sync.attempted %}
   <div class="result-summary">Calibre metadata.opf: {{ result.opf_sync.message or 'synced.' }}</div>
   {% elif result.opf_sync %}

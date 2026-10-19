@@ -1,6 +1,6 @@
 # Extra Content Removal: Plan
 
-**Status:** Step 1 (detection only) built 2026-10-18; see "Step 1 results" at the end. Nothing removes a page yet except the Project Gutenberg part, which already existed (see "What exists today"). Steps 2 to 4 are not started.
+**Status:** Step 1 (detection) and Step 2 (the removal module) built 2026-10-18; see "Step 1 results" and "Step 2 results" at the end. Out of the box only plain advertisements and the Project Gutenberg boilerplate are removed. Steps 3 and 4 are not started.
 
 Jacob wants a way to remove pages that are not part of the main book: advertisements, newsletter sign-ups, teaser chapters, Project Gutenberg boilerplate and similar. He is torn about deleting original content, so the design is a set of switches, almost all of them off.
 
@@ -87,7 +87,7 @@ The splitter copies shared back matter (books by, newsletter, about the author) 
 ## Build order
 
 1. **Detection only.** Add the new labels and their confidence rules to `frontmatter.py`, show them on the Overview and Review tabs, and test on the books in `examples/` and any real books Jacob uploads. No removal yet, so nothing can be lost.
-2. **Removal module.** A page-removal repair with the settings above, the safety rules, the Removed list, and Gutenberg's switch brought under the same group. Ads and Gutenberg on, everything else off.
+2. **Removal module (built 2026-10-18).** A page-removal repair with the settings above, the safety rules, the Removed list, and Gutenberg's switch brought under the same group. Ads and Gutenberg on, everything else off.
 3. **GUI and command line wiring.** The Overview box, the Review suggestions and the report.
 4. **Later:** removing an ad block at the bottom of the last chapter or on a copyright page (partial page removal), and removing ad pictures. These need more care and come only after pages are proven.
 
@@ -122,3 +122,39 @@ Detection only. No page is removed, changed or moved by anything in this step.
 - The examples have few real ads, so the advertisement rules are the least tested. Real books with ads, newsletter pages and teasers are the best next test; upload a few if you have them.
 - A page with no confirmed chapter sequence around it (zone unknown) is never given these labels.
 - Pictures that are ads (an image with no text) are not detected. That is the later step 4.
+
+## Step 2 results (2026-10-18)
+
+The removal module is built and runs as part of Fix This Book and the command line `repair`. Out of the box it removes plain advertisements and the Project Gutenberg boilerplate and nothing else.
+
+**What was added**
+- `modules/extra_content_removal.py`: "Extra Content Removal", placed right after Gutenberg Boilerplate Removal in the repair order. It reads the labels from `frontmatter.py` and decides what to do with them. It never looks at page text for its own purposes except to measure length and read the first words.
+- `[extra_content_removal]` in the config, with the switches from the plan: `enabled`, `automatic_confidence` ("high" or "medium"), `remove_gutenberg`, `remove_advertisements` (on), and `remove_newsletter_signups`, `remove_teaser_chapters`, `remove_books_by_author`, `remove_about_author`, `remove_publisher_pages` (all off). The same section is in the generated default config file.
+- `remove_gutenberg` is the same switch as Gutenberg Boilerplate Removal being on or off, shown in this group so every removal choice is in one place. Setting it here changes that module. The old `[gutenberg_repair]` settings still work.
+- Fix result page: a "Removed from the book" list with the page's file, its first words, its length, the confidence and the reason. It includes Gutenberg removals.
+- Repair tab and Overview: "Extra Content Removal" appears with the other repairs, under Text, with its own count and checkbox.
+- `omnibus_split.py`: two small changes so the omnibus splitter's page-removal helpers can be reused (the contents-list cleanup no longer needs a title and id, and the picture cleanup can be limited to the pictures of the removed pages). Omnibus behavior is unchanged.
+
+**How a page is judged**
+- The label's confidence must reach `automatic_confidence`. A page labeled on the Review tab counts as high. A page you set to anything else (main content, front matter and so on) is kept.
+- The page must be before the first chapter or after the last chapter, and the book's chapters must have been confirmed. A teaser chapter must be after the last chapter.
+- A page the chapter detector counted as a chapter is never removed, even if it was labeled as an extra page by hand. Neither is the contents page or the last remaining page.
+- A file named like a title page, contents, cover, copyright, dedication, epigraph, prologue or epilogue is never removed, whatever its text says. This was added after the "everything on" test showed the older labels sometimes call a title page "publisher info".
+- Length limits: ads and sign-ups 400 words, books-by lists and publisher pages 500, about the author 700. A teaser chapter has no limit. An About the Author page must say so near its top, and a publisher page must be at least 40 words.
+- The module acts on the first pass only. Later passes analyze the book again without your Review tab choices, so a page you chose to keep could otherwise be judged again.
+
+**What is cleaned up with a page**
+Its reading order and manifest entries, its guide reference, its entries in the NCX and nav contents lists (an entry's kept children move up a level), the in-memory contents copy a later nav document is built from, and any picture only that page used. Links that pointed at it are left to Dead Link Cleanup, which runs afterward.
+
+**Tested**
+- Defaults across all 28 example books: only the Pinnacle website ad in the two Law of the Mountain Man copies is removed.
+- Everything switched on with `automatic_confidence = "medium"`: the two Books By pages and the About the Author page in Ravaged Land and the two lists in the Renshai book are planned. Title pages and contents pages are not, after the name guard above.
+- Full repair of Law of the Mountain Man (defaults) and Ravaged Land (everything on): the removed pages' files, pictures and contents entries are gone, nothing refers to a missing file, and epubcheck shows no new kinds of problems compared with the same book repaired with this module off.
+- Safety checks: a page set to main content or front matter on the Review tab is kept, a real chapter set to advertisement is never planned, a back page set to advertisement is removed, each switch off keeps its pages, bad `automatic_confidence` values are rejected, and the `[modules]` and `remove_gutenberg` switches agree.
+- Through the real GUI code: upload, Overview and Fix This Book on Law of the Mountain Man, with the Removed list shown on the result page.
+
+**Limits and open points**
+- The Overview "Extra content" box with checkboxes, Review suggestions for medium pages, and the command line report are step 3. Until then the switches are in the config file only.
+- The omnibus splitter still copies shared back matter into each split book, whatever these switches say. Running the cleanup on each split book is part of step 3.
+- Pre-existing label mistakes (a title page called "publisher info", a contents page called "about the author") are why those categories stay off by default and carry extra guards.
+- A book repaired with this module and with it off stops after the same 5 repair passes in Ravaged Land. That is existing behavior and unrelated to this step.
