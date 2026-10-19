@@ -1,6 +1,6 @@
 # Omnibus Splitter -- Planning Doc
 
-**Status:** Detection done and verified (2026-10-01). Splitting built (2026-10-14) as the `split-omnibus` command and wired into the GUI the same day. Loose ends (per-book ISBN, copies of shared front/back matter, note renumbering) built and tested 2026-10-16.
+**Status:** Detection done and verified (2026-10-01). Splitting built (2026-10-14) as the `split-omnibus` command and wired into the GUI the same day. Loose ends (per-book ISBN, copies of shared front/back matter, note renumbering) built and tested 2026-10-16. A Table of Contents page for books that have none built and tested 2026-10-18.
 **Started:** 2026-09-17 (scoping session). Detection built 2026-10-01 after Jacob supplied three real
 omnibus files to test against, which also led to finding two more already sitting in `examples/`
 under names that didn't say "omnibus" (`OmnibusExample.epub`, and a Russian-titled First Mountain Man
@@ -256,7 +256,7 @@ Found while building, not in the original scoping:
 
 Verified: `OmnibusExample.epub` (high, 2 books) and the Russian-titled First Mountain Man file (medium, needs `--allow-medium`) split into the right books with zero broken links or anchors, every page's text unchanged except the contents and notes pages, and all outputs repair without errors. The other 20 examples report no omnibus. The three files Jacob uploaded earlier (Ravaged Land, Tales of Talon, the Tarzan collection) are not in `examples/`, so splitting was not tried on them (Tarzan, 25 books and 659 pages, is the scale test still to run).
 
-Still not built at that point: GUI wiring, per-book copies of shared front/back matter, a per-book ISBN from a copyright page, note renumbering, and a contents page for Book Two and later (only Book One gets the omnibus's own). GUI wiring was done 2026-10-14 (see the end of this doc); the rest was done 2026-10-16 (see "Splitter loose ends" at the end). A contents page for Book Two and later is still not built.
+Still not built at that point: GUI wiring, per-book copies of shared front/back matter, a per-book ISBN from a copyright page, note renumbering, and a contents page for Book Two and later (only Book One gets the omnibus's own). GUI wiring was done 2026-10-14 (see the end of this doc); the rest was done 2026-10-16 (see "Splitter loose ends" at the end). A contents page for Book Two and later was built 2026-10-18 (see "Contents page for books that have none" at the end of this doc).
 
 ## Repair phase: original design (kept for reference)
 
@@ -458,8 +458,28 @@ Results (checked with scratch test scripts that are not part of the repo): Omnib
 Known limits:
 - The omnibus's own copyright page is a front page like any other, so it is copied as written, including the omnibus's ISBN and the list of every title in it. Say if you would rather have it left in Book One only.
 - A publisher's foreword ("Dear Readers" in the Mountain Man books) is copied into every book.
-- A contents page for Book Two and later is still not built.
+- A contents page for Book Two and later was built 2026-10-18 (see "Contents page for books that have none" below).
 
 ## Placeholder X links (2026-10-16)
 
 Item 3 of Jacob's 2026-10-15 list. The links are in the original omnibus too, so the splitter only carries them along; the fix lives in Dead Link Cleanup (`modules/dead_link_repair.py`), which now relinks them to the chapter whose heading matches the link text instead of removing them. 18 of the 20 in the Tarzan collection relink; the 2 in Book 2 (a chapter that starts partway down another page) are still removed with their text kept. See `docs/analysis_roadmap.md`, "Placeholder X links relinked to their chapters", for the rules and results.
+
+## Contents page for books that have none (2026-10-18)
+
+The last item left from the splitter loose ends. Book One usually keeps the omnibus's own contents page (with the other books' entries removed), but Book Two onward had only the contents list a reading app shows in its menu, with no contents page to turn to. Checked on the three real omnibus files that split into books: the 25 Tarzan books all already have their own contents page, so nothing changes there; the second book of Ravaged Land and the second book of OmnibusExample had none.
+
+**What it does.** After a book is cut out and its contents list is rebuilt, the splitter checks whether the book has a contents page: a short page headed "Contents" or "Table of Contents", or a page that is mostly a list of links to the book's other pages. The EPUB3 nav document does not count, since it is a menu, not a page. If there is none, and the book has at least three entries to list, a new page is added:
+
+- Titled "Table of Contents", in a new file `table_of_contents.xhtml` next to the book's own title page, using the same stylesheet links so the fonts match.
+- Placed just before the book's own title page, after the copied copyright page and the like. That is where Book One's own contents page sits in OmnibusExample.
+- It lists the entries of the book's current contents list, nested the same way, each linked to the real page or heading. Entries that point at pages before it (cover, copyright) are left off, and the front and back pages that follow it are kept.
+- It is also added to the book's contents list (NCX and nav document), just before the first entry that comes after it.
+- Its look is set inline (no bullets, a centered heading), so it does not depend on any class in the book's own stylesheet.
+
+**Settings.** On by default. `--no-contents-page` on the `split-omnibus` command (or `contents_page=False` in code) turns it off. The result page and the command's output say when a page was added and how many entries it has.
+
+**Results.** Ravaged Land Book Two (33 entries) and OmnibusExample Book Two (34 entries) get the page; Book One of each and all 25 Tarzan books are unchanged. Every link on the new pages resolves to a real file and heading. The built-in output check reports no problems, and the official EPUB checker (epubcheck) reports nothing on the new pages that it did not already report on every other page of the same book (the DOCTYPE note on EPUB 2 books, which is the writer's and not this change's). Also tested on a copy of OmnibusExample whose own contents page was blanked (Book One then gets a page too, placed after its copyright page) and on an EPUB3 book with a nav document (the entry is added to the nav list).
+
+Known limits:
+- The page lists what the book's contents list holds. A book whose list is just a single "whole book" entry is left without a page (fewer than three entries), as before.
+- A heading such as "Contents" inside the first 120 characters of a short story page would count as an existing contents page and no new one would be made.

@@ -25,6 +25,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+# Page labels (frontmatter.MatterLabel values) for pages that are not part
+# of the book itself; listed one per line in the Book Structure section.
+_EXTRA_PAGE_LABELS = {"advertisement", "newsletter sign-up", "books by the author", "teaser chapter"}
+
 
 @dataclass
 class Section:
@@ -182,6 +186,10 @@ def build_overview(analysis_report) -> list[Section]:
         )
     else:
         structure_lines.append("Front/Back Matter: not classified (no confirmed chapter sequence to anchor on)")
+    # Pages that are not part of the book itself (labeled only; nothing is removed).
+    for m in fm.chapters:
+        if m.label in _EXTRA_PAGE_LABELS:
+            structure_lines.append(f"Extra Page: {m.label} | {m.href} | {m.confidence} confidence")
     sections.append(Section("Book Structure", structure_lines))
 
     sections.append(Section("Typography", [

@@ -160,6 +160,34 @@ def _fact(key, label, value, bad=False):
     return {"key": key, "label": label, "value": value, "bad": bad}
 
 
+# The page labels that mean "not part of the book itself", with the words
+# used for them on the Overview (singular, plural).
+_EXTRA_PAGE_NAMES = (
+    ("advertisement", "advertisement", "advertisements"),
+    ("newsletter sign-up", "newsletter sign-up", "newsletter sign-ups"),
+    ("books by the author", "\"Also by\" page", "\"Also by\" pages"),
+    ("teaser chapter", "teaser chapter", "teaser chapters"),
+)
+
+
+def extra_page_counts(ar) -> list:
+    """[(singular, plural, count)] for each kind of extra page the
+    front/back matter analysis found in this book, in a fixed order."""
+    chapters = getattr(getattr(ar, "frontmatter", None), "chapters", None) or []
+    out = []
+    for label, singular, plural in _EXTRA_PAGE_NAMES:
+        count = sum(1 for m in chapters if m.label == label)
+        if count:
+            out.append((singular, plural, count))
+    return out
+
+
+def extra_page_summary(ar) -> str:
+    """One line for the Overview, such as "2 advertisements, 1 newsletter
+    sign-up". Empty when the book has none."""
+    return ", ".join(_plural(count, singular, plural) for singular, plural, count in extra_page_counts(ar))
+
+
 def _build_facts(ar, module_reports) -> list:
     s = ar.summary
     merged = ar.merged_core_fields
@@ -201,6 +229,12 @@ def _build_facts(ar, module_reports) -> list:
         facts.append(_fact("chapters", "Chapters", f"{seq.length} found"))
     else:
         facts.append(_fact("chapters", "Chapters", "none found", True))
+
+    # Extra pages: pages that are not part of the book itself. Shown only
+    # when there are some. Not red: nothing is wrong, they are just labeled.
+    extras = extra_page_summary(ar)
+    if extras:
+        facts.append(_fact("extra_pages", "Extra pages", extras))
 
     # Title and author
     name_problems = []

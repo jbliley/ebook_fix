@@ -59,6 +59,20 @@ Added 2026-10-16 (the splitter's loose ends):
 - When a book keeps only its own notes from a shared notes page, the
   visible note numbers count 1, 2, 3 again (only when the numbering is a
   clean count-up; otherwise nothing is touched).
+
+Added 2026-10-18 (a contents page for every split book):
+
+- Book One usually keeps the omnibus's own contents page (with the other
+  books' entries removed), but Book Two onward had only the contents list
+  that a reading app shows in its menu, and no contents page to turn to.
+  A book that has no contents page of its own now gets one: a plain
+  "Table of Contents" page listing that book's own entries (chapters,
+  parts, and the front and back pages that follow it), linked to the real
+  pages. It sits where Book One's usually does, just before the book's own
+  title page, and is added to the book's contents list. A book that
+  already has a contents page is left alone, and so is a book with fewer
+  than three entries to list. `contents_page=False` (or
+  `--no-contents-page`) turns this off.
 """
 from __future__ import annotations
 
@@ -116,7 +130,8 @@ class SplitOutput:
     front_copies: int = 0               # shared front matter pages copied into this book
     back_copies: int = 0                # shared back matter pages copied into this book
     notes_renumbered: int = 0           # notes renumbered to start again at 1
-    series: str = ""                    # series this book was labeled with (name only when no position known)
+    contents_page: int = 0              # entries on a contents page made for this book (0 when it had one already)
+    series: str = ""                  # series this book was labeled with (name only when no position known)
     series_number: float | None = None  # its position in that series, when known
     problems: list = field(default_factory=list)   # empty means it checked out
 
@@ -1139,6 +1154,285 @@ def _add_toc_entries(book, front_entries: list, back_entries: list) -> None:
 
 
 # ---------------------------------------------------------------------
+# A contents page for a book that has none
+# ---------------------------------------------------------------------
+
+_XHTML_NS = "http://www.w3.org/1999/xhtml"
+_EPUB_TYPE = "{http://www.idpf.org/2007/ops}type"
+_CONTENTS_HEADING = re.compile(r"\bcontents\b", re.IGNORECASE)
+_MIN_CONTENTS_ENTRIES = 3        # a contents page for fewer entries than this is not worth adding
+CONTENTS_PAGE_TITLE = "Table of Contents"
+
+
+def _with_fragment(owner_href: str, ref: str) -> str:
+    """A link's target as a path relative to the OPF folder, with the
+    #fragment kept ("" for a link that is not a file in the book)."""
+    path = _resolve(owner_href, ref)
+    if not path:
+        return ""
+    fragment = ref.partition("#")[2]
+    return path + ("#" + fragment if fragment else "")
+
+
+def _has_contents_page(book, nav_href) -> bool:
+    """True when one of the book's pages already is a contents page: a
+    short page headed "Contents" / "Table of Contents", or a page that is
+    mostly a list of links to the book's other pages. The EPUB3 nav
+    document does not count (a reading app shows it in its own menu, it
+    is not a page to turn to)."""
+    pages = {c.href for c in book.chapters}
+    for chapter in book.chapters:
+        if chapter.href == nav_href or chapter.document is None:
+            continue
+        text = " ".join(_visible_text(chapter).split())
+        words = len(text.split())
+        if not words:
+            continue
+        if words <= 3000 and _CONTENTS_HEADING.search(text[:120]):
+            return True
+        targets, link_words = set(), 0
+        for a in chapter.document.iter():
+            if isinstance(a.tag, str) and _local(a) == "a" and a.get("href"):
+                target = _resolve(chapter.href, a.get("href"))
+                if target and target != chapter.href and target in pages:
+                    targets.add(target)
+                    link_words += len("".join(a.itertext()).split())
+        if len(targets) >= 5 and link_words >= 0.6 * words:
+            return True
+    return False
+
+
+def _toc_ol_of(nav_chapter):
+    """The <ol> of the nav document's table of contents, or None."""
+    if nav_chapter is None or nav_chapter.document is None:
+        return None
+    doc = nav_chapter.document
+    root = doc.getroot() if hasattr(doc, "getroot") else doc
+    found = None
+    for nav in root.iter():
+        if isinstance(nav.tag, str) and _local(nav) == "nav":
+            kind = (nav.get(_EPUB_TYPE) or "").split()
+            candidate = next((c for c in nav if isinstance(c.tag, str) and _local(c) == "ol"), None)
+            if candidate is not None and ("toc" in kind or found is None):
+                found = candidate
+                if "toc" in kind:
+                    break
+    return found
+
+
+def _current_toc(book) -> list:
+    """The book's own contents list, as it stands now (other books'
+    entries already taken out), as [(label, target, children)]. `target`
+    is a path relative to the OPF folder plus any #fragment. Read from the
+    NCX, or from the nav document when there is no NCX."""
+
+    def from_ncx(parent) -> list:
+        out = []
+        for point in parent.findall(f"{{{NCX_NS}}}navPoint"):
+            text = point.find(f"{{{NCX_NS}}}navLabel/{{{NCX_NS}}}text")
+            content = point.find(f"{{{NCX_NS}}}content")
+            target = _with_fragment(book.ncx_href, content.get("src", "")) if content is not None else ""
+            label = " ".join(((text.text if text is not None else "") or "").split())
+            out.append((label, target, from_ncx(point)))
+        return out
+
+    ncx = book.ncx_document
+    if ncx is not None:
+        nav_map = ncx.find(f"{{{NCX_NS}}}navMap")
+        if nav_map is not None:
+            tree = from_ncx(nav_map)
+            if tree:
+                return tree
+
+    def from_ol(ol) -> list:
+        out = []
+        for li in ol:
+            if not (isinstance(li.tag, str) and _local(li) == "li"):
+                continue
+            link = next((c for c in li if isinstance(c.tag, str) and _local(c) == "a"), None)
+            sub = next((c for c in li if isinstance(c.tag, str) and _local(c) == "ol"), None)
+            kids = from_ol(sub) if sub is not None else []
+            if link is None or not link.get("href"):
+                out.extend(kids)
+                continue
+            label = " ".join("".join(link.itertext()).split())
+            out.append((label, _with_fragment(book.nav_item.href, link.get("href")), kids))
+        return out
+
+    ol = _toc_ol_of(book.nav_chapter)
+    if ol is not None and book.nav_item is not None:
+        return from_ol(ol)
+    return []
+
+
+def _contents_entries(tree: list, order: dict, floor: int) -> list:
+    """The part of a contents list that belongs on a contents page: entries
+    that point at a page in the reading order at or after position `floor`
+    (so the cover, copyright and other front pages that come before the
+    contents page are not listed on it). An entry that is dropped hands its
+    kept children up a level. Entries with no label are dropped."""
+    out = []
+    for label, target, kids in tree:
+        kept_kids = _contents_entries(kids, order, floor)
+        page = target.partition("#")[0]
+        if label and page in order and order[page] >= floor:
+            out.append((label, target, kept_kids))
+        else:
+            out.extend(kept_kids)
+    return out
+
+
+def _count_entries(entries: list) -> int:
+    return sum(1 + _count_entries(kids) for _label, _target, kids in entries)
+
+
+def _contents_page_root(title: str, entries: list, page_href: str, head_links: list):
+    """The XHTML for the contents page. Plain markup (a heading and a
+    plain list of links) with its look set inline, so it does not
+    depend on any class in the book's own stylesheet; the stylesheet links
+    are copied from the book's own title page so the fonts match."""
+    E = f"{{{_XHTML_NS}}}"
+    html = etree.Element(E + "html", nsmap={None: _XHTML_NS})
+    head = etree.SubElement(html, E + "head")
+    etree.SubElement(head, E + "title").text = title
+    for link in head_links:
+        head.append(link)
+    body = etree.SubElement(html, E + "body")
+    wrapper = etree.SubElement(body, E + "div")
+    wrapper.set("class", "ebookfix-contents")
+    heading = etree.SubElement(wrapper, E + "h2")
+    heading.set("style", "text-align: center;")
+    heading.text = CONTENTS_PAGE_TITLE
+
+    page_dir = posixpath.dirname(page_href) or "."
+
+    def render(parent, items: list, nested: bool) -> None:
+        ul = etree.SubElement(parent, E + "ul")
+        ul.set("style", "list-style-type: none; margin: 0; padding-left: 1.5em;" if nested
+               else "list-style-type: none; margin: 1em 0 0 0; padding: 0;")
+        for label, target, kids in items:
+            li = etree.SubElement(ul, E + "li")
+            li.set("style", "margin: 0.3em 0;")
+            a = etree.SubElement(li, E + "a")
+            path, _, fragment = target.partition("#")
+            a.set("href", posixpath.relpath(path, page_dir) + ("#" + fragment if fragment else ""))
+            a.text = label
+            if kids:
+                render(li, kids, True)
+
+    render(wrapper, entries, False)
+    return html
+
+
+def _insert_contents_toc_entry(book, new_chapter, order: dict) -> None:
+    """Lists the new contents page in the book's own contents list (NCX
+    and nav), just before the first top-level entry that comes after it in
+    the reading order (at the end when there is none)."""
+    position = order[new_chapter.href]
+
+    ncx = book.ncx_document
+    nav_map = ncx.find(f"{{{NCX_NS}}}navMap") if ncx is not None else None
+    if nav_map is not None:
+        base = posixpath.dirname(book.ncx_href) or "."
+        taken = {p.get("id") for p in ncx.iter(f"{{{NCX_NS}}}navPoint")}
+        point = etree.Element(f"{{{NCX_NS}}}navPoint")
+        point.set("id", _unique("navpoint-contents", taken))
+        label = etree.SubElement(point, f"{{{NCX_NS}}}navLabel")
+        etree.SubElement(label, f"{{{NCX_NS}}}text").text = CONTENTS_PAGE_TITLE
+        etree.SubElement(point, f"{{{NCX_NS}}}content").set("src", posixpath.relpath(new_chapter.href, base))
+        before = None
+        for existing in nav_map.findall(f"{{{NCX_NS}}}navPoint"):
+            content = existing.find(f"{{{NCX_NS}}}content")
+            page = _resolve(book.ncx_href, content.get("src", "")) if content is not None else ""
+            if order.get(page, -1) > position:
+                before = existing
+                break
+        if before is not None:
+            before.addprevious(point)
+        else:
+            nav_map.append(point)
+        for number, each in enumerate(nav_map.iter(f"{{{NCX_NS}}}navPoint"), start=1):
+            each.set("playOrder", str(number))
+        book.ncx_modified = True
+
+    ol = _toc_ol_of(book.nav_chapter)
+    if ol is not None and book.nav_item is not None:
+        namespace = etree.QName(ol).namespace
+        tag = (lambda name: f"{{{namespace}}}{name}") if namespace else (lambda name: name)
+        li = etree.Element(tag("li"))
+        a = etree.SubElement(li, tag("a"))
+        a.set("href", posixpath.relpath(new_chapter.href, posixpath.dirname(book.nav_item.href) or "."))
+        a.text = CONTENTS_PAGE_TITLE
+        before = None
+        for existing in ol:
+            if not (isinstance(existing.tag, str) and _local(existing) == "li"):
+                continue
+            link = next((c for c in existing if isinstance(c.tag, str) and _local(c) == "a"), None)
+            page = _resolve(book.nav_item.href, link.get("href", "")) if link is not None else ""
+            if order.get(page, -1) > position:
+                before = existing
+                break
+        if before is not None:
+            before.addprevious(li)
+        else:
+            ol.append(li)
+        book.nav_chapter.modified = True
+
+
+def _ensure_contents_page(book, nav_href, keep: set, anchor_href: str) -> int:
+    """Gives a split book that has no contents page one of its own: a
+    "Table of Contents" page listing the book's entries, placed just before
+    the book's own title page (`anchor_href`), or before its first own page
+    when that title page is not known. Returns the number of entries on the
+    new page, or 0 when nothing was added (the book already has a contents
+    page, or has fewer than three entries to list)."""
+    if _has_contents_page(book, nav_href):
+        return 0
+    own = [c for c in book.chapters if c.href in keep and c.href != nav_href and c.document is not None]
+    if not own:
+        return 0
+    anchor = next((c for c in own if c.href == anchor_href), own[0])
+
+    order = {c.href: i for i, c in enumerate(book.chapters)}
+    entries = _contents_entries(_current_toc(book), order, order[anchor.href])
+    if _count_entries(entries) < _MIN_CONTENTS_ENTRIES:
+        return 0
+
+    taken_hrefs = {m.href for m in book.manifest}
+    taken_ids = {m.id for m in book.manifest}
+    anchor_path = PurePosixPath(anchor.href)
+    href = _unique(str(anchor_path.with_name("table_of_contents.xhtml")), taken_hrefs)
+    new_id = _unique("ebookfix-contents", taken_ids)
+
+    head_links = []
+    for el in anchor.document.iter():
+        if isinstance(el.tag, str) and _local(el) == "link" and "stylesheet" in (el.get("rel") or "").lower():
+            link = copy.deepcopy(el)
+            link.tail = None
+            head_links.append(link)
+
+    root = _contents_page_root(getattr(book.metadata, "title", "") or CONTENTS_PAGE_TITLE, entries, href, head_links)
+    chapter = Chapter(
+        id=new_id, href=href, media_type="application/xhtml+xml", title=CONTENTS_PAGE_TITLE,
+        document=root, modified=True,
+    )
+
+    manifest_el = book.opf_document.find(f"{{{OPF_NS}}}manifest")
+    item_el = etree.SubElement(manifest_el, f"{{{OPF_NS}}}item")
+    item_el.set("id", new_id)
+    item_el.set("href", href)
+    item_el.set("media-type", "application/xhtml+xml")
+    book.manifest.append(ManifestItem(id=new_id, href=href, media_type="application/xhtml+xml", properties=""))
+    book.chapters.insert(book.chapters.index(anchor), chapter)
+    _spine_insert(book, [chapter], anchor.id, after=False)
+
+    order = {c.href: i for i, c in enumerate(book.chapters)}
+    _insert_contents_toc_entry(book, chapter, order)
+    book.opf_modified = True
+    return _count_entries(entries)
+
+
+# ---------------------------------------------------------------------
 # Renumbering the notes on a notes page a book kept part of
 # ---------------------------------------------------------------------
 
@@ -1230,7 +1524,8 @@ def _renumber_notes(book, page_href: str) -> int:
 def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list, out_path: Path, title: str, uid: str,
                shared: dict | None = None, isbn: str = "", front: list | None = None, back: list | None = None,
                notes_pages: list | None = None, series_name: str = "",
-               series_number: float | None = None) -> SplitOutput:
+               series_number: float | None = None, anchor_href: str = "",
+               contents_page: bool = True) -> SplitOutput:
     """Loads a fresh copy of the omnibus and cuts it down to one book."""
     book = EPUBParser().load(source)
     keep = set(hrefs[index])
@@ -1262,6 +1557,7 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
     if not toc_entries:
         toc_entries = _rebuild_toc_from_chapters(book, nav_href)
     _add_toc_entries(book, front_entries, back_entries)
+    contents_entries = _ensure_contents_page(book, nav_href, keep, anchor_href) if contents_page else 0
     book.mark_modified()
 
     EPUBWriter().save(book, out_path)
@@ -1282,6 +1578,7 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
         front_copies=front_copies,
         back_copies=back_copies,
         notes_renumbered=renumbered,
+        contents_page=contents_entries,
         series=labeled_series,
         series_number=labeled_number,
     )
@@ -1523,7 +1820,7 @@ def plan_names(source: Path, analysis: OmnibusAnalysis) -> list:
 
 
 def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: bool = False, log=None,
-                  series: str = "", series_start: float = 1) -> SplitResult:
+                  series: str = "", series_start: float = 1, contents_page: bool = True) -> SplitResult:
     """Detects the books in `source` and writes one EPUB per book into
     `out_dir` (the source's own folder by default).
 
@@ -1532,7 +1829,9 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
     `allow_medium` is True. `dry_run` reports the plan and writes
     nothing. `log` is an optional function that receives progress
     lines. `series` (optional) names the series every book belongs to;
-    the books are then numbered in order starting at `series_start`."""
+    the books are then numbered in order starting at `series_start`.
+    `contents_page` (on by default) gives each book that has no contents
+    page of its own a "Table of Contents" page."""
     say = log or (lambda _line: None)
     source = Path(source)
     out_dir = Path(out_dir) if out_dir else source.parent
@@ -1566,6 +1865,11 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
     titles = [t for t in (_norm(nice_title(b.title)) for b in analysis.books) if len(t) >= 6]
     isbns = find_book_isbns(book, hrefs, omnibus_front | set(result.back_pages) | excluded, titles)
     total = len(plan)
+    chapter_hrefs = [c.href for c in book.chapters]
+    title_hrefs = {
+        n: (chapter_hrefs[ob.title_index] if 0 <= ob.title_index < len(chapter_hrefs) else "")
+        for n, ob in enumerate(analysis.books, start=1)
+    }
 
     def describe(number: int, title: str, name: str, **extra) -> SplitOutput:
         return SplitOutput(
@@ -1604,6 +1908,8 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
             notes_pages=notes_pages,
             series_name=(series or "").strip(),
             series_number=(series_start + number - 1) if (series or "").strip() else None,
+            anchor_href=title_hrefs.get(number, ""),
+            contents_page=contents_page,
         )
         output.problems = verify_output(out_path)
         result.outputs.append(output)

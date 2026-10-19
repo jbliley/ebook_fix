@@ -701,10 +701,14 @@ _BACK_GROUP = [
     MatterLabel.AFTERWORD, MatterLabel.ABOUT_AUTHOR, MatterLabel.COLOPHON, MatterLabel.BACK_MATTER,
 ]
 _MAIN_GROUP = [MatterLabel.MAIN_CONTENT]
+# Pages that are not part of the book itself. They can sit at the front or
+# the back, so they get a group of their own at the bottom of the list.
+_EXTRA_GROUP = [MatterLabel.ADVERTISEMENT, MatterLabel.NEWSLETTER, MatterLabel.BOOKS_BY]
 FRONTMATTER_LABEL_GROUPS = [
     ("Front of the book", [(l.value, l.value.title()) for l in _FRONT_GROUP]),
     ("Main story", [(l.value, l.value.title()) for l in _MAIN_GROUP]),
     ("Back of the book", [(l.value, l.value.title()) for l in _BACK_GROUP]),
+    ("Extra pages (not part of the book)", [(l.value, l.value.title()) for l in _EXTRA_GROUP]),
 ]
 assert {v for _g, items in FRONTMATTER_LABEL_GROUPS for v, _d in items} == {v for v, _d in FRONTMATTER_LABEL_CHOICES}
 

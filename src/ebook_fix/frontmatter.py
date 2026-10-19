@@ -48,6 +48,18 @@ This is deliberately narrow and pattern-based, not exhaustive -- it
 will miss unusual title pages and odd dedications, and that's fine.
 Anything it doesn't recognize keeps a lower confidence rather than a
 label it isn't sure of.
+
+Extra pages (added 2026-10-18)
+-------------------------------
+Three more labels name pages that are not part of the book itself:
+advertisement, newsletter sign-up and "books by the author". They are
+descriptive only (nothing removes a page on the strength of them yet;
+see docs/backmatter_cleanup_plan.md). They are looked for only on pages
+in the front or back zone, never in the main story, and only after every
+older label has had its chance: a page that already reads as About the
+Author or Copyright keeps that label even if it also mentions a
+newsletter. Each check is conservative about length (an ad or sign-up
+is short) and asks for more than one signal before it says "high".
 """
 
 from __future__ import annotations
@@ -84,6 +96,12 @@ class MatterLabel(Enum):
     # A preview of another book ("Turn the page for an exciting preview
     # of ...") after the story. Back matter: not part of this book.
     TEASER_CHAPTER = "teaser chapter"
+    # Pages that are not part of the book itself (see the "Extra pages"
+    # note at the top of this file). They can sit at the front or the
+    # back; the zone found from position stays what the page says.
+    ADVERTISEMENT = "advertisement"
+    NEWSLETTER = "newsletter sign-up"
+    BOOKS_BY = "books by the author"
     MAIN_CONTENT = "main content"
     # A bare Prologue/Epilogue -- Jacob's call (docs/analysis_roadmap.md):
     # these are unnumbered chapters of the main story, not front/back
@@ -103,7 +121,8 @@ FRONT_LABELS = {
 BACK_LABELS = {
     MatterLabel.ACKNOWLEDGMENTS, MatterLabel.AFTERWORD,
     MatterLabel.ABOUT_AUTHOR, MatterLabel.COLOPHON, MatterLabel.BACK_MATTER,
-    MatterLabel.TEASER_CHAPTER,
+    MatterLabel.TEASER_CHAPTER, MatterLabel.ADVERTISEMENT, MatterLabel.NEWSLETTER,
+    MatterLabel.BOOKS_BY,
 }
 
 
@@ -174,6 +193,107 @@ def _looks_like_teaser(text: str) -> bool:
     return any(phrase in letters for phrase in _TEASER_PHRASES)
 
 
+# ---------------------------------------------------------------------
+# Extra pages: "books by", newsletter sign-ups, advertisements
+# ---------------------------------------------------------------------
+
+# A heading near the start of the page (searched in the first 160
+# characters, since many books repeat a running title above every page).
+# "Also by John Doe" is the author's own list and is "high"; the
+# publisher's version ("Also available from ...", "Be sure to read ...") is
+# the same kind of page but less certain, so it is "medium".
+_BOOKS_BY_HEADING_RE = re.compile(
+    r"\b(?:also by|books by|other books by|more books by|other titles by|titles by|novels by|"
+    r"other novels by|other works by|by the same author)\b",
+    re.IGNORECASE,
+)
+_BOOKS_BY_PUBLISHER_RE = re.compile(
+    r"\b(?:also available|other titles from|more titles from|more from|look for these|other books from|"
+    r"don'?t miss these|you may also enjoy|you might also enjoy|be sure to read)\b",
+    re.IGNORECASE,
+)
+_HEADING_WINDOW = 160
+_BOOKS_BY_MAX_WORDS = 500
+
+_NEWSLETTER_TOPIC_RE = re.compile(r"\bnewsletters?\b|\bmailing list\b|\be-?mail list\b")
+_NEWSLETTER_ACTION_RE = re.compile(r"\bsign(?:ing)? up\b|\bsubscribe\b|\bjoin (?:my|our|the|her|his|us)\b")
+_NEWSLETTER_EXTRA_RE = re.compile(
+    r"\be-?mail address\b|\bin your inbox\b|\bby e-?mail\b|\bunsubscribe\b|"
+    r"\bfree (?:e-?book|book|short story|novella|copy|gift)\b|\bgiveaways?\b|\bnew releases?\b"
+)
+_SOCIAL_RE = re.compile(r"\b(?:facebook|twitter|instagram|goodreads|tiktok|pinterest|youtube|bookbub)\b")
+_FOLLOW_RE = re.compile(r"\bfollow (?:me|us|the author|her|him)\b|\bconnect with\b|\bfind me\b|\bvisit (?:me|my)\b")
+_NEWSLETTER_HIGH_WORDS = 150
+_NEWSLETTER_MAX_WORDS = 250
+
+# Strong signals say "this page is selling something"; weak ones also turn
+# up in ordinary acknowledgments or notes, so they only count alongside a
+# strong one.
+_AD_STRONG = (
+    re.compile(r"\bbuy (?:now|it now|it today|this book|your copy|the e-?book)\b"),
+    re.compile(r"\bavailable (?:now )?(?:wherever|at|from|on) (?:books|e-?books|your favorite|major|all major|amazon|barnes|kindle|apple|kobo)"),
+    re.compile(r"\b(?:order|pre-?order) (?:your|a|the)? ?(?:copy|now|today)\b"),
+    re.compile(r"\b(?:discover|find) your next (?:great|favorite) (?:read|book)\b"),
+    re.compile(r"\bspecial offer\b|\bexclusive offer\b|\blimited[- ]time\b|\bsave \d+ ?%|\be-?book deals?\b"),
+    re.compile(r"\b(?:coming soon|on sale now|in stores now)\b"),
+    # A publisher promoting its own website or catalog.
+    re.compile(r"\bvisit (?:us|our) (?:web ?site|online|at)\b|\bonline catalog\b|\bour (?:web ?site|online catalog)\b"),
+)
+_AD_WEAK = (
+    re.compile(r"\b(?:amazon|barnes\s*&\s*noble|barnesandnoble|kobo|apple books|ibooks|google play|kindle store|audible)\b"),
+    re.compile(r"\bif you (?:enjoyed|liked|loved) this (?:book|story|novel)\b|\bloved this (?:book|story)\b"),
+    re.compile(r"\bleave (?:us |me )?a (?:review|rating)\b|\bwrite a review\b"),
+    re.compile(r"\bwww\.[a-z0-9-]+\.(?:com|net|org)\b|https?://"),
+)
+_AD_MAX_WORDS = 300
+_AD_SHORT_WORDS = 100
+
+
+def _extra_label_from_text(text: str, word_count: int):
+    """(label, confidence, reason) for a front/back page that is a "books by"
+    list, a newsletter sign-up or an advertisement, or None. Only ever
+    called on a page the older, more specific checks did not recognise."""
+    flat = " ".join(text.split())
+    if not flat:
+        return None
+    lower = flat.lower()
+
+    if word_count <= _BOOKS_BY_MAX_WORDS:
+        head = flat[:_HEADING_WINDOW]
+        if _BOOKS_BY_HEADING_RE.search(head):
+            return (MatterLabel.BOOKS_BY, "high",
+                    "opens with an \"Also by\" style heading and is a short list page")
+        if _BOOKS_BY_PUBLISHER_RE.search(head):
+            return (MatterLabel.BOOKS_BY, "medium",
+                    "opens like a publisher's list of other titles")
+
+    if word_count <= _NEWSLETTER_MAX_WORDS:
+        topic = bool(_NEWSLETTER_TOPIC_RE.search(lower))
+        action = bool(_NEWSLETTER_ACTION_RE.search(lower))
+        if topic and action:
+            extra = bool(_NEWSLETTER_EXTRA_RE.search(lower))
+            if extra and word_count <= _NEWSLETTER_HIGH_WORDS:
+                return (MatterLabel.NEWSLETTER, "high",
+                        "short page asking the reader to sign up to a newsletter or mailing list")
+            return (MatterLabel.NEWSLETTER, "medium",
+                    "asks the reader to sign up to a newsletter or mailing list")
+        if word_count <= _NEWSLETTER_HIGH_WORDS and len(set(_SOCIAL_RE.findall(lower))) >= 2 \
+                and _FOLLOW_RE.search(lower):
+            return (MatterLabel.NEWSLETTER, "medium",
+                    "short page of social media links asking the reader to follow the author")
+
+    if word_count <= _AD_MAX_WORDS:
+        strong = sum(1 for p in _AD_STRONG if p.search(lower))
+        weak = sum(1 for p in _AD_WEAK if p.search(lower))
+        if strong >= 1 and strong + weak >= 2:
+            return (MatterLabel.ADVERTISEMENT, "high",
+                    "short page that sells or promotes a book (buy, order or availability wording)")
+        if strong >= 1 and word_count <= _AD_SHORT_WORDS:
+            return (MatterLabel.ADVERTISEMENT, "medium",
+                    "very short page with selling wording")
+    return None
+
+
 # The standard "this is a work of fiction" boilerplate found on the
 # page right after the title page in most novels. Distinctive enough
 # wording (nobody writes "entirely/purely coincidental" about anything
@@ -222,6 +342,17 @@ HREF_HINTS = (
     ("aboutauthor", MatterLabel.ABOUT_AUTHOR),
     ("about-author", MatterLabel.ABOUT_AUTHOR),
     ("colophon", MatterLabel.COLOPHON),
+    # Added 2026-10-18. "adcard" is the name Penguin Random House uses
+    # for its "Also by this author" page.
+    ("newsletter", MatterLabel.NEWSLETTER),
+    ("adcard", MatterLabel.BOOKS_BY),
+    ("alsoby", MatterLabel.BOOKS_BY),
+    ("also-by", MatterLabel.BOOKS_BY),
+    ("also_by", MatterLabel.BOOKS_BY),
+    ("booksby", MatterLabel.BOOKS_BY),
+    ("books-by", MatterLabel.BOOKS_BY),
+    ("books_by", MatterLabel.BOOKS_BY),
+    ("advert", MatterLabel.ADVERTISEMENT),
 )
 
 
@@ -506,6 +637,8 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
             label = MatterLabel.TEASER_CHAPTER
             confidence = "medium"
             reason = "opens like a preview of another book"
+        elif zone in (FRONT_ZONE, BACK_ZONE) and (extra := _extra_label_from_text(text, word_count)) is not None:
+            label, confidence, reason = extra
         elif zone == FRONT_ZONE:
             label = MatterLabel.FRONT_MATTER
             confidence = "medium" if word_count <= SHORT_PAGE_WORD_THRESHOLD else "low"

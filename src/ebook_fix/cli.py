@@ -405,6 +405,11 @@ def build_parser():
         default=1,
         help="Series number of the first book (default 1). Only used with --series."
     )
+    split_omnibus.add_argument(
+        "--no-contents-page",
+        action="store_true",
+        help="Do not add a Table of Contents page to a new book that has none (added by default)."
+    )
 
     # Init-config
     init_config = sub.add_parser(
@@ -461,6 +466,7 @@ def main():
             log=print,
             series=args.series or "",
             series_start=args.series_start,
+            contents_page=not args.no_contents_page,
         )
         print(result.message)
         for page, source_book, target_book, links in result.moved_pages:
@@ -494,6 +500,8 @@ def main():
                     line += f", {output.back_copies} shared back matter pages copied in"
                 if output.notes_renumbered:
                     line += f", {output.notes_renumbered} notes renumbered from 1"
+                if output.contents_page:
+                    line += f", Table of Contents page added ({output.contents_page} entries)"
                 line += ")"
             else:
                 line += f"  ({output.pages} pages)"
