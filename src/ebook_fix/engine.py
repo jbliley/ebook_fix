@@ -53,7 +53,7 @@ from ebook_fix.modules.class_standardize import ClassStandardizeRepair, ClassMap
 from ebook_fix.modules.color_strip import ColorStripRepair
 from ebook_fix.modules.font_strip import FontStripRepair
 from ebook_fix.modules.gutenberg_repair import GutenbergRepair
-from ebook_fix.modules.extra_content_removal import ExtraContentRemoval
+from ebook_fix.modules.extra_content_removal import ExtraContentRemoval, survey as extra_content_survey
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.ellipsis import normalize_ellipsis_text
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
@@ -652,6 +652,8 @@ class Engine:
                             self.log(f"  • [{entry.zone}] {entry.href} - {entry.label} ({entry.confidence} confidence)")
             else:
                 self.log("Front/Back Matter: not classified (no confirmed chapter sequence to anchor on)")
+
+            self._log_extra_content(book, analysis_report, details)
 
             self.log("")
             self.header("[Typography Overview]")
@@ -1449,6 +1451,42 @@ class Engine:
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
+
+    def _log_extra_content(self, book, analysis_report, details: bool = False) -> None:
+        """The "Extra content" lines of the analyze report: each kind of
+        page that is not part of the book (advertisements, newsletter
+        sign-ups, teaser chapters, "Also by" lists, About the Author and
+        publisher pages), how many there are, and whether the current
+        settings remove them. Prints nothing when the book has none."""
+        try:
+            kinds = extra_content_survey(book, analysis_report, getattr(self.config, "extra_content_removal", None))
+        except Exception:
+            return  # a convenience report; never let it stop the analysis
+        if not kinds:
+            return
+        self.log("")
+        self.header("[Extra Content]")
+        for kind in kinds:
+            pages = kind["pages"]
+            word = kind["one"] if len(pages) == 1 else kind["many"]
+            going = sum(1 for page in pages if page["removed"])
+            if going == len(pages):
+                status = "will be removed"
+            elif going:
+                status = f"{going} will be removed, the rest kept (not sure enough yet)"
+            elif kind["on"]:
+                status = "kept (not sure enough yet; check the Review tab)"
+            else:
+                status = f"kept (turn on {kind['switch']} in the config file to remove)"
+            self.log(f"{len(pages)} {word}: {status}")
+            if details:
+                for page in pages:
+                    self.log(
+                        f"  \u2022 {page['href']} - {page['words']} words, {page['confidence']} confidence"
+                        f" - \"{page['first_words']}\""
+                    )
+        if not details:
+            self.log("  (run with --details to see each page)")
 
     def analyze_css(self, epub, output=None):
         """Analyze CSS for redundancy patterns, color usage, and unused classes.

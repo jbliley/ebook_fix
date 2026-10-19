@@ -1,6 +1,6 @@
 # Extra Content Removal: Plan
 
-**Status:** Step 1 (detection) and Step 2 (the removal module) built 2026-10-18; see "Step 1 results" and "Step 2 results" at the end. Out of the box only plain advertisements and the Project Gutenberg boilerplate are removed. Steps 3 and 4 are not started.
+**Status:** Steps 1 (detection), 2 (the removal module) and 3 (GUI and command line wiring, omnibus cleanup) are built; see "Step 1 results", "Step 2 results" and "Step 3 results" at the end. Out of the box only plain advertisements and the Project Gutenberg boilerplate are removed. Step 4 is not started.
 
 Jacob wants a way to remove pages that are not part of the main book: advertisements, newsletter sign-ups, teaser chapters, Project Gutenberg boilerplate and similar. He is torn about deleting original content, so the design is a set of switches, almost all of them off.
 
@@ -88,7 +88,7 @@ The splitter copies shared back matter (books by, newsletter, about the author) 
 
 1. **Detection only.** Add the new labels and their confidence rules to `frontmatter.py`, show them on the Overview and Review tabs, and test on the books in `examples/` and any real books Jacob uploads. No removal yet, so nothing can be lost.
 2. **Removal module (built 2026-10-18).** A page-removal repair with the settings above, the safety rules, the Removed list, and Gutenberg's switch brought under the same group. Ads and Gutenberg on, everything else off.
-3. **GUI and command line wiring.** The Overview box, the Review suggestions and the report.
+3. **GUI and command line wiring (built 2026-10-19).** The Overview box, the Review suggestions, the report and the omnibus cleanup.
 4. **Later:** removing an ad block at the bottom of the last chapter or on a copyright page (partial page removal), and removing ad pictures. These need more care and come only after pages are proven.
 
 ## Open questions
@@ -154,7 +154,36 @@ Its reading order and manifest entries, its guide reference, its entries in the 
 - Through the real GUI code: upload, Overview and Fix This Book on Law of the Mountain Man, with the Removed list shown on the result page.
 
 **Limits and open points**
-- The Overview "Extra content" box with checkboxes, Review suggestions for medium pages, and the command line report are step 3. Until then the switches are in the config file only.
-- The omnibus splitter still copies shared back matter into each split book, whatever these switches say. Running the cleanup on each split book is part of step 3.
+- (Both points above were closed in step 3: the Overview box, Review suggestions, command line report and omnibus cleanup now exist.)
 - Pre-existing label mistakes (a title page called "publisher info", a contents page called "about the author") are why those categories stay off by default and carry extra guards.
 - A book repaired with this module and with it off stops after the same 5 repair passes in Ravaged Land. That is existing behavior and unrelated to this step.
+
+## Step 3 results (2026-10-19)
+
+The switches and the pages they affect are now visible and changeable in the program, the command line reports them, and the omnibus splitter cleans each new book.
+
+**Overview: "Extra content" box**
+- Shown only when a book has extra pages. One row per kind found (advertisements, newsletter sign-ups, teaser chapters, "Also by" pages, About the Author pages, publisher pages), with a checkbox, the number of pages and a "Which pages?" list (file, words, confidence, first words).
+- Each checkbox starts at the config file's switch and is saved in the session as it is changed, like the repair checkboxes. It lasts for that book's session; the config file is not rewritten.
+- Only pages sure enough (`automatic_confidence`) are removed by a ticked kind. Pages that are less sure are marked "not removed on its own" and are decided on the Review tab.
+- The box header says how many pages were found and how many will be removed. The Extra Content Removal repair is ticked and unticked together with the boxes (ticking any kind that has sure pages ticks it, unticking all unticks it), so the Advanced list, the totals line and the Fix This Book summary always agree with the box. Its row was taken out of the Text and Typography box, since this box replaces it.
+- Project Gutenberg boilerplate stays where it was (the "Remove Project Gutenberg boilerplate" row in Text and Typography), not in this box.
+
+**Review tab**
+- A page labeled as an ad, newsletter sign-up, teaser chapter, "Also by" page, About the Author or publisher page that is not high confidence already appeared under Front/Back Matter. Each now has a "Remove this page when fixing" checkbox (off by default). It removes that one page even when its kind is switched off and its confidence is too low for automatic removal.
+- A person's label choice still wins: choosing a different label for a ticked page (main content, front matter, ...) keeps the page. The safety rules in the module (never a chapter, the contents page, a page inside the story, a page named like a title page and so on) still apply to a ticked page; the length limits and the About the Author and publisher text checks do not, since a person has looked at it.
+- Fix This Book also runs Extra Content Removal when any page is ticked, and always runs Dead Link Cleanup with it. This is needed in the program because the Overview counts dead links before the pages are gone, so Dead Link Cleanup would otherwise not be ticked and links to a removed page would be left behind (found while testing: the command line always ran both).
+
+**Command line**
+- `analyze` prints an "[Extra Content]" section after the front/back matter lines: each kind with its page count and "will be removed", "kept (turn on remove_x in the config file to remove)" or "kept (not sure enough yet; check the Review tab)". `--details` lists every page with its file, words, confidence and first words.
+- `repair` already lists removed pages in its report; the settings come from the config file, as decided.
+
+**Omnibus splitter**
+- `split_omnibus` takes the config. After each new book is written, Extra Content Removal runs on it, and links to any removed page are cleaned up as in the splitter itself. With the default switches only ads are affected; with books by, newsletter and About the Author switched on, the shared back matter copied into every book goes again. With those switches off the copies stay, as decided on 2026-10-16.
+- The command line and the Overview's split button both pass the config. The split result lists the extra pages removed from each book.
+
+**Tested**
+- All 23 EPUBs in `examples/` load through the Overview, Review and fix-state pages with no errors. The box appears only on books that have extra pages.
+- Planning is unchanged from step 2: defaults remove only the Pinnacle ad in the two Law of the Mountain Man copies; everything on with `automatic_confidence = "medium"` plans the same pages as before (the two Renshai lists, the two Ravaged Land "Books By" pages and its About the Author page).
+- Through the real GUI code: Ravaged Land with "Also by" ticked removed exactly its two "Books By" pages and kept the About the Author page, and the fixed book has no dead links; Law of the Mountain Man removes its ad by default and keeps it when unticked; the Renshai medium-confidence list is kept until "Remove this page" is ticked on the Review tab, then removed, while its high-confidence list stays (switched off).
+- Omnibus (Ravaged Land) with the three switches on: each of the two new books loses the three shared back pages and still checks out (manifest, reading order, contents and links all resolve); at defaults nothing is removed, the same as before.

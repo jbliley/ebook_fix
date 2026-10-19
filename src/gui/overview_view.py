@@ -54,7 +54,7 @@ BOXES = [
             "Possessive Candidates", "Possible Truncation",
         ],
         "modules": [
-            "gutenberg_repair", "extra_content_removal", "running_title_repair", "linebreak_repair", "paragraph_repair",
+            "gutenberg_repair", "running_title_repair", "linebreak_repair", "paragraph_repair",
             "scene_break_repair", "scene_opener_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "whitespace_repair",
         ],
     },
@@ -187,6 +187,34 @@ def extra_page_summary(ar) -> str:
     """One line for the Overview, such as "2 advertisements, 1 newsletter
     sign-up". Empty when the book has none."""
     return ", ".join(_plural(count, singular, plural) for singular, plural, count in extra_page_counts(ar))
+
+
+def build_extra_content(kinds, needed_rank: int) -> dict:
+    """The Overview's "Extra content" box, as plain data: one entry per
+    kind of page that is not part of the book that this book has.
+    `kinds` is modules.extra_content_removal.survey(); `needed_rank` is
+    the confidence a page needs to be removed without a person looking
+    (2 high, 1 medium). "sure" counts the pages that reach it; the rest
+    are only suggestions, decided on the Review tab. Whether a kind is
+    switched on is worked out when the page is shown (a person's own
+    choices live in the session, not in this cached data)."""
+    from ebook_fix.modules.extra_content_removal import rank_of
+
+    categories = []
+    for kind in kinds:
+        pages = [
+            {
+                "href": p["href"], "confidence": p["confidence"], "words": p["words"],
+                "first_words": p["first_words"], "sure": rank_of(p["confidence"]) >= needed_rank,
+            }
+            for p in kind["pages"]
+        ]
+        categories.append({
+            "switch": kind["switch"], "one": kind["one"], "many": kind["many"],
+            "default_on": bool(kind["on"]), "count": len(pages),
+            "sure": sum(1 for p in pages if p["sure"]), "pages": pages,
+        })
+    return {"categories": categories}
 
 
 def _build_facts(ar, module_reports) -> list:

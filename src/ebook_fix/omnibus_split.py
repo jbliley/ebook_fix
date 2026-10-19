@@ -130,6 +130,7 @@ class SplitOutput:
     front_copies: int = 0               # shared front matter pages copied into this book
     back_copies: int = 0                # shared back matter pages copied into this book
     notes_renumbered: int = 0           # notes renumbered to start again at 1
+    extra_removed: list = field(default_factory=list)   # extra pages taken out afterward ("kind: first words")
     contents_page: int = 0              # entries on a contents page made for this book (0 when it had one already)
     series: str = ""                  # series this book was labeled with (name only when no position known)
     series_number: float | None = None  # its position in that series, when known
@@ -1590,6 +1591,34 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
     )
 
 
+def _clean_extra_content(path: Path, config) -> tuple:
+    """Runs Extra Content Removal on one finished book, so the shared back
+    matter copied into it (books by, newsletter, about the author) goes
+    again when those kinds are switched on. Does nothing, and leaves the
+    file untouched, when the switches remove nothing. Returns (list of
+    "kind: first words" lines, words removed)."""
+    settings = getattr(config, "extra_content_removal", None)
+    if settings is None or not getattr(settings, "enabled", True):
+        return [], 0
+    # Imported here: the module itself imports this file's page helpers.
+    from ebook_fix.analyzer import EPUBAnalyzer
+    from ebook_fix.modules.extra_content_removal import ExtraContentRemoval
+
+    book = EPUBParser().load(path)
+    module = ExtraContentRemoval(settings)
+    module.repair(book, EPUBAnalyzer().analyze(book))
+    removed = module.last_removed
+    if not removed:
+        return [], 0
+    _handle_dead_links(book, {entry["href"] for entry in removed})
+    book.mark_modified()
+    EPUBWriter().save(book, path)
+    return (
+        [f"{entry['kind']}: {entry['first_words']}" for entry in removed],
+        sum(entry["words"] for entry in removed),
+    )
+
+
 def _remove_extra_page_breaks(book) -> None:
     """Splitting can leave a forced page break as the last thing in a
     book's file (the break that used to separate it from the next book's
@@ -1826,7 +1855,8 @@ def plan_names(source: Path, analysis: OmnibusAnalysis) -> list:
 
 
 def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: bool = False, log=None,
-                  series: str = "", series_start: float = 1, contents_page: bool = True) -> SplitResult:
+                  series: str = "", series_start: float = 1, contents_page: bool = True,
+                  config=None) -> SplitResult:
     """Detects the books in `source` and writes one EPUB per book into
     `out_dir` (the source's own folder by default).
 
@@ -1837,7 +1867,9 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
     lines. `series` (optional) names the series every book belongs to;
     the books are then numbered in order starting at `series_start`.
     `contents_page` (on by default) gives each book that has no contents
-    page of its own a "Table of Contents" page."""
+    page of its own a "Table of Contents" page. `config` (optional, as
+    from load_config) lets the Extra Content Removal switches clean each
+    new book afterward; without it the shared back matter stays."""
     say = log or (lambda _line: None)
     source = Path(source)
     out_dir = Path(out_dir) if out_dir else source.parent
@@ -1917,6 +1949,12 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
             anchor_href=title_hrefs.get(number, ""),
             contents_page=contents_page,
         )
+        if config is not None:
+            lines, words = _clean_extra_content(out_path, config)
+            if lines:
+                output.extra_removed = lines
+                output.pages -= len(lines)
+                output.words -= words
         output.problems = verify_output(out_path)
         result.outputs.append(output)
 

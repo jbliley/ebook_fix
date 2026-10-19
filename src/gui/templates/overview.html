@@ -157,6 +157,33 @@
 </details>
 {% endfor %}
 
+{% if ov.extra_state %}
+<details class="ov-box">
+  <summary>
+    <span class="ov-dot"></span>
+    <span class="ov-box-title">Extra content</span>
+    <span class="ov-box-summary">{{ ov.extra_summary }}</span>
+  </summary>
+  <div class="ov-box-body">
+    <p class="details-toggle">Pages that are not part of the book itself. Tick a kind to remove those pages when you click Fix This Book; your choices are remembered as you make them. Only pages the tool is sure about are removed; a page it is less sure about is kept unless you tick it on the <a href="{{ url_for('book_review', session_id=session_id) }}">Review tab</a>. Pages that are part of the book (cover, title page, copyright, chapters and so on) are never removed.</p>
+    {% for cat in ov.extra_state %}
+    <div class="ov-fix">
+      <div>
+        <label style="display:inline; font-weight:normal; margin:0;">
+          <input type="checkbox" class="ov-check extra-check" data-switch="{{ cat.switch }}" data-sure="{{ cat.sure }}" {% if cat.on %}checked{% endif %}>Remove {{ cat.count }} {{ cat.one if cat.count == 1 else cat.many }}</label>
+        {% if cat.sure < cat.count %}<span class="ov-off">({{ cat.sure }} sure enough to remove, {{ cat.count - cat.sure }} left for you to decide on the Review tab)</span>{% endif %}
+        <details class="ov-inner">
+          <summary>Which pages?</summary>
+          <ul>{% for page in cat.pages %}<li><code>{{ page.href }}</code>: {{ page.words }} words, {{ page.confidence }} confidence{% if not page.sure %} (not removed on its own){% endif %}, &ldquo;{{ page.first_words }}&rdquo;</li>{% endfor %}</ul>
+        </details>
+      </div>
+      <div>{{ cat.count }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
 <details class="ov-box">
   <summary>
     <span class="ov-dot"></span>
@@ -237,6 +264,55 @@
     return pending ? save() : (inflight || Promise.resolve());
   };
   updateTotals();
+})();
+
+// Extra content: each kind of page is its own checkbox, saved as it
+// changes. Ticking any kind that has pages sure enough to remove also
+// ticks the Extra Content Removal repair (the one that does the work),
+// and unticking them all unticks it, so the two never disagree.
+(function() {
+  var kinds = Array.prototype.slice.call(document.querySelectorAll(".extra-check"));
+  if (!kinds.length) return;
+  var url = "{{ url_for('save_extra_content', session_id=session_id) }}";
+  var masters = Array.prototype.slice.call(document.querySelectorAll('.mod-check[data-module="extra_content_removal"]'));
+  var inflight = null, queued = false;
+
+  function save() {
+    if (inflight) { queued = true; return inflight; }
+    var fd = new FormData();
+    kinds.forEach(function(k) { fd.append(k.dataset.switch, k.checked ? "1" : "0"); });
+    inflight = fetch(url, { method: "POST", body: fd, headers: { "X-Requested-With": "fetch" } })
+      .then(function() { document.dispatchEvent(new Event("ebook:state-changed")); })
+      .catch(function() {})
+      .then(function() {
+        inflight = null;
+        if (queued) { queued = false; return save(); }
+      });
+    return inflight;
+  }
+
+  kinds.forEach(function(k) {
+    k.addEventListener("change", function() {
+      var going = 0;
+      kinds.forEach(function(o) { if (o.checked) going += Number(o.dataset.sure) || 0; });
+      masters.forEach(function(m) { m.dataset.count = going; });
+      if (masters.length) {
+        var want = going > 0;
+        if (masters[0].checked !== want) {
+          masters[0].checked = want;
+          masters[0].dispatchEvent(new Event("change"));   // syncs the other copy, the totals and the save
+        } else {
+          masters[0].dispatchEvent(new Event("change"));
+        }
+      }
+      save();
+    });
+  });
+
+  var previous = window.flushPendingSaves;
+  window.flushPendingSaves = function() {
+    return Promise.all([inflight || Promise.resolve(), previous ? previous() : Promise.resolve()]);
+  };
 })();
 </script>
 {% endblock %}

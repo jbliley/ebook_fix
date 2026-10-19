@@ -197,6 +197,14 @@
             {% endfor %}
           </select>
         </div>
+        {% if item.removable %}
+        <div style="margin-top:0.5rem;">
+          <label style="display:inline; font-weight:normal;">
+            <input type="checkbox" name="rm_{{ item.href }}" value="1" {% if item.remove %}checked{% endif %}>
+            Remove this page when fixing (it looks like {{ item.kind }}, but the tool is not sure enough to remove it on its own; it is kept unless you tick this)
+          </label>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>

@@ -95,7 +95,9 @@ from ebook_fix.modules.author_initials_repair import AuthorInitialsRepair
 from ebook_fix.modules.title_cleanup_repair import TitleCleanupRepair
 from ebook_fix.modules.whitespace import WhitespaceRepair
 from ebook_fix.modules.gutenberg_repair import GutenbergRepair
-from ebook_fix.modules.extra_content_removal import ExtraContentRemoval
+from ebook_fix.modules.extra_content_removal import (
+    EXTRA_LABELS, SWITCH_NAMES, ExtraContentRemoval, kind_of, survey as extra_content_survey,
+)
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
@@ -424,6 +426,38 @@ def _staged_modules_path(session_dir: Path) -> Path:
     return session_dir / "staged_modules.json"
 
 
+def _staged_extra_path(session_dir: Path) -> Path:
+    """Which kinds of extra page (ads, newsletter sign-ups ...) the person
+    has ticked or unticked in the Overview's "Extra content" box:
+    {"remove_advertisements": true, ...}. A kind that is absent follows
+    the config file."""
+    return session_dir / "staged_extra.json"
+
+
+def _extra_choices(session_dir: Path) -> dict:
+    staged = _read_staged(_staged_extra_path(session_dir)) or {}
+    return {k: bool(v) for k, v in staged.items() if k in SWITCH_NAMES}
+
+
+def _extra_state(ov: dict, choices: dict) -> list:
+    """The Extra content categories as the Overview shows them: each with
+    `on` (the person's choice, else the config file's) and the pages that
+    would go (`going`, those sure enough)."""
+    out = []
+    for cat in (ov.get("extra") or {}).get("categories", []):
+        on = choices.get(cat["switch"], cat["default_on"])
+        out.append(dict(cat, on=on, going=cat["sure"] if on else 0))
+    return out
+
+
+def _module_counts(session_dir: Path, ov: dict) -> dict:
+    """Changes found per repair, with Extra Content Removal's count
+    following the kinds of page currently ticked."""
+    counts = {m["attr"]: m["count"] for m in ov["advanced"]}
+    counts["extra_content_removal"] = sum(c["going"] for c in _extra_state(ov, _extra_choices(session_dir)))
+    return counts
+
+
 def _split_mapping_path(session_dir: Path) -> Path:
     """Original href -> list of resulting hrefs, written by
     apply_repair() whenever a staged split actually runs -- see the
@@ -680,6 +714,11 @@ def _frontmatter_review_groups(book):
             "confidence": m.confidence,
             "reason": m.reason,
             "preview": preview,
+            # A page that looks like an ad, a sign-up, a teaser or similar
+            # can be removed from here, when it is not sure enough to go
+            # on its own (see modules/extra_content_removal.py).
+            "removable": m.label in EXTRA_LABELS,
+            "kind": kind_of(m.label),
         })
     return items
 
@@ -910,9 +949,10 @@ def _overview_cache_key(session_dir: Path, config) -> str:
         f"{attr}={int(bool(getattr(getattr(config, attr), 'enabled', True)))}"
         for attr, _label in _REPAIR_MODULES
     )
-    # "v3" because the cached data gained omnibus (v2: safe_splits and review_visible);
-    # an older cache written without them is simply rebuilt.
-    return f"v3-{stat.st_mtime_ns}-{stat.st_size}-{enabled}"
+    # "v4" because the cached data gained the extra-content box (v3 gained omnibus,
+    # v2 safe_splits and review_visible); an older cache written without them is
+    # simply rebuilt.
+    return f"v4-{stat.st_mtime_ns}-{stat.st_size}-{enabled}"
 
 
 def _review_summary(book) -> dict:
@@ -1042,6 +1082,11 @@ def _compute_overview_data(session_dir: Path, filename: str, config, key: str, c
     )
     data["safe_splits"] = review["safe_splits"]
     data["review_visible"] = review["visible"]
+    # Every extra page the book has (ads, sign-ups, "Also by" lists ...),
+    # whether or not anything is switched on to remove it.
+    needed = 1 if config.extra_content_removal.automatic_confidence == "medium" else 2
+    kinds = extra_content_survey(book, analysis_report, config.extra_content_removal)
+    data["extra"] = overview_view.build_extra_content(kinds, needed)
     _set_progress("Checking whether this is several books in one\u2026")
     data["omnibus"] = _omnibus_card(book, _source_path(session_dir), filename)
     _set_progress("")
@@ -1078,6 +1123,7 @@ def split_omnibus_route(session_id):
             log=_set_progress,
             series=request.form.get("series", "").strip(),
             series_start=_series_start_from_form(request.form.get("series_start", "")),
+            config=load_config(None),
         )
     finally:
         _set_progress("")
@@ -1122,7 +1168,14 @@ def _default_module_selection(ov: dict) -> set:
     """Repairs ticked until the person changes a checkbox: on in the
     config file, something to do on this book, and not skipped by the
     fixed-layout guard (the same pre-check the old Repair tab used)."""
-    return {m["attr"] for m in ov["advanced"] if m["enabled"] and m["count"]}
+    # Extra Content Removal is ticked whenever the book has extra pages sure
+    # enough to remove: the kinds ticked in the Extra content box decide
+    # what it actually removes, and may be switched on after this default.
+    extra_possible = sum(c["sure"] for c in (ov.get("extra") or {}).get("categories", []))
+    return {
+        m["attr"] for m in ov["advanced"]
+        if m["enabled"] and (m["count"] or (m["attr"] == "extra_content_removal" and extra_possible))
+    }
 
 
 def _selected_modules(session_dir: Path, filename: str) -> set:
@@ -1140,6 +1193,25 @@ def book_overview(session_id):
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
     ov = dict(_overview_data(session_dir, filename))
     selected = _selected_modules(session_dir, filename)
+
+    # Extra content: the person's own ticks (else the config file's) decide
+    # what Extra Content Removal would remove, so its count and list follow them.
+    extra = _extra_state(ov, _extra_choices(session_dir))
+    going = [(c, p) for c in extra if c["on"] for p in c["pages"] if p["sure"]]
+    ov["extra_state"] = extra
+    ov["extra_summary"] = (
+        f"{sum(c['count'] for c in extra)} found, {len(going)} will be removed" if extra else ""
+    )
+    advanced = []
+    for m in ov["advanced"]:
+        if m["attr"] == "extra_content_removal":
+            m = dict(
+                m, count=len(going),
+                issues=[{"location": p["href"], "description": f"{c['one'].capitalize()} will be removed: \"{p['first_words']}\""} for c, p in going],
+                more=0,
+            )
+        advanced.append(m)
+    ov["advanced"] = advanced
 
     # The totals line follows what is ticked, not just the defaults.
     counts = {m["attr"]: m["count"] for m in ov["advanced"]}
@@ -1171,6 +1243,18 @@ def save_modules(session_id):
     return jsonify({"ok": True, "selected": len(selected)})
 
 
+@app.route("/book/<session_id>/extra-content", methods=["POST"])
+@_handle_missing_source
+def save_extra_content(session_id):
+    """Remembers which kinds of extra page are ticked in the Overview's
+    "Extra content" box (saved in the background as each box changes).
+    The form carries one field per kind, "1" for ticked and "0" for not."""
+    session_dir = _session_dir(session_id)
+    choices = {k: request.form.get(k) == "1" for k in SWITCH_NAMES if k in request.form}
+    _staged_extra_path(session_dir).write_text(json.dumps(choices), encoding="utf-8")
+    return jsonify({"ok": True})
+
+
 @app.route("/book/<session_id>/fix-state")
 @_handle_missing_source
 def fix_state(session_id):
@@ -1182,7 +1266,7 @@ def fix_state(session_id):
     filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
     ov = _overview_data(session_dir, filename)
     selected = _selected_modules(session_dir, filename)
-    counts = {m["attr"]: m["count"] for m in ov["advanced"]}
+    counts = _module_counts(session_dir, ov)
     repairs = sum(1 for attr in selected if counts.get(attr))
     changes = sum(counts.get(attr, 0) for attr in selected)
 
@@ -1193,7 +1277,7 @@ def fix_state(session_id):
     staged_review = staged_review_raw or {}
     has_review = any(
         staged_review.get(key)
-        for key in ("accepted_ids", "possessive_resolutions", "accepted_color_ids", "accepted_font_ids", "frontmatter_labels")
+        for key in ("accepted_ids", "possessive_resolutions", "accepted_color_ids", "accepted_font_ids", "frontmatter_labels", "extra_remove")
     )
     # Until the Review tab has saved anything, Fix splits at the safe
     # (pre-ticked) chapter boundaries on its own, which is something to do.
@@ -1420,6 +1504,7 @@ def book_review(session_id):
     staged_color_ids = set()
     staged_font_ids = set()
     staged_frontmatter_labels = {}
+    staged_extra_remove = set()
     if staged is not None:
         staged_ids = set(staged.get("accepted_ids", []))
         for group in groups:
@@ -1429,6 +1514,7 @@ def book_review(session_id):
         staged_color_ids = set(staged.get("accepted_color_ids", []))
         staged_font_ids = set(staged.get("accepted_font_ids", []))
         staged_frontmatter_labels = staged.get("frontmatter_labels", {})
+        staged_extra_remove = set(staged.get("extra_remove", []))
 
     for group in possessive_groups:
         for item in group["candidates"]:
@@ -1441,6 +1527,7 @@ def book_review(session_id):
             item["accepted"] = item["id"] in staged_font_ids
     for item in frontmatter_items:
         item["resolution"] = staged_frontmatter_labels.get(item["href"], "")
+        item["remove"] = item["href"] in staged_extra_remove
 
     return render_template(
         "review.html",
@@ -1484,12 +1571,16 @@ def _save_review_in_background(session_dir: Path):
         for key, value in form.items()
         if key.startswith("fm_") and value in valid_labels
     }
+    extra_remove = sorted(
+        key[len("rm_"):] for key, value in form.items() if key.startswith("rm_") and value == "1"
+    )
     staged = {
         "accepted_ids": sorted(accepted_ids),
         "possessive_resolutions": possessive_resolutions,
         "accepted_color_ids": sorted(set(form.getlist("color_accept"))),
         "accepted_font_ids": sorted(set(form.getlist("font_accept"))),
         "frontmatter_labels": frontmatter_labels,
+        "extra_remove": extra_remove,
     }
     _staged_review_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
 
@@ -1536,10 +1627,13 @@ def save_review(session_id):
 
     valid_labels = {value for value, _display in FRONTMATTER_LABEL_CHOICES}
     frontmatter_labels = {}
+    extra_remove = []
     for item in frontmatter_items:
         resolution = request.form.get(f"fm_{item['href']}", "")
         if resolution in valid_labels:
             frontmatter_labels[item["href"]] = resolution
+        if item["removable"] and request.form.get(f"rm_{item['href']}") == "1":
+            extra_remove.append(item["href"])
 
     # Just a preview of what would happen -- the actual split only
     # happens when the Repair tab applies everything. A file needs 2+
@@ -1563,6 +1657,7 @@ def save_review(session_id):
         "accepted_color_ids": sorted(accepted_color_ids),
         "accepted_font_ids": sorted(accepted_font_ids),
         "frontmatter_labels": frontmatter_labels,
+        "extra_remove": extra_remove,
     }
     _staged_review_path(session_dir).write_text(json.dumps(staged), encoding="utf-8")
 
@@ -1580,6 +1675,7 @@ def save_review(session_id):
             item["accepted"] = item["id"] in accepted_font_ids
     for item in frontmatter_items:
         item["resolution"] = frontmatter_labels.get(item["href"], "")
+        item["remove"] = item["href"] in extra_remove
 
     return render_template(
         "review.html",
@@ -1792,6 +1888,23 @@ def fix_book(session_id):
     metadata_sync_enabled = config.metadata_repair.enabled
     for attr, _label in _REPAIR_MODULES:
         getattr(config, attr).enabled = attr in selected
+
+    # Extra content: the kinds ticked in the Overview's box replace the
+    # config file's switches for this run, and pages ticked "remove this
+    # page" on the Review tab are removed even when not sure enough to go
+    # on their own (which also means the repair must run).
+    for switch, value in _extra_choices(session_dir).items():
+        setattr(config.extra_content_removal, switch, value)
+    review_choices = _read_staged(_staged_review_path(session_dir)) or {}
+    remove_by_hand = list(review_choices.get("extra_remove", []))
+    config.extra_content_removal.remove_pages = remove_by_hand
+    if remove_by_hand:
+        config.extra_content_removal.enabled = True
+    # Removing a page leaves links to it behind, and Overview could not
+    # have counted them as dead before the page went. Dead Link Cleanup
+    # therefore runs whenever Extra Content Removal does.
+    if config.extra_content_removal.enabled:
+        config.dead_link_repair.enabled = True
 
     book = EPUBParser().load(_source_path(session_dir))
 

@@ -74,6 +74,32 @@ _CATEGORIES = {
     MatterLabel.COLOPHON.value: ("remove_publisher_pages", "publisher page"),
 }
 
+# The switches in the order the GUI and the command line show them, with
+# the plain words used for each kind of page (singular, plural).
+CATEGORY_SWITCHES = (
+    ("remove_advertisements", "advertisement", "advertisements"),
+    ("remove_newsletter_signups", "newsletter sign-up", "newsletter sign-ups"),
+    ("remove_teaser_chapters", "teaser chapter", "teaser chapters"),
+    ("remove_books_by_author", "\"Also by\" page", "\"Also by\" pages"),
+    ("remove_about_author", "About the Author page", "About the Author pages"),
+    ("remove_publisher_pages", "publisher page", "publisher pages"),
+)
+SWITCH_NAMES = {switch for switch, _one, _many in CATEGORY_SWITCHES}
+
+
+# Labels that can be removed at all, and the plain name of each kind.
+EXTRA_LABELS = frozenset(_CATEGORIES)
+
+
+def kind_of(label: str) -> str:
+    return _CATEGORIES[label][1] if label in _CATEGORIES else ""
+
+
+def rank_of(confidence: str) -> int:
+    """0 low, 1 medium, 2 high."""
+    return _CONFIDENCE_RANK.get(confidence, 0)
+
+
 # Longest page (in words) each kind may be and still be removed. A teaser
 # chapter can be long, so it has no limit; it needs its explicit preview
 # wording instead (the label itself requires that).
@@ -122,12 +148,31 @@ def _without_entries(entries, removed: set):
     return kept
 
 
+def survey(book, analysis, config=None) -> list:
+    """What extra pages a book has, grouped by kind, for the Overview and
+    the command line report. [{"switch", "one", "many", "on", "pages"}] in
+    the fixed order of CATEGORY_SWITCHES, only kinds the book has. "on" is
+    the config switch; each page says whether the current settings would
+    remove it ("removed") and how many words it has. Nothing is changed."""
+    module = ExtraContentRemoval(config)
+    entries = module.candidates(book, analysis)
+    out = []
+    for switch, one, many in CATEGORY_SWITCHES:
+        pages = [dict(e, removed=module.will_remove(e)) for e in entries if e["switch"] == switch]
+        if pages:
+            out.append({"switch": switch, "one": one, "many": many, "on": module._switch(switch), "pages": pages})
+    return out
+
+
 class ExtraContentRemoval:
     name = "Extra Content Removal"
 
     def __init__(self, config=None):
         self.config = config
         self._handled_book = None
+        # The pages the last repair() took out (dicts as in candidates()),
+        # for callers that want more than the report's text.
+        self.last_removed = []
 
     # -----------------------------------------------------
     # Settings
@@ -148,9 +193,21 @@ class ExtraContentRemoval:
     # Deciding what to remove
     # -----------------------------------------------------
 
-    def _plan(self, book, analysis):
-        """List of dicts, one per page to remove. Empty when nothing
-        qualifies or the book's chapters were not confirmed."""
+    def _forced(self) -> set:
+        """Pages a person ticked "remove this page" for on the Review tab."""
+        if self.config is None:
+            return set()
+        return set(getattr(self.config, "remove_pages", None) or [])
+
+    def candidates(self, book, analysis):
+        """Every page that could be removed if its switch were on and its
+        label were sure enough: right kind of page, in the right place,
+        the right size, and not protected by a safety rule. Ignores the
+        switches and the confidence setting (the caller decides those), so
+        the Overview and the command line report can show what a book has
+        even when nothing will be removed. Pages labeled low are left out
+        unless a person asked for them. Each entry says which switch
+        controls it and whether a person asked for it by hand."""
         if not self._enabled() or analysis is None:
             return []
         matter = getattr(analysis, "frontmatter", None)
@@ -168,14 +225,15 @@ class ExtraContentRemoval:
 
         nav_hrefs = {m.href for m in book.manifest if "nav" in (m.properties or "").split()}
         by_href = {c.href: c for c in ordered}
-        needed = self._needed_rank()
+        forced = self._forced()
 
-        plan = []
+        found = []
         for item in matter.chapters:
             category = _CATEGORIES.get(item.label)
-            if category is None or not self._switch(category[0]):
+            if category is None:
                 continue
             href = item.href
+            by_hand = href in forced
             chapter = by_href.get(href)
             if chapter is None or chapter.document is None:
                 continue
@@ -183,7 +241,7 @@ class ExtraContentRemoval:
                 continue
             if _BOOK_PART_NAME.search(posixpath.basename(href)):
                 continue
-            if _CONFIDENCE_RANK.get(item.confidence, 0) < needed:
+            if rank_of(item.confidence) < 1 and not by_hand:
                 continue
             index = order.index(href)
             if first <= index <= last:
@@ -192,25 +250,41 @@ class ExtraContentRemoval:
                 continue
             text = " ".join(_chapter_text(chapter).split())
             words = len(text.split())
-            limit = _MAX_WORDS.get(item.label)
-            if words == 0 or (limit is not None and words > limit):
+            if words == 0:
                 continue
-            if item.label == MatterLabel.ABOUT_AUTHOR.value and not _ABOUT_HEADING.search(text[:200]):
-                continue
-            if item.label in (MatterLabel.PUBLISHER.value, MatterLabel.COLOPHON.value) and words < _MIN_PUBLISHER_WORDS:
-                continue
-            plan.append({
+            if not by_hand:
+                limit = _MAX_WORDS.get(item.label)
+                if limit is not None and words > limit:
+                    continue
+                if item.label == MatterLabel.ABOUT_AUTHOR.value and not _ABOUT_HEADING.search(text[:200]):
+                    continue
+                if item.label in (MatterLabel.PUBLISHER.value, MatterLabel.COLOPHON.value) and words < _MIN_PUBLISHER_WORDS:
+                    continue
+            found.append({
                 "href": href,
                 "label": item.label,
+                "switch": category[0],
                 "kind": category[1],
                 "confidence": item.confidence,
                 "words": words,
                 "first_words": text[:70] + ("..." if len(text) > 70 else ""),
                 "reason": item.reason,
+                "by_hand": by_hand,
             })
+        return found
 
+    def will_remove(self, entry) -> bool:
+        """Whether the current settings remove this page (see candidates())."""
+        if entry["by_hand"]:
+            return True
+        return self._switch(entry["switch"]) and rank_of(entry["confidence"]) >= self._needed_rank()
+
+    def _plan(self, book, analysis):
+        """List of dicts, one per page to remove. Empty when nothing
+        qualifies or the book's chapters were not confirmed."""
+        plan = [entry for entry in self.candidates(book, analysis) if self.will_remove(entry)]
         # The last remaining page of a book is never removed.
-        if len(plan) >= len(order):
+        if plan and len(plan) >= len(book.chapters):
             plan = plan[:-1]
         return plan
 
@@ -235,6 +309,7 @@ class ExtraContentRemoval:
         self._handled_book = book
 
         plan = self._plan(book, analysis)
+        self.last_removed = plan
         if not plan:
             return report
 

@@ -149,6 +149,9 @@ class ExtraContentRemovalConfig:
     remove_books_by_author: bool = False
     remove_about_author: bool = False
     remove_publisher_pages: bool = False
+    # Pages (file names) a person ticked "remove this page" for on the
+    # Review tab. Set by the GUI for one Fix run; not a config file option.
+    remove_pages: list = field(default_factory=list)
 
 
 @dataclass(slots=True)

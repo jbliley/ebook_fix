@@ -24,6 +24,7 @@
     {% if o.front_copies or o.back_copies %}<div class="sp-file">Copies of the shared front and back pages added: {{ o.front_copies }} at the start, {{ o.back_copies }} at the end.</div>{% endif %}
     {% if o.contents_page %}<div class="sp-file">A Table of Contents page was added ({{ o.contents_page }} entries), since the book had none.</div>{% endif %}
     {% if o.notes_renumbered %}<div class="sp-file">{{ o.notes_renumbered }} notes renumbered to start again at 1.</div>{% endif %}
+    {% if o.extra_removed %}<div class="sp-file">Extra pages removed ({{ o.extra_removed|length }}):{% for r in o.extra_removed %} &ldquo;{{ r }}&rdquo;{% if not loop.last %};{% endif %}{% endfor %}</div>{% endif %}
     {% for p in o.problems %}<div class="sp-bad">{{ p }}</div>{% endfor %}
   </div>
 </div>

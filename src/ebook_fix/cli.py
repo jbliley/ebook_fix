@@ -458,6 +458,11 @@ def main():
     if args.command == "split-omnibus":
         from ebook_fix.omnibus_split import split_omnibus
 
+        try:
+            split_config = load_config(None)
+        except ValueError as e:
+            print(f"ERROR: Invalid config - {e}")
+            sys.exit(1)
         result = split_omnibus(
             epub,
             args.output_dir,
@@ -467,6 +472,7 @@ def main():
             series=args.series or "",
             series_start=args.series_start,
             contents_page=not args.no_contents_page,
+            config=split_config,
         )
         print(result.message)
         for page, source_book, target_book, links in result.moved_pages:
@@ -500,12 +506,16 @@ def main():
                     line += f", {output.back_copies} shared back matter pages copied in"
                 if output.notes_renumbered:
                     line += f", {output.notes_renumbered} notes renumbered from 1"
+                if output.extra_removed:
+                    line += f", {len(output.extra_removed)} extra pages removed"
                 if output.contents_page:
                     line += f", Table of Contents page added ({output.contents_page} entries)"
                 line += ")"
             else:
                 line += f"  ({output.pages} pages)"
             print(line)
+            for removed in output.extra_removed:
+                print(f"      Removed {removed}")
             for problem in output.problems:
                 print(f"      PROBLEM: {problem}")
         if result.status == "split":
