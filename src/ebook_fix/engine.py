@@ -61,6 +61,7 @@ from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
 from ebook_fix.modules.scene_marker_repair import SceneMarkerRepair
 from ebook_fix.modules.body_variant_repair import BodyVariantRepair
 from ebook_fix.modules.line_height_repair import LineHeightRepair
+from ebook_fix.modules.reader_settings_repair import ReaderSettingsRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
@@ -103,6 +104,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     SceneMarkerRepair,
     BodyVariantRepair,
     LineHeightRepair,
+    ReaderSettingsRepair,
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
     TextSizeRepair,
@@ -225,7 +227,8 @@ class Engine:
         # Before Paragraph Spacing, so a stray copy of the body class (a
         # different line height) is switched back before gaps are judged.
         if getattr(self.config, "body_variant_repair", None) and getattr(self.config.body_variant_repair, "enabled", True):
-            modules.append(BodyVariantRepair(self.config.body_variant_repair))
+            reader_on = bool(getattr(getattr(self.config, "reader_settings_repair", None), "enabled", True))
+            modules.append(BodyVariantRepair(self.config.body_variant_repair, reader_settings=reader_on))
         # Stylesheet-only: removes the gap between body paragraphs that are
         # also indented. Skipped on fixed-layout books like the other
         # markup and style repairs.
@@ -236,6 +239,12 @@ class Engine:
         # paragraph classes, so they still see the original line heights.
         if getattr(self.config, "line_height_repair", None) and getattr(self.config.line_height_repair, "enabled", True):
             modules.append(LineHeightRepair(self.config.line_height_repair))
+        # Last of the style repairs: removes what the reading app has a
+        # setting for (indent, paragraph gap, justification, page margins,
+        # hyphenation) from the body text and the page. Skipped on
+        # fixed-layout books, where those values are the layout.
+        if getattr(self.config, "reader_settings_repair", None) and getattr(self.config.reader_settings_repair, "enabled", True):
+            modules.append(ReaderSettingsRepair(self.config.reader_settings_repair))
         # Stylesheet-only, the other half of Paragraph Spacing: adds an indent
         # when a book has neither an indent nor a gap. The two never act on
         # the same book (one needs an indent present, the other absent).

@@ -18,11 +18,13 @@ It only acts when ALL of these are true:
   confidence as the main text, and has a plain class rule.
 - The other class is a plain class rule with no `margin` shorthand, and
   every property other than line-height, margin-top and margin-bottom is
-  the same as the body class (indent, size, alignment, style, weight).
+  the same as the body class (size, style, weight; and indent, letter and
+  word spacing and justify / left alignment unless Reader Settings is off).
 - The other class is used on at most a quarter as many paragraphs as the
   body class, so a book that is deliberately double spaced, or a letter or
   verse set in its own look, is never changed.
-- The other class is only ever used on `<p>` elements.
+- The other class is only ever used on `<p>` elements, and only paragraphs
+  with text are switched (a blank spacer paragraph keeps its own spacing).
 The old class rule is left in the stylesheet, unused. Runs before Paragraph
 Spacing, so the switched paragraphs are treated like the others. A second run
 finds nothing to switch.
@@ -34,6 +36,11 @@ from ebook_fix.config import BodyVariantConfig
 from ebook_fix.report import Report
 
 _IGNORED = frozenset(("line-height", "margin-top", "margin-bottom"))
+# Reader Settings strips these from the body class, so once it is on a class
+# that differs only in them is the same class (and switching it now is what a
+# second repair run would otherwise do).
+_READER_IGNORED = frozenset(("text-indent", "letter-spacing", "word-spacing"))
+_FLEXIBLE_ALIGN = frozenset(("justify", "left", "start"))
 MAX_SHARE = 0.25
 
 
@@ -41,7 +48,15 @@ def _props(profile) -> dict:
     return {k.lower().strip(): " ".join(str(v).lower().split()) for k, v in profile.properties.items()}
 
 
-def find_body_variants(book, analysis=None) -> list:
+def _comparable(props: dict, reader_settings: bool) -> dict:
+    ignored = _IGNORED | _READER_IGNORED if reader_settings else _IGNORED
+    out = {k: v for k, v in props.items() if k not in ignored}
+    if reader_settings and out.get("text-align") in _FLEXIBLE_ALIGN:
+        del out["text-align"]
+    return out
+
+
+def find_body_variants(book, analysis=None, reader_settings: bool = True) -> list:
     """[(variant_class, body_class, variant_usage, body_usage)]."""
     chapters = getattr(analysis, "chapters", None) if analysis is not None else None
     frontmatter = getattr(analysis, "frontmatter", None) if analysis is not None else None
@@ -53,7 +68,7 @@ def find_body_variants(book, analysis=None) -> list:
     body_props = _props(body)
     if not body_props or "margin" in body_props:
         return []
-    base = {k: v for k, v in body_props.items() if k not in _IGNORED}
+    base = _comparable(body_props, reader_settings)
     found = []
     for profile in profiles.values():
         if profile is body or not profile.properties:
@@ -61,11 +76,9 @@ def find_body_variants(book, analysis=None) -> list:
         props = _props(profile)
         if "margin" in props:
             continue
-        if {k: v for k, v in props.items() if k not in _IGNORED} != base:
+        if _comparable(props, reader_settings) != base:
             continue
-        if props.get("line-height") == body_props.get("line-height") and \
-           props.get("margin-top") == body_props.get("margin-top") and \
-           props.get("margin-bottom") == body_props.get("margin-bottom"):
+        if props == body_props:
             continue
         if set(profile.tag_counts) - {"p"}:
             continue
@@ -78,14 +91,17 @@ def find_body_variants(book, analysis=None) -> list:
 class BodyVariantRepair:
     name = "Body Paragraph Look"
 
-    def __init__(self, config: BodyVariantConfig | None = None):
+    def __init__(self, config: BodyVariantConfig | None = None, reader_settings: bool = True):
         self.config = config or BodyVariantConfig()
+        # True while Reader Settings is on (it removes indent and alignment
+        # from the body class, so those no longer tell a variant apart).
+        self.reader_settings = reader_settings
 
     def analyze(self, book, analysis=None) -> Report:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        for variant, body, n, _ in find_body_variants(book, analysis):
+        for variant, body, n, _ in find_body_variants(book, analysis, self.reader_settings):
             report.add("stylesheet", "Body paragraphs with a different look", self._describe(variant, body, n, will=True))
         return report
 
@@ -94,7 +110,7 @@ class BodyVariantRepair:
         if not self.config.enabled:
             return report
         changed = set()
-        for variant, body, n, _ in find_body_variants(book, analysis):
+        for variant, body, n, _ in find_body_variants(book, analysis, self.reader_settings):
             switched = 0
             for chapter in book.chapters:
                 doc = chapter.document
@@ -102,6 +118,10 @@ class BodyVariantRepair:
                     continue
                 for el in doc.iter("{*}p"):
                     if (el.get("class") or "").split() == [variant]:
+                        # a blank spacer paragraph is not body text; its own
+                        # spacing is what keeps the gap it was put there for
+                        if not "".join(el.itertext()).replace("\u00a0", " ").strip():
+                            continue
                         el.set("class", body)
                         chapter.modified = True
                         changed.add(chapter.href)

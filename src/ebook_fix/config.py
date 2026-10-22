@@ -204,6 +204,11 @@ class SceneMarkerConfig:
 
 
 @dataclass(slots=True)
+class ReaderSettingsConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class LineHeightConfig:
     enabled: bool = True
     # A fixed line height below this multiple of the font size (1.2 is a
@@ -284,7 +289,7 @@ class HeaderSpacingConfig:
 
 @dataclass(slots=True)
 class ParagraphIndentConfig:
-    enabled: bool = True
+    enabled: bool = False
     # How far the first line of each body paragraph is indented, as a CSS
     # length ("1.5em", "2em", "24px").
     indent: str = "1.5em"
@@ -462,6 +467,7 @@ class Config:
     scene_marker_repair: SceneMarkerConfig = field(default_factory=SceneMarkerConfig)
     body_variant_repair: BodyVariantConfig = field(default_factory=BodyVariantConfig)
     line_height_repair: LineHeightConfig = field(default_factory=LineHeightConfig)
+    reader_settings_repair: ReaderSettingsConfig = field(default_factory=ReaderSettingsConfig)
     stylesheet_dedupe_repair: StylesheetDedupeConfig = field(default_factory=StylesheetDedupeConfig)
     junk_file_repair: JunkFileConfig = field(default_factory=JunkFileConfig)
     hyphen_leftover_repair: HyphenLeftoverConfig = field(default_factory=HyphenLeftoverConfig)
@@ -533,6 +539,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.scene_marker_repair, modules, "scene_marker_repair")
     _apply_module_toggle(config.body_variant_repair, modules, "body_variant_repair")
     _apply_module_toggle(config.line_height_repair, modules, "line_height_repair")
+    _apply_module_toggle(config.reader_settings_repair, modules, "reader_settings_repair")
     _apply_module_toggle(config.stylesheet_dedupe_repair, modules, "stylesheet_dedupe_repair")
     _apply_module_toggle(config.junk_file_repair, modules, "junk_file_repair")
     _apply_module_toggle(config.hyphen_leftover_repair, modules, "hyphen_leftover_repair")
@@ -569,6 +576,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.scene_marker_repair, "scene_marker_repair", data.get("scene_marker_repair", {}))
     _apply_section(config.body_variant_repair, "body_variant_repair", data.get("body_variant_repair", {}))
     _apply_section(config.line_height_repair, "line_height_repair", data.get("line_height_repair", {}))
+    _apply_section(config.reader_settings_repair, "reader_settings_repair", data.get("reader_settings_repair", {}))
     _apply_section(config.stylesheet_dedupe_repair, "stylesheet_dedupe_repair", data.get("stylesheet_dedupe_repair", {}))
     _apply_section(config.junk_file_repair, "junk_file_repair", data.get("junk_file_repair", {}))
     _apply_section(config.hyphen_leftover_repair, "hyphen_leftover_repair", data.get("hyphen_leftover_repair", {}))
@@ -687,11 +695,12 @@ scene_opener_repair = true
 scene_marker_repair = true
 body_variant_repair = true
 line_height_repair = true
+reader_settings_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
 paragraph_spacing_repair = true
-paragraph_indent_repair = true
+paragraph_indent_repair = false
 header_spacing_repair = true
 text_size_repair = true
 extra_page_break_repair = true
@@ -1171,6 +1180,21 @@ flush_first_paragraph = true
 # A fixed line height below this multiple of the font size is removed. A
 # line height at or above it is left as it is.
 min_line_height = 1.4
+
+# ---------------------------------------------------------------------
+# Reader Settings
+# ---------------------------------------------------------------------
+[reader_settings_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Removes book-wide styling that a reading app has its own setting for, so
+# the app's choice is not overwritten: on the body text, the line height,
+# paragraph indent, gap between paragraphs, justify / left alignment, letter
+# and word spacing; on the page, its margins and padding; anywhere,
+# hyphenation switches and converter leftovers. The space under chapter
+# headers is kept. Headings, centered titles, quotes, small caps and other
+# one-off styling are left alone. Because the app now decides indents,
+# paragraph_indent_repair is off by default.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

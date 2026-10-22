@@ -104,6 +104,7 @@ from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
 from ebook_fix.modules.scene_marker_repair import SceneMarkerRepair
 from ebook_fix.modules.body_variant_repair import BodyVariantRepair
 from ebook_fix.modules.line_height_repair import LineHeightRepair
+from ebook_fix.modules.reader_settings_repair import ReaderSettingsRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
@@ -165,6 +166,7 @@ _REPAIR_MODULES = [
     ("scene_marker_repair", "Scene Break Markers"),
     ("body_variant_repair", "Body Paragraph Look"),
     ("line_height_repair", "Line Height"),
+    ("reader_settings_repair", "Reader Settings"),
     ("paragraph_spacing_repair", "Paragraph Spacing"),
     ("paragraph_indent_repair", "Paragraph Indent"),
     ("text_size_repair", "Text Size"),
@@ -211,6 +213,7 @@ _REPAIR_MODULE_CLASSES = {
     "scene_marker_repair": SceneMarkerRepair,
     "body_variant_repair": BodyVariantRepair,
     "line_height_repair": LineHeightRepair,
+    "reader_settings_repair": ReaderSettingsRepair,
     "paragraph_spacing_repair": ParagraphSpacingRepair,
     "paragraph_indent_repair": ParagraphIndentRepair,
     "text_size_repair": TextSizeRepair,

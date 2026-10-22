@@ -26,11 +26,12 @@ scene_opener_repair = true
 scene_marker_repair = true
 body_variant_repair = true
 line_height_repair = true
+reader_settings_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
 paragraph_spacing_repair = true
-paragraph_indent_repair = true
+paragraph_indent_repair = false
 header_spacing_repair = true
 text_size_repair = true
 extra_page_break_repair = true
@@ -454,6 +455,21 @@ flush_first_paragraph = true
 # A fixed line height below this multiple of the font size is removed. A
 # line height at or above it is left as it is.
 min_line_height = 1.4
+
+# ---------------------------------------------------------------------
+# Reader Settings
+# ---------------------------------------------------------------------
+[reader_settings_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Removes book-wide styling that a reading app has its own setting for, so
+# the app's choice is not overwritten: on the body text, the line height,
+# paragraph indent, gap between paragraphs, justify / left alignment, letter
+# and word spacing; on the page, its margins and padding; anywhere,
+# hyphenation switches and converter leftovers. The space under chapter
+# headers is kept. Headings, centered titles, quotes, small caps and other
+# one-off styling are left alone. Because the app now decides indents,
+# paragraph_indent_repair is off by default.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

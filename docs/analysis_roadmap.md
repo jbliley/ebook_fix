@@ -3721,3 +3721,17 @@ A count of every CSS property across the 23 example books, "The Numbers Killer" 
 - Converter leftovers that do nothing in a reader: `-aw-*` properties (Aspose) and `-webkit-line-box-contain`.
 
 Nothing here has been changed yet; each item waits for Jacob's decision.
+
+### Reader Settings: leave book-wide choices to the reading app (2026-10-22)
+
+Jacob's rule: anything a reading app has a setting for should not be hard-coded in the book. One-off styling that emphasizes text (italics, bold, a centered title, small caps, a block quote) stays. New repair module `modules/reader_settings_repair.py` ("Reader Settings", on by default, switch `reader_settings_repair`, no options) removes:
+
+- From the body-text class(es), the plain `p` selector and inline styles on plain body paragraphs: `line-height`, `text-indent`, `margin-top` and `margin-bottom` (the gap between paragraphs), `letter-spacing`, `word-spacing`, and `text-align` when it is justify, left or start.
+- From `body`, `html`, the class on the `<body>` element and `@page`: margins, padding, line height and justify / left alignment.
+- From any rule: hyphenation switches (`hyphens`, `-webkit-hyphens`, `adobe-hyphenate`, the hyphenate limits) and converter leftovers (`-aw-*`, `-webkit-line-box-contain`).
+
+The space under a chapter header is kept: where a body class had a top margin, a rule gives the paragraph after a heading or chapter title that margin back. Headings, centered or right-aligned classes, quotes, tables, images, font size, family and color, a `margin` shorthand on a body class, and elements ebook_fix styled itself (header gaps, scene markers) are left alone. It is skipped on fixed-layout books and runs last among the style repairs. A second run does nothing.
+
+Consequences: `paragraph_indent_repair` is now off by default (it adds an indent, which the app now decides); Paragraph Spacing still runs but has little left to do. Body Paragraph Look now also treats a class that differs from the body class only in indent, letter or word spacing, or justify / left alignment as the same class while Reader Settings is on, and no longer switches blank spacer paragraphs (a blank paragraph keeps its own spacing). Without those two changes a second repair run found more to switch.
+
+Tests: the Numbers Killer repairs in one run and a second run changes nothing. Of the 23 example books, 21 change nothing on a second run. Omnibus-Ravagedland does change (Paragraph Repair and Chapter Header Spacing find more on the second run); this happens with the code as it was before today's changes too, so it is a separate, older problem, not yet fixed. Every output file is valid XML.
