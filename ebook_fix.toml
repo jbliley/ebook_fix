@@ -23,6 +23,8 @@ ellipsis_repair = true
 apostrophe_repair = true
 scene_break_repair = true
 scene_opener_repair = true
+scene_marker_repair = true
+body_variant_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -412,6 +414,30 @@ flush_first_paragraph = true
 # styled alike and unlike ordinary paragraphs), and never on the first
 # thing in a file or right under a chapter header, rule, marker or blank
 # spacer line.
+
+# ---------------------------------------------------------------------
+# Scene Break Markers
+# ---------------------------------------------------------------------
+[scene_marker_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# When on, a paragraph that holds only break ornaments ("# # #", "###",
+# "***", "- - -", a row of dashes) becomes a centered "* * *" with a blank
+# line above and below, and a "* * *" made by another module gets the same
+# spacing. Anything with a letter or digit in it, a heading, a picture, and
+# a one or two glyph ornament are left alone.
+
+# ---------------------------------------------------------------------
+# Body Paragraph Look
+# ---------------------------------------------------------------------
+[body_variant_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# When on, paragraphs set in a copy of the book's main body class that
+# differs only in line height or top/bottom spacing (for example 8
+# paragraphs at a line height of 150% in a book set at 1.2) are switched
+# to the main body class. A class used on more than a quarter as many
+# paragraphs as the body class is left alone.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

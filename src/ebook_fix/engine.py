@@ -58,6 +58,8 @@ from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.ellipsis import normalize_ellipsis_text
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
+from ebook_fix.modules.scene_marker_repair import SceneMarkerRepair
+from ebook_fix.modules.body_variant_repair import BodyVariantRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
@@ -97,6 +99,8 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     HeaderSpacingRepair,
     SceneBreakRepair,
     SceneOpenerRepair,
+    SceneMarkerRepair,
+    BodyVariantRepair,
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
     TextSizeRepair,
@@ -211,6 +215,15 @@ class Engine:
         # repairs.
         if getattr(self.config, "scene_opener_repair", None) and getattr(self.config.scene_opener_repair, "enabled", True):
             modules.append(SceneOpenerRepair(self.config.scene_opener_repair))
+        # After every module that makes or converts a scene break: turns text
+        # ornaments ("# # #") into "* * *" and gives all markers space above
+        # and below. Skipped on fixed-layout books like the other markup repairs.
+        if getattr(self.config, "scene_marker_repair", None) and getattr(self.config.scene_marker_repair, "enabled", True):
+            modules.append(SceneMarkerRepair(self.config.scene_marker_repair))
+        # Before Paragraph Spacing, so a stray copy of the body class (a
+        # different line height) is switched back before gaps are judged.
+        if getattr(self.config, "body_variant_repair", None) and getattr(self.config.body_variant_repair, "enabled", True):
+            modules.append(BodyVariantRepair(self.config.body_variant_repair))
         # Stylesheet-only: removes the gap between body paragraphs that are
         # also indented. Skipped on fixed-layout books like the other
         # markup and style repairs.

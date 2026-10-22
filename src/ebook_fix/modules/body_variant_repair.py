@@ -1,0 +1,120 @@
+"""
+ebook_fix.modules.body_variant_repair
+
+Gives a stray run of body paragraphs the same look as the rest of the book.
+
+Found in "The Numbers Killer": nearly every body paragraph is
+`<p class="calibre17">` (line height 1.2), but eight paragraphs in Chapter
+One are `<p class="calibre19">`, a copy of the same class with a line height
+of 150%. In a reader those eight paragraphs are visibly more spread out than
+the ones around them, with no reason for it.
+
+What this does: when a class is used on paragraphs and is the same as the
+book's dominant body-text class in every way except its line height and its
+top and bottom margins, those paragraphs are switched to the body class.
+
+It only acts when ALL of these are true:
+- The body class is the one the class analysis identifies with high
+  confidence as the main text, and has a plain class rule.
+- The other class is a plain class rule with no `margin` shorthand, and
+  every property other than line-height, margin-top and margin-bottom is
+  the same as the body class (indent, size, alignment, style, weight).
+- The other class is used on at most a quarter as many paragraphs as the
+  body class, so a book that is deliberately double spaced, or a letter or
+  verse set in its own look, is never changed.
+- The other class is only ever used on `<p>` elements.
+The old class rule is left in the stylesheet, unused. Runs before Paragraph
+Spacing, so the switched paragraphs are treated like the others. A second run
+finds nothing to switch.
+"""
+from __future__ import annotations
+
+from ebook_fix.class_map import build_class_profiles
+from ebook_fix.config import BodyVariantConfig
+from ebook_fix.report import Report
+
+_IGNORED = frozenset(("line-height", "margin-top", "margin-bottom"))
+MAX_SHARE = 0.25
+
+
+def _props(profile) -> dict:
+    return {k.lower().strip(): " ".join(str(v).lower().split()) for k, v in profile.properties.items()}
+
+
+def find_body_variants(book, analysis=None) -> list:
+    """[(variant_class, body_class, variant_usage, body_usage)]."""
+    chapters = getattr(analysis, "chapters", None) if analysis is not None else None
+    frontmatter = getattr(analysis, "frontmatter", None) if analysis is not None else None
+    profiles = build_class_profiles(book, chapter_summary=chapters, frontmatter_summary=frontmatter)
+    bodies = [p for p in profiles.values() if p.likely_role == "body-text" and p.role_confidence == "high"]
+    if len(bodies) != 1:
+        return []
+    body = bodies[0]
+    body_props = _props(body)
+    if not body_props or "margin" in body_props:
+        return []
+    base = {k: v for k, v in body_props.items() if k not in _IGNORED}
+    found = []
+    for profile in profiles.values():
+        if profile is body or not profile.properties:
+            continue
+        props = _props(profile)
+        if "margin" in props:
+            continue
+        if {k: v for k, v in props.items() if k not in _IGNORED} != base:
+            continue
+        if props.get("line-height") == body_props.get("line-height") and \
+           props.get("margin-top") == body_props.get("margin-top") and \
+           props.get("margin-bottom") == body_props.get("margin-bottom"):
+            continue
+        if set(profile.tag_counts) - {"p"}:
+            continue
+        if profile.usage_count > body.usage_count * MAX_SHARE:
+            continue
+        found.append((profile.class_name, body.class_name, profile.usage_count, body.usage_count))
+    return found
+
+
+class BodyVariantRepair:
+    name = "Body Paragraph Look"
+
+    def __init__(self, config: BodyVariantConfig | None = None):
+        self.config = config or BodyVariantConfig()
+
+    def analyze(self, book, analysis=None) -> Report:
+        report = Report(self.name)
+        if not self.config.enabled:
+            return report
+        for variant, body, n, _ in find_body_variants(book, analysis):
+            report.add("stylesheet", "Body paragraphs with a different look", self._describe(variant, body, n, will=True))
+        return report
+
+    def repair(self, book, analysis=None) -> Report:
+        report = Report(self.name)
+        if not self.config.enabled:
+            return report
+        changed = set()
+        for variant, body, n, _ in find_body_variants(book, analysis):
+            switched = 0
+            for chapter in book.chapters:
+                doc = chapter.document
+                if doc is None:
+                    continue
+                for el in doc.iter("{*}p"):
+                    if (el.get("class") or "").split() == [variant]:
+                        el.set("class", body)
+                        chapter.modified = True
+                        changed.add(chapter.href)
+                        switched += 1
+            if switched:
+                report.add("stylesheet", "Body paragraphs with a different look fixed", self._describe(variant, body, switched, will=False))
+        if changed and hasattr(book, "mark_modified"):
+            book.mark_modified()
+        return report
+
+    @staticmethod
+    def _describe(variant, body, n, will):
+        return (
+            f"{n} paragraph(s) use '.{variant}', a copy of the body class '.{body}' that differs only in "
+            f"line height or spacing; {'they will be' if will else 'they were'} switched to '.{body}'"
+        )

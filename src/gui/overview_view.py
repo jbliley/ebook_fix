@@ -55,14 +55,14 @@ BOXES = [
         ],
         "modules": [
             "gutenberg_repair", "running_title_repair", "linebreak_repair", "paragraph_repair",
-            "scene_break_repair", "scene_opener_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "whitespace_repair",
+            "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "whitespace_repair",
         ],
     },
     {
         "key": "styling",
         "title": "Styling and Fonts",
         "sections": ["CSS", "Span Soup", "Possible Decorative Color", "Possible Decorative Font"],
-        "modules": ["color_repair", "font_repair", "paragraph_spacing_repair", "paragraph_indent_repair", "text_size_repair", "stylesheet_dedupe_repair"],
+        "modules": ["color_repair", "font_repair", "body_variant_repair", "paragraph_spacing_repair", "paragraph_indent_repair", "text_size_repair", "stylesheet_dedupe_repair"],
     },
     {
         "key": "images",
@@ -96,6 +96,8 @@ PLAIN_NAMES = {
     "header_spacing_repair": "One blank line above and 2 to 5 below chapter headers, all styled alike",
     "scene_break_repair": "Standardize scene breaks",
     "scene_opener_repair": "Mark scene changes that open with capitals",
+    "scene_marker_repair": "Show every scene break as a centered * * * with space around it",
+    "body_variant_repair": "Give stray body paragraphs the same line height as the rest",
     "stylesheet_dedupe_repair": "Share one stylesheet instead of a copy in every page",
     "junk_file_repair": "Remove leftover junk files and duplicate pictures",
     "hyphen_leftover_repair": "Join words split by a leftover hyphen",

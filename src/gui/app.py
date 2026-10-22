@@ -101,6 +101,8 @@ from ebook_fix.modules.extra_content_removal import (
 from ebook_fix.modules.ellipsis_repair import EllipsisRepair
 from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
+from ebook_fix.modules.scene_marker_repair import SceneMarkerRepair
+from ebook_fix.modules.body_variant_repair import BodyVariantRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
@@ -159,6 +161,8 @@ _REPAIR_MODULES = [
     ("header_spacing_repair", "Chapter Header Spacing"),
     ("scene_break_repair", "Scene Break Normalizer"),
     ("scene_opener_repair", "Scene Opener Markers"),
+    ("scene_marker_repair", "Scene Break Markers"),
+    ("body_variant_repair", "Body Paragraph Look"),
     ("paragraph_spacing_repair", "Paragraph Spacing"),
     ("paragraph_indent_repair", "Paragraph Indent"),
     ("text_size_repair", "Text Size"),
@@ -202,6 +206,8 @@ _REPAIR_MODULE_CLASSES = {
     "header_spacing_repair": HeaderSpacingRepair,
     "scene_break_repair": SceneBreakRepair,
     "scene_opener_repair": SceneOpenerRepair,
+    "scene_marker_repair": SceneMarkerRepair,
+    "body_variant_repair": BodyVariantRepair,
     "paragraph_spacing_repair": ParagraphSpacingRepair,
     "paragraph_indent_repair": ParagraphIndentRepair,
     "text_size_repair": TextSizeRepair,
