@@ -51,6 +51,12 @@ from __future__ import annotations
 import posixpath
 import re
 
+from ebook_fix.extra_partial import (
+    find_ad_lines,
+    find_ad_pictures,
+    ad_picture_page_reason,
+    pictures,
+)
 from ebook_fix.frontmatter import MatterLabel, _chapter_text, _spine_ordered_chapters
 from ebook_fix.omnibus_split import (
     XLINK_HREF,
@@ -83,6 +89,8 @@ CATEGORY_SWITCHES = (
     ("remove_books_by_author", "\"Also by\" page", "\"Also by\" pages"),
     ("remove_about_author", "About the Author page", "About the Author pages"),
     ("remove_publisher_pages", "publisher page", "publisher pages"),
+    ("remove_ad_lines", "ad line on a page", "ad lines on pages"),
+    ("remove_ad_pictures", "ad picture", "ad pictures"),
 )
 SWITCH_NAMES = {switch for switch, _one, _many in CATEGORY_SWITCHES}
 
@@ -122,6 +130,13 @@ _BOOK_PART_NAME = re.compile(
     re.IGNORECASE,
 )
 
+# For ad lines and pictures inside a page the copyright page is the main
+# place to look, so only the other book parts are protected by name.
+_PARTIAL_PROTECTED_NAME = re.compile(
+    r"title|toc|contents|nav|cover|dedic|epigraph|prolog|epilog",
+    re.IGNORECASE,
+)
+
 # Publisher and About the Author labels are the loosest, so they need a
 # little more than the label: an About the Author page must say so near
 # its top, and a publisher page must be more than a title-page-sized stub.
@@ -148,6 +163,43 @@ def _without_entries(entries, removed: set):
     return kept
 
 
+def remove_block(el) -> None:
+    """Takes one block (an ad line, or the picture and what holds only it)
+    out of its page. Text that follows the element stays, an element
+    left empty by it goes too, and a rule or separator right before the
+    last content of the page goes with it, so no stray line is left
+    hanging at the bottom."""
+    # Climb to the largest ancestor that holds nothing but this element.
+    target = el
+    while True:
+        parent = target.getparent()
+        if parent is None or _local(parent) in ("body", "html"):
+            break
+        others = [c for c in parent if c is not target and isinstance(c.tag, str) and _local(c) not in ("br", "span")]
+        own = (parent.text or "").strip() or any((c.tail or "").strip() for c in parent if c is target) \
+            or any((c.tail or "").strip() or (c.text or "").strip() for c in parent if c is not target)
+        if others or own:
+            break
+        target = parent
+    parent = target.getparent()
+    if parent is None:
+        return
+    following = target.getnext()
+    previous = target.getprevious()
+    nothing_after = following is None or (
+        not any(isinstance(n.tag, str) and ("".join(n.itertext()).strip() or _local(n) in ("img", "image", "svg")) for n in target.itersiblings())
+    )
+    tail = target.tail or ""
+    if tail.strip():
+        if previous is not None:
+            previous.tail = (previous.tail or "") + tail
+        else:
+            parent.text = (parent.text or "") + tail
+    parent.remove(target)
+    if nothing_after and previous is not None and _local(previous) == "hr":
+        parent.remove(previous)
+
+
 def survey(book, analysis, config=None) -> list:
     """What extra pages a book has, grouped by kind, for the Overview and
     the command line report. [{"switch", "one", "many", "on", "pages"}] in
@@ -155,7 +207,7 @@ def survey(book, analysis, config=None) -> list:
     the config switch; each page says whether the current settings would
     remove it ("removed") and how many words it has. Nothing is changed."""
     module = ExtraContentRemoval(config)
-    entries = module.candidates(book, analysis)
+    entries = module.candidates(book, analysis) + module.partial_candidates(book, analysis)
     out = []
     for switch, one, many in CATEGORY_SWITCHES:
         pages = [dict(e, removed=module.will_remove(e)) for e in entries if e["switch"] == switch]
@@ -173,6 +225,8 @@ class ExtraContentRemoval:
         # The pages the last repair() took out (dicts as in candidates()),
         # for callers that want more than the report's text.
         self.last_removed = []
+        # And the lines and pictures taken out of pages that stayed.
+        self.last_partial = []
 
     # -----------------------------------------------------
     # Settings
@@ -250,8 +304,16 @@ class ExtraContentRemoval:
                 continue
             text = " ".join(_chapter_text(chapter).split())
             words = len(text.split())
-            if words == 0:
-                continue
+            if words <= 3:
+                # A page that is only a picture is removable when it is an
+                # advertisement picture (see extra_partial.py); it has no
+                # words to show, so its first words are the picture.
+                shown = pictures(chapter.document)
+                if item.label == MatterLabel.ADVERTISEMENT.value and shown and ad_picture_page_reason(chapter):
+                    text = "picture: " + posixpath.basename(shown[0].get("src") or shown[0].get(XLINK_HREF) or "")
+                    words = 0
+                elif words == 0:
+                    continue
             if not by_hand:
                 limit = _MAX_WORDS.get(item.label)
                 if limit is not None and words > limit:
@@ -271,6 +333,66 @@ class ExtraContentRemoval:
                 "reason": item.reason,
                 "by_hand": by_hand,
             })
+        return found
+
+    # Labels of pages an ad line or ad picture may be taken out of. The
+    # page itself stays; only the line or picture goes.
+    _PARTIAL_LABELS = frozenset({
+        MatterLabel.COPYRIGHT.value, MatterLabel.PUBLISHER.value, MatterLabel.COLOPHON.value,
+        MatterLabel.FRONT_MATTER.value, MatterLabel.BACK_MATTER.value, MatterLabel.ABOUT_AUTHOR.value,
+        MatterLabel.ACKNOWLEDGMENTS.value, MatterLabel.AFTERWORD.value, MatterLabel.FICTION_DISCLAIMER.value,
+    })
+
+    def partial_candidates(self, book, analysis):
+        """Ad lines and ad pictures inside pages that stay (step 4). Looked
+        for only on the book's front and back matter pages and on its last
+        chapter page, never in the middle of the story, and never on the
+        cover, title page or contents page. Always high confidence: a line
+        or picture is only reported with clear evidence (extra_partial.py).
+        Pages that are being removed whole are skipped. Each entry carries
+        the live element, so repair() can take it out."""
+        if not self._enabled() or analysis is None:
+            return []
+        matter = getattr(analysis, "frontmatter", None)
+        chapters = getattr(analysis, "chapters", None)
+        if matter is None or chapters is None or not matter.boundaries_confirmed:
+            return []
+
+        ordered = _spine_ordered_chapters(book)
+        order = [c.href for c in ordered]
+        confirmed = {c.href for c in (chapters.confirmed_boundaries or [])}
+        indexes = [i for i, href in enumerate(order) if href in confirmed]
+        if not indexes:
+            return []
+        last_story = order[max(indexes)]
+        nav_hrefs = {m.href for m in book.manifest if "nav" in (m.properties or "").split()}
+        by_href = {c.href: c for c in ordered}
+        going_whole = {e["href"] for e in self._plan(book, analysis)}
+
+        found = []
+        for item in matter.chapters:
+            href = item.href
+            chapter = by_href.get(href)
+            if chapter is None or chapter.document is None or href in nav_hrefs or href in going_whole:
+                continue
+            if _PARTIAL_PROTECTED_NAME.search(posixpath.basename(href)):
+                continue
+            if item.label not in self._PARTIAL_LABELS and href != last_story:
+                continue
+            for el, text, reason in find_ad_lines(chapter.document):
+                found.append({
+                    "href": href, "label": "ad line", "switch": "remove_ad_lines", "kind": "ad line",
+                    "confidence": "high", "words": len(text.split()),
+                    "first_words": text[:70] + ("..." if len(text) > 70 else ""),
+                    "reason": reason, "by_hand": False, "partial": True, "element": el,
+                })
+            for el, src, reason in find_ad_pictures(chapter.document):
+                found.append({
+                    "href": href, "label": "ad picture", "switch": "remove_ad_pictures", "kind": "ad picture",
+                    "confidence": "high", "words": 0,
+                    "first_words": "picture: " + posixpath.basename(src),
+                    "reason": reason, "by_hand": False, "partial": True, "element": el,
+                })
         return found
 
     def will_remove(self, entry) -> bool:
@@ -296,6 +418,9 @@ class ExtraContentRemoval:
         report = Report(self.name)
         for entry in self._plan(book, analysis):
             report.add(entry["href"], f"Extra page to remove ({entry['kind']})", self._describe(entry, future=True))
+        for entry in self.partial_candidates(book, analysis):
+            if self.will_remove(entry):
+                report.add(entry["href"], f"Ad part to remove ({entry['kind']})", self._describe(entry, future=True))
         return report
 
     # -----------------------------------------------------
@@ -309,26 +434,47 @@ class ExtraContentRemoval:
         self._handled_book = book
 
         plan = self._plan(book, analysis)
+        partial = [e for e in self.partial_candidates(book, analysis) if self.will_remove(e)]
         self.last_removed = plan
-        if not plan:
+        self.last_partial = partial
+        if not plan and not partial:
             return report
 
         remove = {entry["href"] for entry in plan}
         media = self._media_used_by(book, remove)
 
-        _drop_chapters(book, remove)
-        _prune_ncx(book, remove)
-        _prune_nav(book, remove)
+        if plan:
+            _drop_chapters(book, remove)
+            _prune_ncx(book, remove)
+            _prune_nav(book, remove)
+            # book.toc is the in-memory copy a later nav document is built
+            # from (EPUB 3 Upgrade), so it must not keep entries for pages
+            # that are gone.
+            refresh_book_toc(book)
+            book.toc = _without_entries(book.toc, remove)
+
+        # Lines and pictures inside pages that stay.
+        by_href = {c.href: c for c in book.chapters}
+        for entry in partial:
+            element = entry["element"]
+            if entry["switch"] == "remove_ad_pictures":
+                src = element.get("src") or element.get(XLINK_HREF)
+                if src:
+                    target = _resolve(entry["href"], src)
+                    if target:
+                        media.add(target)
+            remove_block(element)
+            chapter = by_href.get(entry["href"])
+            if chapter is not None:
+                chapter.modified = True
+
         _prune_unused_media(book, only=media)
-        # book.toc is the in-memory copy a later nav document is built
-        # from (EPUB 3 Upgrade), so it must not keep entries for pages
-        # that are gone.
-        refresh_book_toc(book)
-        book.toc = _without_entries(book.toc, remove)
         book.mark_modified()
 
         for entry in plan:
             report.add(entry["href"], f"Extra page removed ({entry['kind']})", self._describe(entry, future=False))
+        for entry in partial:
+            report.add(entry["href"], f"Ad part removed ({entry['kind']})", self._describe(entry, future=False))
         return report
 
     # -----------------------------------------------------
@@ -338,9 +484,10 @@ class ExtraContentRemoval:
     @staticmethod
     def _describe(entry, future: bool) -> str:
         verb = "will be removed" if future else "removed"
+        size = f"{entry['words']} words, " if entry["words"] else ""
         return (
             f"{entry['kind'].capitalize()} {verb}: \"{entry['first_words']}\" "
-            f"({entry['words']} words, {entry['confidence']} confidence, {entry['reason']})"
+            f"({size}{entry['confidence']} confidence, {entry['reason']})"
         )
 
     @staticmethod

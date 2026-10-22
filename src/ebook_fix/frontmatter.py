@@ -356,6 +356,14 @@ HREF_HINTS = (
 )
 
 
+def _picture_ad_reason(chapter) -> str:
+    """Why a page with almost no text is a picture advertisement, or ""
+    (see extra_partial.py). Imported here because that module builds on
+    this one's phrase lists."""
+    from ebook_fix.extra_partial import ad_picture_page_reason
+    return ad_picture_page_reason(chapter)
+
+
 def _spine_ordered_chapters(book):
     """`book.chapters` already loads in spine (reading) order directly
     from `parser.py` -- this just re-derives the same order locally as
@@ -618,6 +626,10 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
             label = text_label
             confidence = text_confidence
             reason = f"page content matches the {label.value} pattern"
+        elif zone in (FRONT_ZONE, BACK_ZONE) and word_count <= 3 and (picture_ad := _picture_ad_reason(chapter)):
+            label = MatterLabel.ADVERTISEMENT
+            confidence = "high"
+            reason = picture_ad
         elif href_label is not None:
             label, exact = href_label
             confidence = "high" if exact else "medium"

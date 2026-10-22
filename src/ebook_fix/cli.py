@@ -507,7 +507,7 @@ def main():
                 if output.notes_renumbered:
                     line += f", {output.notes_renumbered} notes renumbered from 1"
                 if output.extra_removed:
-                    line += f", {len(output.extra_removed)} extra pages removed"
+                    line += f", {len(output.extra_removed)} extra pages, lines or pictures removed"
                 if output.contents_page:
                     line += f", Table of Contents page added ({output.contents_page} entries)"
                 line += ")"

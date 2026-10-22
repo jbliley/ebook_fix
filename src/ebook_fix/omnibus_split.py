@@ -130,7 +130,7 @@ class SplitOutput:
     front_copies: int = 0               # shared front matter pages copied into this book
     back_copies: int = 0                # shared back matter pages copied into this book
     notes_renumbered: int = 0           # notes renumbered to start again at 1
-    extra_removed: list = field(default_factory=list)   # extra pages taken out afterward ("kind: first words")
+    extra_removed: list = field(default_factory=list)   # extra pages, lines and pictures taken out afterward ("kind: first words")
     contents_page: int = 0              # entries on a contents page made for this book (0 when it had one already)
     series: str = ""                  # series this book was labeled with (name only when no position known)
     series_number: float | None = None  # its position in that series, when known
@@ -1594,12 +1594,13 @@ def _build_one(source: Path, analysis: OmnibusAnalysis, index: int, hrefs: list,
 def _clean_extra_content(path: Path, config) -> tuple:
     """Runs Extra Content Removal on one finished book, so the shared back
     matter copied into it (books by, newsletter, about the author) goes
-    again when those kinds are switched on. Does nothing, and leaves the
-    file untouched, when the switches remove nothing. Returns (list of
-    "kind: first words" lines, words removed)."""
+    again when those kinds are switched on, along with ad lines and ad
+    pictures when those are on. Does nothing, and leaves the file
+    untouched, when the switches remove nothing. Returns (lines for the
+    pages removed, lines for the ad parts removed, words removed)."""
     settings = getattr(config, "extra_content_removal", None)
     if settings is None or not getattr(settings, "enabled", True):
-        return [], 0
+        return [], [], 0
     # Imported here: the module itself imports this file's page helpers.
     from ebook_fix.analyzer import EPUBAnalyzer
     from ebook_fix.modules.extra_content_removal import ExtraContentRemoval
@@ -1607,15 +1608,17 @@ def _clean_extra_content(path: Path, config) -> tuple:
     book = EPUBParser().load(path)
     module = ExtraContentRemoval(settings)
     module.repair(book, EPUBAnalyzer().analyze(book))
-    removed = module.last_removed
-    if not removed:
-        return [], 0
-    _handle_dead_links(book, {entry["href"] for entry in removed})
+    pages, parts = module.last_removed, module.last_partial
+    if not pages and not parts:
+        return [], [], 0
+    if pages:
+        _handle_dead_links(book, {entry["href"] for entry in pages})
     book.mark_modified()
     EPUBWriter().save(book, path)
     return (
-        [f"{entry['kind']}: {entry['first_words']}" for entry in removed],
-        sum(entry["words"] for entry in removed),
+        [f"{entry['kind']}: {entry['first_words']}" for entry in pages],
+        [f"{entry['kind']}: {entry['first_words']}" for entry in parts],
+        sum(entry["words"] for entry in pages + parts),
     )
 
 
@@ -1950,10 +1953,10 @@ def split_omnibus(source, out_dir=None, allow_medium: bool = False, dry_run: boo
             contents_page=contents_page,
         )
         if config is not None:
-            lines, words = _clean_extra_content(out_path, config)
-            if lines:
-                output.extra_removed = lines
-                output.pages -= len(lines)
+            page_lines, part_lines, words = _clean_extra_content(out_path, config)
+            if page_lines or part_lines:
+                output.extra_removed = page_lines + part_lines
+                output.pages -= len(page_lines)
                 output.words -= words
         output.problems = verify_output(out_path)
         result.outputs.append(output)

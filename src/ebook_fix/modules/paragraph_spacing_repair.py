@@ -31,6 +31,9 @@ Careful about what it will not change:
   heading, and a chapter title written as a paragraph, their original top
   margin back.
 
+Gaps written as a percentage (`margin-bottom: 1.54%`) count too; see
+ASSUMED_LINE_WIDTH_EM.
+
 Works on external stylesheets and on embedded <style> blocks. Re-running it
 finds the class already has no gap and does nothing.
 """
@@ -48,8 +51,14 @@ from ebook_fix.report import Report
 # two margins meet the larger one wins, so the bigger of top and bottom is
 # what a reader sees.)
 MIN_GAP_EM = 0.5
+# A percentage margin is a share of the page width, not of the font size.
+# Found in "The Numbers Killer": body paragraphs are indented AND have
+# `margin-bottom: 1.54%`, which readers draw as a visible gap. To compare it
+# with the em threshold, a text line is assumed to be about this many ems
+# wide (a typical phone or e-reader page), so 1.54% comes to about 0.54em.
+ASSUMED_LINE_WIDTH_EM = 35
 _RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
-_LENGTH = re.compile(r"^\s*(-?\d*\.?\d+)\s*(em|rem|px|pt)?\s*$", re.IGNORECASE)
+_LENGTH = re.compile(r"^\s*(-?\d*\.?\d+)\s*(em|rem|px|pt|%)?\s*$", re.IGNORECASE)
 _HEADING_SELECTORS = ", ".join(f"h{n} + {{sel}}" for n in range(1, 7))
 
 
@@ -65,6 +74,8 @@ def _to_em(value):
         return number / 16
     if unit == "pt":
         return number / 12
+    if unit == "%":
+        return number / 100 * ASSUMED_LINE_WIDTH_EM
     return 0.0 if number == 0 else None   # unitless non-zero: not a length
 
 
