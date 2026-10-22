@@ -60,6 +60,7 @@ from ebook_fix.modules.scene_break_repair import SceneBreakRepair
 from ebook_fix.modules.scene_opener_repair import SceneOpenerRepair
 from ebook_fix.modules.scene_marker_repair import SceneMarkerRepair
 from ebook_fix.modules.body_variant_repair import BodyVariantRepair
+from ebook_fix.modules.line_height_repair import LineHeightRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
@@ -101,6 +102,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     SceneOpenerRepair,
     SceneMarkerRepair,
     BodyVariantRepair,
+    LineHeightRepair,
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
     TextSizeRepair,
@@ -229,6 +231,11 @@ class Engine:
         # markup and style repairs.
         if getattr(self.config, "paragraph_spacing_repair", None) and getattr(self.config.paragraph_spacing_repair, "enabled", True):
             modules.append(ParagraphSpacingRepair(self.config.paragraph_spacing_repair))
+        # Style-only: drops a tight fixed line height from body text so the
+        # reader's own spacing applies. After the repairs that compare or move
+        # paragraph classes, so they still see the original line heights.
+        if getattr(self.config, "line_height_repair", None) and getattr(self.config.line_height_repair, "enabled", True):
+            modules.append(LineHeightRepair(self.config.line_height_repair))
         # Stylesheet-only, the other half of Paragraph Spacing: adds an indent
         # when a book has neither an indent nor a gap. The two never act on
         # the same book (one needs an indent present, the other absent).

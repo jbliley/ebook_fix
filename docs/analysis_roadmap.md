@@ -3700,3 +3700,24 @@ Two more findings from "The Numbers Killer", after the Paragraph Spacing fix abo
 **Odd line spacing in Chapter One.** Almost every body paragraph is `.calibre17` (line height 1.2), but a run of paragraphs in Chapter One is `.calibre19`, a copy of the same class with a line height of 150% and its own gap, so they looked spread out. New repair module `modules/body_variant_repair.py` ("Body Paragraph Look", on by default, switch `body_variant_repair`) switches paragraphs to the body class when their class is the same in every way except line height and top and bottom margins. It only acts when the body class is identified with high confidence, the other class is used on at most a quarter as many paragraphs as the body class (so a deliberately double-spaced book or a letter set in its own style is never changed), and it is only ever used on `<p>` elements. The old rule stays in the stylesheet, unused. It runs before Paragraph Spacing.
 
 Results on the uploaded book: 14 markers rewritten, 10 paragraphs switched to the body class, gaps removed, and a second repair run changes nothing. On the example books, the only differences are markers that already read "* * *" (or a row of five stars in Omnibus-Tarzan) getting the spacing, and one stray body class in `RunTogetherText.epub`. Repairing WarPeace-GoodCopy, Omnibus-Tarzan, MM21, RunTogetherText and GutenbergText-HRule twice changes nothing the second time, and every file stays valid XML.
+
+### Line Height (2026-10-22)
+
+Jacob found the line spacing in "The Numbers Killer" tighter than in other books and supplied "Hunter's Moon" as the spacing he likes. Hunter's Moon declares no line height at all, so the reading app's own setting applies. The Numbers Killer (like many Amazon and Calibre conversions) puts `line-height: 1.2` on every body class and on the spans inside, which the app cannot override. The project already counts a fixed line height as a theme-fighting property (`css.py`), like font family, color and size, but nothing removed it unless a class-standardize mapping was applied.
+
+New repair module `modules/line_height_repair.py` ("Line Height", on by default, switch `line_height_repair`, option `min_line_height = 1.4`) removes a `line-height` below the minimum (plain number, em or percentage) from stylesheet rules, embedded `<style>` blocks and inline styles, and adds nothing. It leaves headings, rules whose selectors name a heading tag, code or table element or a class used on a heading, display-size text (font size above 1.1em), `normal` or `inherit`, px and pt values, and anything at or above the minimum. Re-running does nothing. It runs after Paragraph Spacing, so the modules that compare paragraph classes still see the original line heights.
+
+On the example books it changes 5 of 23 (a total of 1 to 3 declarations each); repairing each result again changes nothing.
+
+### Survey: other styles the reading app should handle (2026-10-22)
+
+A count of every CSS property across the 23 example books, "The Numbers Killer" and "Hunter's Moon" found these, beyond what Color Strip, Font Strip, Text Size and Line Height already cover:
+
+- Forced `text-align: justify` or `left` on body text (25 and 25 rules, 20 books), which overrides the reader's justification setting. Centered headings are deliberate and not part of this.
+- Fixed side margins and padding on the page body or its wrapper (`margin: 0 5pt` in 4 books, `margin-left: 10px; margin-right: 25px` in Hunter's Moon), which stack on top of the reader's own margin setting.
+- Percentage margins between paragraphs and under headings (`1.54%` in The Numbers Killer), which scale with screen width instead of text size.
+- A very large paragraph indent (`3em` in The Numbers Killer; Hunter's Moon uses 1em). A matter of taste, not a bug.
+- Hyphenation properties (`hyphens`, `-webkit-hyphens`, `adobe-hyphenate`, hyphenate limits) in one book, which override the reader's hyphenation setting.
+- Converter leftovers that do nothing in a reader: `-aw-*` properties (Aspose) and `-webkit-line-box-contain`.
+
+Nothing here has been changed yet; each item waits for Jacob's decision.

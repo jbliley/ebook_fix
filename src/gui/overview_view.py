@@ -62,7 +62,7 @@ BOXES = [
         "key": "styling",
         "title": "Styling and Fonts",
         "sections": ["CSS", "Span Soup", "Possible Decorative Color", "Possible Decorative Font"],
-        "modules": ["color_repair", "font_repair", "body_variant_repair", "paragraph_spacing_repair", "paragraph_indent_repair", "text_size_repair", "stylesheet_dedupe_repair"],
+        "modules": ["color_repair", "font_repair", "body_variant_repair", "paragraph_spacing_repair", "line_height_repair", "paragraph_indent_repair", "text_size_repair", "stylesheet_dedupe_repair"],
     },
     {
         "key": "images",
@@ -98,6 +98,7 @@ PLAIN_NAMES = {
     "scene_opener_repair": "Mark scene changes that open with capitals",
     "scene_marker_repair": "Show every scene break as a centered * * * with space around it",
     "body_variant_repair": "Give stray body paragraphs the same line height as the rest",
+    "line_height_repair": "Remove a tight fixed line height so your reader's spacing applies",
     "stylesheet_dedupe_repair": "Share one stylesheet instead of a copy in every page",
     "junk_file_repair": "Remove leftover junk files and duplicate pictures",
     "hyphen_leftover_repair": "Join words split by a leftover hyphen",

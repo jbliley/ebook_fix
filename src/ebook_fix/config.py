@@ -204,6 +204,15 @@ class SceneMarkerConfig:
 
 
 @dataclass(slots=True)
+class LineHeightConfig:
+    enabled: bool = True
+    # A fixed line height below this multiple of the font size (1.2 is a
+    # common one) is removed from body text so the reading app's own line
+    # spacing applies. A line height at or above it is left as it is.
+    min_line_height: float = 1.4
+
+
+@dataclass(slots=True)
 class BodyVariantConfig:
     enabled: bool = True
 
@@ -452,6 +461,7 @@ class Config:
     scene_opener_repair: SceneOpenerConfig = field(default_factory=SceneOpenerConfig)
     scene_marker_repair: SceneMarkerConfig = field(default_factory=SceneMarkerConfig)
     body_variant_repair: BodyVariantConfig = field(default_factory=BodyVariantConfig)
+    line_height_repair: LineHeightConfig = field(default_factory=LineHeightConfig)
     stylesheet_dedupe_repair: StylesheetDedupeConfig = field(default_factory=StylesheetDedupeConfig)
     junk_file_repair: JunkFileConfig = field(default_factory=JunkFileConfig)
     hyphen_leftover_repair: HyphenLeftoverConfig = field(default_factory=HyphenLeftoverConfig)
@@ -522,6 +532,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.scene_opener_repair, modules, "scene_opener_repair")
     _apply_module_toggle(config.scene_marker_repair, modules, "scene_marker_repair")
     _apply_module_toggle(config.body_variant_repair, modules, "body_variant_repair")
+    _apply_module_toggle(config.line_height_repair, modules, "line_height_repair")
     _apply_module_toggle(config.stylesheet_dedupe_repair, modules, "stylesheet_dedupe_repair")
     _apply_module_toggle(config.junk_file_repair, modules, "junk_file_repair")
     _apply_module_toggle(config.hyphen_leftover_repair, modules, "hyphen_leftover_repair")
@@ -557,6 +568,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.scene_opener_repair, "scene_opener_repair", data.get("scene_opener_repair", {}))
     _apply_section(config.scene_marker_repair, "scene_marker_repair", data.get("scene_marker_repair", {}))
     _apply_section(config.body_variant_repair, "body_variant_repair", data.get("body_variant_repair", {}))
+    _apply_section(config.line_height_repair, "line_height_repair", data.get("line_height_repair", {}))
     _apply_section(config.stylesheet_dedupe_repair, "stylesheet_dedupe_repair", data.get("stylesheet_dedupe_repair", {}))
     _apply_section(config.junk_file_repair, "junk_file_repair", data.get("junk_file_repair", {}))
     _apply_section(config.hyphen_leftover_repair, "hyphen_leftover_repair", data.get("hyphen_leftover_repair", {}))
@@ -674,6 +686,7 @@ scene_break_repair = true
 scene_opener_repair = true
 scene_marker_repair = true
 body_variant_repair = true
+line_height_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -1143,6 +1156,21 @@ flush_first_paragraph = true
 # paragraphs at a line height of 150% in a book set at 1.2) are switched
 # to the main body class. A class used on more than a quarter as many
 # paragraphs as the body class is left alone.
+
+# ---------------------------------------------------------------------
+# Line Height
+# ---------------------------------------------------------------------
+[line_height_repair]
+
+# Removes a tight, fixed line height from body text (for example the
+# "line-height: 1.2" many Amazon and Calibre conversions put on every
+# paragraph) so the reading app's own line spacing setting applies, which is
+# usually roomier. Headings, display-size text, code and tables are left
+# alone. Turn this module on or off in the [modules] list above.
+
+# A fixed line height below this multiple of the font size is removed. A
+# line height at or above it is left as it is.
+min_line_height = 1.4
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]
