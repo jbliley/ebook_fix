@@ -3735,3 +3735,20 @@ The space under a chapter header is kept: where a body class had a top margin, a
 Consequences: `paragraph_indent_repair` is now off by default (it adds an indent, which the app now decides); Paragraph Spacing still runs but has little left to do. Body Paragraph Look now also treats a class that differs from the body class only in indent, letter or word spacing, or justify / left alignment as the same class while Reader Settings is on, and no longer switches blank spacer paragraphs (a blank paragraph keeps its own spacing). Without those two changes a second repair run found more to switch.
 
 Tests: the Numbers Killer repairs in one run and a second run changes nothing. Of the 23 example books, 21 change nothing on a second run. Omnibus-Ravagedland does change (Paragraph Repair and Chapter Header Spacing find more on the second run); this happens with the code as it was before today's changes too, so it is a separate, older problem, not yet fixed. Every output file is valid XML.
+
+### Reader Settings, second round: fonts, text size, colors, side margins, no-op sizes (2026-10-22)
+
+Jacob confirmed in Readest on an iPad that removing the line height and the indent worked (the app has Line height, Text indent, Paragraph margin, Margins, Full-width justification and Hyphenation settings, plus an "override book" toggle), and asked to remove any other forced style the app can handle. Survey of the repaired example books and The Numbers Killer for what was still forced on the body text and the page:
+
+Reader Settings now also removes:
+
+- From the body-text class(es), `p`, and plain body paragraphs' inline styles: side margins and padding (`margin-left`, `margin-right`, `padding-left`, `padding-right`), `font-family`, `font-size`, `color`, `background` and `background-color`.
+- From `body`, `html`, the class on the `<body>` element and `@page`: `font-family`, `font-size`, `color`, `background` and `background-color` (in addition to margins, padding, line height and justification).
+- From any rule: a font size of `1em`, `100%` or `inherit` (changes nothing but pins the size in some apps; 23 of these in The Numbers Killer), and a `text-indent` on a rule that is centered or right-aligned (the Numbers Killer's chapter titles carried `text-indent: 3em`, which pushed them off center).
+- Rules left with nothing in them after the cleanup (14 in The Numbers Killer), and any rule that was already empty.
+
+Body Paragraph Look compares classes the same way: with Reader Settings on, a class that differs from the body class only in font size, font family, color, background, indent, letter or word spacing, justify / left alignment, or a zero side margin or padding counts as the same class. A class with a real side margin (a block quote) is never merged.
+
+Result: after repair, none of the 22 repaired example books keeps any of these on its body text or page. The Numbers Killer repairs in one run and a second run does nothing; its stylesheet drops from 6.9 KB to 6.1 KB with no empty rules. Of the 23 example books, 22 are stable on a second run and every output is valid XML; Omnibus-RavagedLand is still the older Paragraph Repair / Chapter Header Spacing instability.
+
+Left on purpose: heading and title sizes, centered classes, small caps and letter-spaced runs, italics and bold, quotes, tables, images, `display: block`, percentage margins above and below chapter titles, and the chapter wrapper ebook_fix adds.

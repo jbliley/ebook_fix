@@ -21,13 +21,21 @@ inline styles on plain body paragraphs):
 - text-align when it is justify, left or start (the app's justification
   setting); a centered or right-aligned paragraph is a one-off and stays
 - letter-spacing, word-spacing
+- side margins and padding, font-family, font-size, color and background
+  (the app's font, text size, margin and theme settings)
 
 On the page itself (`body`, `html`, the class on the <body> element, and
 `@page`):
 - side and top/bottom margins and padding (the app's page margin setting)
 - line-height, and justify / left alignment
+- font-family, font-size, color and background (the app's font, size and theme)
 
 On any rule at all:
+- a font size of 1em, 100% or inherit, which changes nothing but pins the
+  size in some apps
+- an indent on centered or right-aligned text, which only pushes a title
+  off center
+- rules left with nothing in them after the cleanup
 - hyphenation switches (hyphens, -webkit-hyphens, adobe-hyphenate, the
   hyphenate limits), which override the app's hyphenation setting
 - converter leftovers that do nothing in a reader (-aw-*,
@@ -60,11 +68,16 @@ _COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 _DECL = re.compile(r"^\s*([-\w]+)\s*:\s*(.+?)\s*$", re.DOTALL)
 _HEADINGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 
-BODY_TEXT_PROPS = frozenset({"line-height", "text-indent", "letter-spacing", "word-spacing", "margin-top", "margin-bottom"})
+BODY_TEXT_PROPS = frozenset({
+    "line-height", "text-indent", "letter-spacing", "word-spacing", "margin-top", "margin-bottom",
+    "margin-left", "margin-right", "padding-left", "padding-right",
+    "font-family", "font-size", "color", "background", "background-color",
+})
 PAGE_PROPS = frozenset({
     "margin", "margin-top", "margin-bottom", "margin-left", "margin-right",
     "padding", "padding-top", "padding-bottom", "padding-left", "padding-right",
     "line-height",
+    "font-family", "font-size", "color", "background", "background-color",
 })
 FLEXIBLE_ALIGN = frozenset({"justify", "left", "start"})
 HYPHEN_PROPS = frozenset({
@@ -75,6 +88,10 @@ HYPHEN_PROPS = frozenset({
 JUNK_PREFIXES = ("-aw-",)
 JUNK_PROPS = frozenset({"-webkit-line-box-contain"})
 
+NOOP_FONT_SIZES = frozenset({"1em", "100%", "inherit", "1.0em"})
+LABEL_NOOP = "redundant font size (1em)"
+LABEL_CENTER_INDENT = "indent on centered text"
+LABEL_EMPTY = "empty rules"
 LABEL_OTHER = "hyphenation and converter leftovers"
 LABEL_PAGE = "page margins and padding"
 LABEL_INLINE = "inline styles on body text"
@@ -155,6 +172,10 @@ def _rewrite_css(css_text: str, body_text: set, body_el: set, skip_classes: set)
         is_page_at = sel_text.lower() == "@page"
         if sel_text.startswith("@") and not is_page_at:
             return match.group(0)
+        comments = "".join(re.findall(r"/\*.*?\*/", raw_sel, re.DOTALL))
+        if not body.strip():
+            counts[LABEL_EMPTY] += 1
+            return comments
         selectors = [s.strip() for s in sel_text.split(",") if s.strip()]
         kind = None
         if is_page_at or (selectors and all(s in page_sels for s in selectors)):
@@ -164,10 +185,15 @@ def _rewrite_css(css_text: str, body_text: set, body_el: set, skip_classes: set)
         # a rule that also names a heading class is never rewritten by kind
         if kind and any(c in skip_classes for s in selectors for c in re.findall(r"\.([\w-]+)", s)):
             kind = None
+        centered = bool(re.search(r"text-align\s*:\s*(?:center|right)\b", body, re.IGNORECASE))
         original_top = {}
 
         def should_remove(name, value):
             if _is_any_rule_prop(name):
+                return True
+            if name == "font-size" and value.lower() in NOOP_FONT_SIZES:
+                return True
+            if name == "text-indent" and centered:
                 return True
             if kind == "page":
                 return name in PAGE_PROPS or (name == "text-align" and value.lower() in FLEXIBLE_ALIGN)
@@ -182,9 +208,13 @@ def _rewrite_css(css_text: str, body_text: set, body_el: set, skip_classes: set)
         new_body, removed = _strip(body, should_remove)
         if not removed:
             return match.group(0)
-        for name, _ in removed:
+        for name, value in removed:
             if _is_any_rule_prop(name):
                 counts[LABEL_OTHER] += 1
+            elif name == "font-size" and value.lower() in NOOP_FONT_SIZES:
+                counts[LABEL_NOOP] += 1
+            elif name == "text-indent" and centered and kind is None:
+                counts[LABEL_CENTER_INDENT] += 1
             elif kind == "page" and name not in ("line-height", "text-align"):
                 counts[LABEL_PAGE] += 1
             else:
@@ -195,6 +225,9 @@ def _rewrite_css(css_text: str, body_text: set, body_el: set, skip_classes: set)
                 cls = re.sub(r"^p?\.", "", s)
                 if cls != "p":
                     restore.setdefault(cls, top)
+        if not new_body.strip():
+            counts[LABEL_EMPTY] += 1
+            return comments
         return f"{raw_sel}{{{new_body}}}"
 
     new_text = _RULE.sub(sub, css_text)
@@ -216,6 +249,7 @@ def _is_ebookfix_element(el) -> bool:
 
 def _remove_in_paragraph(name, value):
     return (name in BODY_TEXT_PROPS or _is_any_rule_prop(name)
+            or (name == "font-size" and value.lower() in NOOP_FONT_SIZES)
             or (name == "text-align" and value.lower() in FLEXIBLE_ALIGN))
 
 
@@ -310,7 +344,9 @@ class ReaderSettingsRepair:
     def _report(report, counts, will):
         verb = "will be" if will else "were"
         for label, n in sorted(counts.items()):
-            if label in (LABEL_OTHER, LABEL_PAGE, LABEL_INLINE):
+            if label == LABEL_EMPTY:
+                detail = f"{n} stylesheet rule(s) left with nothing in them {verb} removed"
+            elif label in (LABEL_OTHER, LABEL_PAGE, LABEL_INLINE, LABEL_NOOP, LABEL_CENTER_INDENT):
                 detail = f"{label}: {n} declaration(s) {verb} removed so the reading app's own setting applies"
             else:
                 detail = f"{n} '{label}' setting(s) on body text {verb} removed so the reading app's own setting applies"

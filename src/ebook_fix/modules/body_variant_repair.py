@@ -39,7 +39,13 @@ _IGNORED = frozenset(("line-height", "margin-top", "margin-bottom"))
 # Reader Settings strips these from the body class, so once it is on a class
 # that differs only in them is the same class (and switching it now is what a
 # second repair run would otherwise do).
-_READER_IGNORED = frozenset(("text-indent", "letter-spacing", "word-spacing"))
+_READER_IGNORED = frozenset((
+    "text-indent", "letter-spacing", "word-spacing", "font-size", "font-family", "color",
+    "background", "background-color",
+))
+# A zero side margin or padding says nothing; Reader Settings removes it.
+_ZERO = frozenset(("0", "0%", "0em", "0px", "0pt", "0rem", "auto"))
+_SIDE = frozenset(("margin-left", "margin-right", "padding-left", "padding-right"))
 _FLEXIBLE_ALIGN = frozenset(("justify", "left", "start"))
 MAX_SHARE = 0.25
 
@@ -53,6 +59,10 @@ def _comparable(props: dict, reader_settings: bool) -> dict:
     out = {k: v for k, v in props.items() if k not in ignored}
     if reader_settings and out.get("text-align") in _FLEXIBLE_ALIGN:
         del out["text-align"]
+    if reader_settings:
+        for k in _SIDE:
+            if out.get(k) in _ZERO:
+                del out[k]
     return out
 
 
