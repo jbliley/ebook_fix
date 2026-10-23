@@ -204,6 +204,11 @@ class SceneMarkerConfig:
 
 
 @dataclass(slots=True)
+class SpanCleanupConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class ReaderSettingsConfig:
     enabled: bool = True
 
@@ -468,6 +473,7 @@ class Config:
     body_variant_repair: BodyVariantConfig = field(default_factory=BodyVariantConfig)
     line_height_repair: LineHeightConfig = field(default_factory=LineHeightConfig)
     reader_settings_repair: ReaderSettingsConfig = field(default_factory=ReaderSettingsConfig)
+    span_cleanup_repair: SpanCleanupConfig = field(default_factory=SpanCleanupConfig)
     stylesheet_dedupe_repair: StylesheetDedupeConfig = field(default_factory=StylesheetDedupeConfig)
     junk_file_repair: JunkFileConfig = field(default_factory=JunkFileConfig)
     hyphen_leftover_repair: HyphenLeftoverConfig = field(default_factory=HyphenLeftoverConfig)
@@ -540,6 +546,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.body_variant_repair, modules, "body_variant_repair")
     _apply_module_toggle(config.line_height_repair, modules, "line_height_repair")
     _apply_module_toggle(config.reader_settings_repair, modules, "reader_settings_repair")
+    _apply_module_toggle(config.span_cleanup_repair, modules, "span_cleanup_repair")
     _apply_module_toggle(config.stylesheet_dedupe_repair, modules, "stylesheet_dedupe_repair")
     _apply_module_toggle(config.junk_file_repair, modules, "junk_file_repair")
     _apply_module_toggle(config.hyphen_leftover_repair, modules, "hyphen_leftover_repair")
@@ -577,6 +584,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.body_variant_repair, "body_variant_repair", data.get("body_variant_repair", {}))
     _apply_section(config.line_height_repair, "line_height_repair", data.get("line_height_repair", {}))
     _apply_section(config.reader_settings_repair, "reader_settings_repair", data.get("reader_settings_repair", {}))
+    _apply_section(config.span_cleanup_repair, "span_cleanup_repair", data.get("span_cleanup_repair", {}))
     _apply_section(config.stylesheet_dedupe_repair, "stylesheet_dedupe_repair", data.get("stylesheet_dedupe_repair", {}))
     _apply_section(config.junk_file_repair, "junk_file_repair", data.get("junk_file_repair", {}))
     _apply_section(config.hyphen_leftover_repair, "hyphen_leftover_repair", data.get("hyphen_leftover_repair", {}))
@@ -696,6 +704,7 @@ scene_marker_repair = true
 body_variant_repair = true
 line_height_repair = true
 reader_settings_repair = true
+span_cleanup_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -1195,6 +1204,17 @@ min_line_height = 1.4
 # headers is kept. Headings, centered titles, quotes, small caps and other
 # one-off styling are left alone. Because the app now decides indents,
 # paragraph_indent_repair is off by default.
+
+# ---------------------------------------------------------------------
+# Span Cleanup
+# ---------------------------------------------------------------------
+[span_cleanup_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Unwraps <span> tags that do nothing, such as the converter spans whose
+# style was removed by Reader Settings, and removes empty spans. A span with
+# an id, a style, a language or any other attribute is never touched, and the
+# text of every page is checked to be identical before and after.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

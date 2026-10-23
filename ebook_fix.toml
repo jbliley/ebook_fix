@@ -27,6 +27,7 @@ scene_marker_repair = true
 body_variant_repair = true
 line_height_repair = true
 reader_settings_repair = true
+span_cleanup_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -470,6 +471,17 @@ min_line_height = 1.4
 # headers is kept. Headings, centered titles, quotes, small caps and other
 # one-off styling are left alone. Because the app now decides indents,
 # paragraph_indent_repair is off by default.
+
+# ---------------------------------------------------------------------
+# Span Cleanup
+# ---------------------------------------------------------------------
+[span_cleanup_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Unwraps <span> tags that do nothing, such as the converter spans whose
+# style was removed by Reader Settings, and removes empty spans. A span with
+# an id, a style, a language or any other attribute is never touched, and the
+# text of every page is checked to be identical before and after.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

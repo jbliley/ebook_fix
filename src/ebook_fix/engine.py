@@ -62,6 +62,7 @@ from ebook_fix.modules.scene_marker_repair import SceneMarkerRepair
 from ebook_fix.modules.body_variant_repair import BodyVariantRepair
 from ebook_fix.modules.line_height_repair import LineHeightRepair
 from ebook_fix.modules.reader_settings_repair import ReaderSettingsRepair
+from ebook_fix.modules.span_cleanup_repair import SpanCleanupRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
@@ -105,6 +106,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     BodyVariantRepair,
     LineHeightRepair,
     ReaderSettingsRepair,
+    SpanCleanupRepair,
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
     TextSizeRepair,
@@ -300,6 +302,10 @@ class Engine:
         # Skipped on fixed-layout books like the other style repairs.
         if getattr(self.config, "stylesheet_dedupe_repair", None) and getattr(self.config.stylesheet_dedupe_repair, "enabled", True):
             modules.append(EmbeddedStylesheetRepair(self.config.stylesheet_dedupe_repair))
+        # After every style repair (Reader Settings, Color Strip, Font Strip):
+        # unwraps spans left with nothing to do once the styles are gone.
+        if getattr(self.config, "span_cleanup_repair", None) and getattr(self.config.span_cleanup_repair, "enabled", True):
+            modules.append(SpanCleanupRepair(self.config.span_cleanup_repair))
         # Runs after Cover Repair and Image Repair, so the cover is already
         # declared and renamed and the pictures are already checked, before
         # an identical copy of one is removed. Only touches files, never

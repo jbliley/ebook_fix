@@ -98,6 +98,24 @@ def find_body_variants(book, analysis=None, reader_settings: bool = True) -> lis
     return found
 
 
+def _variant_paragraphs(book, variant):
+    """[(chapter, element)] for each paragraph that is only the variant class
+    and holds text. A blank spacer paragraph is not body text; its own spacing
+    is what keeps the gap it was put there for."""
+    found = []
+    for chapter in book.chapters:
+        doc = chapter.document
+        if doc is None:
+            continue
+        for el in doc.iter("{*}p"):
+            if (el.get("class") or "").split() != [variant]:
+                continue
+            if not "".join(el.itertext()).replace("\u00a0", " ").strip():
+                continue
+            found.append((chapter, el))
+    return found
+
+
 class BodyVariantRepair:
     name = "Body Paragraph Look"
 
@@ -111,8 +129,10 @@ class BodyVariantRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        for variant, body, n, _ in find_body_variants(book, analysis, self.reader_settings):
-            report.add("stylesheet", "Body paragraphs with a different look", self._describe(variant, body, n, will=True))
+        for variant, body, _, _ in find_body_variants(book, analysis, self.reader_settings):
+            n = len(_variant_paragraphs(book, variant))
+            if n:
+                report.add("stylesheet", "Body paragraphs with a different look", self._describe(variant, body, n, will=True))
         return report
 
     def repair(self, book, analysis=None) -> Report:
@@ -120,22 +140,13 @@ class BodyVariantRepair:
         if not self.config.enabled:
             return report
         changed = set()
-        for variant, body, n, _ in find_body_variants(book, analysis, self.reader_settings):
+        for variant, body, _, _ in find_body_variants(book, analysis, self.reader_settings):
             switched = 0
-            for chapter in book.chapters:
-                doc = chapter.document
-                if doc is None:
-                    continue
-                for el in doc.iter("{*}p"):
-                    if (el.get("class") or "").split() == [variant]:
-                        # a blank spacer paragraph is not body text; its own
-                        # spacing is what keeps the gap it was put there for
-                        if not "".join(el.itertext()).replace("\u00a0", " ").strip():
-                            continue
-                        el.set("class", body)
-                        chapter.modified = True
-                        changed.add(chapter.href)
-                        switched += 1
+            for chapter, el in _variant_paragraphs(book, variant):
+                el.set("class", body)
+                chapter.modified = True
+                changed.add(chapter.href)
+                switched += 1
             if switched:
                 report.add("stylesheet", "Body paragraphs with a different look fixed", self._describe(variant, body, switched, will=False))
         if changed and hasattr(book, "mark_modified"):
