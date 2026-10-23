@@ -28,6 +28,9 @@ body_variant_repair = true
 line_height_repair = true
 reader_settings_repair = true
 span_cleanup_repair = true
+quote_style_repair = true
+page_title_repair = true
+class_cleanup_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -482,6 +485,39 @@ min_line_height = 1.4
 # style was removed by Reader Settings, and removes empty spans. A span with
 # an id, a style, a language or any other attribute is never touched, and the
 # text of every page is checked to be identical before and after.
+
+# ---------------------------------------------------------------------
+# Quote Style
+# ---------------------------------------------------------------------
+[quote_style_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# In a book that already uses curly quotes, turns the stray straight quotes
+# and apostrophes into curly ones so the whole book matches. A book that
+# mostly uses straight quotes, or a mixed one, is left alone, and inch and
+# foot marks are never changed. Only the quote characters change, never a word.
+
+# ---------------------------------------------------------------------
+# Page Titles
+# ---------------------------------------------------------------------
+[page_title_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Replaces a placeholder <title> in a page (Unknown, Untitled, a bare file
+# name, or none at all) with the page's first heading, or the book's title
+# when the page has no heading. Titles that already say something are left
+# alone, and nothing in the page text is changed.
+
+# ---------------------------------------------------------------------
+# Class Cleanup
+# ---------------------------------------------------------------------
+[class_cleanup_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Removes class names (the converter's calibre, calibre1, calibre2 and so
+# on) that no style in the book mentions any more, so they can no longer
+# affect how anything looks. Names used by ebook_fix itself are kept. Spans
+# left with no attributes are then removed by Span Cleanup.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

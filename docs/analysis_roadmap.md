@@ -3766,3 +3766,15 @@ After Reader Settings, The Numbers Killer was left with 2,223 `<span class="cali
 Result: The Numbers Killer goes from about 2,500 spans to 267 (the rest carry real styling or anchors), a second run changes nothing, and the visible text of every page is identical with the module on or off (also checked on MM21, Omnibus-Tarzan, Sidewinders and WarPeace). All 23 example books are stable on a second run with valid XML. The module is skipped on fixed-layout books.
 
 Body Paragraph Look also counted blank spacer paragraphs as issues on an already repaired book ("3 issue(s)" that the repair could never fix). Analysis and repair now count the same paragraphs, and a repaired Numbers Killer reports 0.
+
+### Added: Quote Style, Page Titles and Class Cleanup (2026-10-23)
+
+Three more repairs, all on by default, found by running the analyzer on a repaired Numbers Killer.
+
+Quote Style (`quote_style_repair`): the book had thousands of curly quotes but also 18 straight double quotes and 10 straight apostrophes. In a book that already uses curly quotes (straight marks at most a quarter of the double quotes, or of the single quotes, with at least 10 curly ones to follow), straight marks are made curly. A double quote is opening or closing based on the character before and after it, read across the whole paragraph so a quote next to an `<i>` tag is still placed correctly. An apostrophe inside or at the end of a word becomes `’`, leading elisions (`'em`, `'tis`, `'90s`) become `’`, and an opening single quote becomes `‘` only when the book already uses `‘` and a closing mark follows. Inch and foot marks, quotes with no clear side, and books that mostly use straight quotes are left alone. Only the quote characters change, never a word. All 28 straight marks in The Numbers Killer were converted and checked one by one.
+
+Page Titles (`page_title_repair`): all 42 chapter files had `<title>Unknown</title>`. A missing, empty or placeholder title (Unknown, Untitled, a bare file name) is replaced with the page's first heading, including a paragraph Chapter Markup marked as a heading, or the book title when there is none. Titles that already say something are never changed. Numbers Killer pages now read "Chapter Five", "Epilogue", "Note to Readers" and so on.
+
+Class Cleanup (`class_cleanup_repair`): a class name is removed from an element when the book's CSS no longer mentions it at all, so it cannot affect how anything looks. Names containing "ebookfix" are kept, and nothing changes if the CSS has an attribute selector on class. It runs just before Span Cleanup so spans that lose their class are unwrapped in the same pass. The effect on The Numbers Killer is small (about 30 names), because most `calibre` names still have a rule behind them. It is skipped on fixed-layout books.
+
+Result: all 23 example books are stable on a second run with valid XML, and the visible text of The Numbers Killer is identical with Class Cleanup on or off.

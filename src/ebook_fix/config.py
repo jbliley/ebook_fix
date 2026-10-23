@@ -204,6 +204,21 @@ class SceneMarkerConfig:
 
 
 @dataclass(slots=True)
+class ClassCleanupConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
+class PageTitleConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
+class QuoteStyleConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class SpanCleanupConfig:
     enabled: bool = True
 
@@ -474,6 +489,9 @@ class Config:
     line_height_repair: LineHeightConfig = field(default_factory=LineHeightConfig)
     reader_settings_repair: ReaderSettingsConfig = field(default_factory=ReaderSettingsConfig)
     span_cleanup_repair: SpanCleanupConfig = field(default_factory=SpanCleanupConfig)
+    quote_style_repair: QuoteStyleConfig = field(default_factory=QuoteStyleConfig)
+    page_title_repair: PageTitleConfig = field(default_factory=PageTitleConfig)
+    class_cleanup_repair: ClassCleanupConfig = field(default_factory=ClassCleanupConfig)
     stylesheet_dedupe_repair: StylesheetDedupeConfig = field(default_factory=StylesheetDedupeConfig)
     junk_file_repair: JunkFileConfig = field(default_factory=JunkFileConfig)
     hyphen_leftover_repair: HyphenLeftoverConfig = field(default_factory=HyphenLeftoverConfig)
@@ -547,6 +565,9 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.line_height_repair, modules, "line_height_repair")
     _apply_module_toggle(config.reader_settings_repair, modules, "reader_settings_repair")
     _apply_module_toggle(config.span_cleanup_repair, modules, "span_cleanup_repair")
+    _apply_module_toggle(config.quote_style_repair, modules, "quote_style_repair")
+    _apply_module_toggle(config.page_title_repair, modules, "page_title_repair")
+    _apply_module_toggle(config.class_cleanup_repair, modules, "class_cleanup_repair")
     _apply_module_toggle(config.stylesheet_dedupe_repair, modules, "stylesheet_dedupe_repair")
     _apply_module_toggle(config.junk_file_repair, modules, "junk_file_repair")
     _apply_module_toggle(config.hyphen_leftover_repair, modules, "hyphen_leftover_repair")
@@ -585,6 +606,9 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.line_height_repair, "line_height_repair", data.get("line_height_repair", {}))
     _apply_section(config.reader_settings_repair, "reader_settings_repair", data.get("reader_settings_repair", {}))
     _apply_section(config.span_cleanup_repair, "span_cleanup_repair", data.get("span_cleanup_repair", {}))
+    _apply_section(config.quote_style_repair, "quote_style_repair", data.get("quote_style_repair", {}))
+    _apply_section(config.page_title_repair, "page_title_repair", data.get("page_title_repair", {}))
+    _apply_section(config.class_cleanup_repair, "class_cleanup_repair", data.get("class_cleanup_repair", {}))
     _apply_section(config.stylesheet_dedupe_repair, "stylesheet_dedupe_repair", data.get("stylesheet_dedupe_repair", {}))
     _apply_section(config.junk_file_repair, "junk_file_repair", data.get("junk_file_repair", {}))
     _apply_section(config.hyphen_leftover_repair, "hyphen_leftover_repair", data.get("hyphen_leftover_repair", {}))
@@ -705,6 +729,9 @@ body_variant_repair = true
 line_height_repair = true
 reader_settings_repair = true
 span_cleanup_repair = true
+quote_style_repair = true
+page_title_repair = true
+class_cleanup_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -1215,6 +1242,39 @@ min_line_height = 1.4
 # style was removed by Reader Settings, and removes empty spans. A span with
 # an id, a style, a language or any other attribute is never touched, and the
 # text of every page is checked to be identical before and after.
+
+# ---------------------------------------------------------------------
+# Quote Style
+# ---------------------------------------------------------------------
+[quote_style_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# In a book that already uses curly quotes, turns the stray straight quotes
+# and apostrophes into curly ones so the whole book matches. A book that
+# mostly uses straight quotes, or a mixed one, is left alone, and inch and
+# foot marks are never changed. Only the quote characters change, never a word.
+
+# ---------------------------------------------------------------------
+# Page Titles
+# ---------------------------------------------------------------------
+[page_title_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Replaces a placeholder <title> in a page (Unknown, Untitled, a bare file
+# name, or none at all) with the page's first heading, or the book's title
+# when the page has no heading. Titles that already say something are left
+# alone, and nothing in the page text is changed.
+
+# ---------------------------------------------------------------------
+# Class Cleanup
+# ---------------------------------------------------------------------
+[class_cleanup_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Removes class names (the converter's calibre, calibre1, calibre2 and so
+# on) that no style in the book mentions any more, so they can no longer
+# affect how anything looks. Names used by ebook_fix itself are kept. Spans
+# left with no attributes are then removed by Span Cleanup.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

@@ -63,6 +63,9 @@ from ebook_fix.modules.body_variant_repair import BodyVariantRepair
 from ebook_fix.modules.line_height_repair import LineHeightRepair
 from ebook_fix.modules.reader_settings_repair import ReaderSettingsRepair
 from ebook_fix.modules.span_cleanup_repair import SpanCleanupRepair
+from ebook_fix.modules.class_cleanup_repair import ClassCleanupRepair
+from ebook_fix.modules.quote_style_repair import QuoteStyleRepair
+from ebook_fix.modules.page_title_repair import PageTitleRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
@@ -106,6 +109,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     BodyVariantRepair,
     LineHeightRepair,
     ReaderSettingsRepair,
+    ClassCleanupRepair,
     SpanCleanupRepair,
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
@@ -302,6 +306,10 @@ class Engine:
         # Skipped on fixed-layout books like the other style repairs.
         if getattr(self.config, "stylesheet_dedupe_repair", None) and getattr(self.config.stylesheet_dedupe_repair, "enabled", True):
             modules.append(EmbeddedStylesheetRepair(self.config.stylesheet_dedupe_repair))
+        # Class names nothing styles any more, dropped just before Span Cleanup
+        # so spans that lose their class are unwrapped in the same pass.
+        if getattr(self.config, "class_cleanup_repair", None) and getattr(self.config.class_cleanup_repair, "enabled", True):
+            modules.append(ClassCleanupRepair(self.config.class_cleanup_repair))
         # After every style repair (Reader Settings, Color Strip, Font Strip):
         # unwraps spans left with nothing to do once the styles are gone.
         if getattr(self.config, "span_cleanup_repair", None) and getattr(self.config.span_cleanup_repair, "enabled", True):
@@ -350,6 +358,14 @@ class Engine:
         # periods).
         if getattr(self.config, "apostrophe_repair", None) and getattr(self.config.apostrophe_repair, "enabled", True):
             modules.append(ApostropheRepair(self.config.apostrophe_repair))
+        # After Apostrophe Repair (which may add a straight apostrophe) and
+        # before Whitespace: makes stray straight quotes match a curly book.
+        if getattr(self.config, "quote_style_repair", None) and getattr(self.config.quote_style_repair, "enabled", True):
+            modules.append(QuoteStyleRepair(self.config.quote_style_repair))
+        # Only the <title> in each page's head; runs after the chapter
+        # headings are settled so the first heading is the final one.
+        if getattr(self.config, "page_title_repair", None) and getattr(self.config.page_title_repair, "enabled", True):
+            modules.append(PageTitleRepair(self.config.page_title_repair))
         if getattr(self.config, "whitespace_repair", None) and getattr(self.config.whitespace_repair, "enabled", True):
             modules.append(WhitespaceRepair(self.config.whitespace_repair))
         # Runs just before Metadata Sync and, like it, touches only OPF

@@ -55,14 +55,14 @@ BOXES = [
         ],
         "modules": [
             "gutenberg_repair", "running_title_repair", "linebreak_repair", "paragraph_repair",
-            "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "whitespace_repair",
+            "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "quote_style_repair", "page_title_repair", "whitespace_repair",
         ],
     },
     {
         "key": "styling",
         "title": "Styling and Fonts",
         "sections": ["CSS", "Span Soup", "Possible Decorative Color", "Possible Decorative Font"],
-        "modules": ["color_repair", "font_repair", "body_variant_repair", "paragraph_spacing_repair", "line_height_repair", "reader_settings_repair", "span_cleanup_repair", "paragraph_indent_repair", "text_size_repair", "stylesheet_dedupe_repair"],
+        "modules": ["color_repair", "font_repair", "body_variant_repair", "paragraph_spacing_repair", "line_height_repair", "reader_settings_repair", "class_cleanup_repair", "span_cleanup_repair", "paragraph_indent_repair", "text_size_repair", "stylesheet_dedupe_repair"],
     },
     {
         "key": "images",
@@ -98,6 +98,7 @@ PLAIN_NAMES = {
     "scene_opener_repair": "Mark scene changes that open with capitals",
     "scene_marker_repair": "Show every scene break as a centered * * * with space around it",
     "body_variant_repair": "Give stray body paragraphs the same line height as the rest",
+    "class_cleanup_repair": "Remove class names no style uses",
     "span_cleanup_repair": "Remove span tags that do nothing",
     "reader_settings_repair": "Leave indents, spacing, justification, margins and hyphenation to the reading app",
     "line_height_repair": "Remove a tight fixed line height so your reader's spacing applies",
@@ -114,6 +115,8 @@ PLAIN_NAMES = {
     "font_repair": "Remove decorative fonts",
     "ellipsis_repair": "Standardize ellipses",
     "apostrophe_repair": "Restore missing apostrophes",
+    "page_title_repair": "Replace placeholder page titles such as Unknown",
+    "quote_style_repair": "Make straight quotes curly in books that use curly quotes",
     "whitespace_repair": "Clean up spacing",
     "title_cleanup": "Clean up the title and author name",
     "metadata_repair": "Sync metadata with Calibre",
