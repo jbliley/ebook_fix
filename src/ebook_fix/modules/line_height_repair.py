@@ -26,6 +26,9 @@ Only body-size text is touched:
   how tight it is) is left alone, as is any line height at or above the
   minimum.
 - Inline styles on headings, and on anything inside a heading, are skipped.
+- A class only ever used on links or spans is cleaned even if a chapter title
+  uses it too (an inline line height can only tighten the lines it sits on;
+  in The Numbers Killer 30 links wrapping body text carried `1.2`).
 
 Works on external stylesheets, embedded <style> blocks and inline style
 attributes. Re-running finds nothing tight and does nothing.
@@ -75,18 +78,28 @@ def _local(el) -> str:
     return tag.rsplit("}", 1)[-1].lower()
 
 
+_INLINE_TAGS = frozenset({"a", "span", "em", "i", "b", "strong", "u", "small", "font", "sup", "sub"})
+
+
 def heading_classes(book) -> set:
-    """Classes used on a heading element, or on anything inside one."""
-    found = set()
+    """Classes whose line height must be left alone: used on a heading or on
+    anything inside one, except a class that is only ever used on inline
+    elements (a link or span). A line height on an inline element can only
+    tighten the lines it sits on, so it is removed even when a chapter title
+    happens to use the same class."""
+    found, block_use = set(), set()
     for chapter in book.chapters:
         doc = chapter.document
         if doc is None:
             continue
+        for el in doc.iter():
+            if isinstance(el.tag, str) and _local(el) not in _INLINE_TAGS:
+                block_use.update((el.get("class") or "").split())
         for h in doc.iter(*[f"{{*}}{t}" for t in _HEADINGS]):
             for el in h.iter():
                 if isinstance(el.tag, str):
                     found.update((el.get("class") or "").split())
-    return found
+    return {c for c in found if c in block_use}
 
 
 def _strip_tight(body: str, min_ratio: float):
