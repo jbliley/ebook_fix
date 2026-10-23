@@ -536,6 +536,12 @@ def analyze_book_paragraphs(book, frontmatter_summary=None, chapter_markers=None
 
             if (
                 not junk and empty and not _holds_link_target(p, referenced)
+                # a blank line Chapter Header Spacing put there itself: it is
+                # the tool's own spacing, never a conversion leftover. (Where
+                # the header is not a confirmed chapter start, as in a title
+                # page, the two checks below cannot see it, and the two
+                # modules undid each other on every pass.)
+                and "ebookfix-header-gap" not in (p.get("class") or "")
                 and not _is_spacing_after_header(p, chapter_markers)
                 and not _is_spacing_before_header(p, chapter_markers)
             ):
