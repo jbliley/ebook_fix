@@ -3778,3 +3778,13 @@ Page Titles (`page_title_repair`): all 42 chapter files had `<title>Unknown</tit
 Class Cleanup (`class_cleanup_repair`): a class name is removed from an element when the book's CSS no longer mentions it at all, so it cannot affect how anything looks. Names containing "ebookfix" are kept, and nothing changes if the CSS has an attribute selector on class. It runs just before Span Cleanup so spans that lose their class are unwrapped in the same pass. The effect on The Numbers Killer is small (about 30 names), because most `calibre` names still have a rule behind them. It is skipped on fixed-layout books.
 
 Result: all 23 example books are stable on a second run with valid XML, and the visible text of The Numbers Killer is identical with Class Cleanup on or off.
+
+### Added: Unused CSS (2026-10-23)
+
+The analysis had only been reporting "Unused CSS classes declared" (283 in Hunter's Moon, 10 in The Numbers Killer). New module Unused CSS (`unused_css_repair`, on by default) removes a selector from its rule when it names a class that no page in the book uses, since a selector with an unused class can never match; a rule with no selectors left is deleted. Rules for plain tags (`body`, `p`, `h1`), `@font-face`, `@page` and other `@` rules are kept, and so are selectors with `:not()`, `:is()` or `[...]`, and class names containing "ebookfix". "Used" counts the text pages, the contents page, the cover page and any other HTML file still in the book (files another module removed are not counted). A book with a script in it is left alone, and the module is skipped on fixed-layout books. Only stylesheet files are edited, not the `<style>` blocks inside pages.
+
+Removing the rule is better than replacing its values with `auto`: with the rule gone the reading app's own setting applies, while an explicit value (even `auto`, which is not valid for many properties) still pins the book's choice in some apps.
+
+Result: the Hunter's Moon stylesheet drops from 13.9 KB to 2.4 KB, War and Peace and MM5 shrink too, and a check that every rule for a class a page actually uses is unchanged found no losses other than selectors that required an unused class. A first version counted pages another module had already removed as still in use, which made 5 example books change on a second run; fixed. All 23 example books are stable on a second run with valid XML.
+
+Looked at and left alone: forced `height` rules (almost all `height: auto` on images, plus one table row), empty spans (they hold a meaningful space), double spaces after sentences (they sit across tag boundaries, where the page already collapses them), and whitespace-only text nodes (harmless indentation between tags).

@@ -31,6 +31,7 @@ span_cleanup_repair = true
 quote_style_repair = true
 page_title_repair = true
 class_cleanup_repair = true
+unused_css_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -518,6 +519,17 @@ min_line_height = 1.4
 # on) that no style in the book mentions any more, so they can no longer
 # affect how anything looks. Names used by ebook_fix itself are kept. Spans
 # left with no attributes are then removed by Span Cleanup.
+
+# ---------------------------------------------------------------------
+# Unused CSS
+# ---------------------------------------------------------------------
+[unused_css_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Removes style rules for classes that no page in the book uses (a converter
+# writes a rule for every class in the original file). Rules for plain tags
+# such as body, p and h1, @font-face and @page rules, and anything used by
+# ebook_fix are kept. A book containing a script is left alone.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

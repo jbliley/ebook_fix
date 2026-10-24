@@ -64,6 +64,7 @@ from ebook_fix.modules.line_height_repair import LineHeightRepair
 from ebook_fix.modules.reader_settings_repair import ReaderSettingsRepair
 from ebook_fix.modules.span_cleanup_repair import SpanCleanupRepair
 from ebook_fix.modules.class_cleanup_repair import ClassCleanupRepair
+from ebook_fix.modules.unused_css_repair import UnusedCssRepair
 from ebook_fix.modules.quote_style_repair import QuoteStyleRepair
 from ebook_fix.modules.page_title_repair import PageTitleRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
@@ -111,6 +112,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     ReaderSettingsRepair,
     ClassCleanupRepair,
     SpanCleanupRepair,
+    UnusedCssRepair,
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
     TextSizeRepair,
@@ -314,6 +316,10 @@ class Engine:
         # unwraps spans left with nothing to do once the styles are gone.
         if getattr(self.config, "span_cleanup_repair", None) and getattr(self.config.span_cleanup_repair, "enabled", True):
             modules.append(SpanCleanupRepair(self.config.span_cleanup_repair))
+        # After the stylesheet consolidation and the class cleanups, so the
+        # list of classes the pages use is final: drops rules nothing uses.
+        if getattr(self.config, "unused_css_repair", None) and getattr(self.config.unused_css_repair, "enabled", True):
+            modules.append(UnusedCssRepair(self.config.unused_css_repair))
         # Runs after Cover Repair and Image Repair, so the cover is already
         # declared and renamed and the pictures are already checked, before
         # an identical copy of one is removed. Only touches files, never

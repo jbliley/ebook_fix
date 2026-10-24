@@ -204,6 +204,11 @@ class SceneMarkerConfig:
 
 
 @dataclass(slots=True)
+class UnusedCssConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class ClassCleanupConfig:
     enabled: bool = True
 
@@ -492,6 +497,7 @@ class Config:
     quote_style_repair: QuoteStyleConfig = field(default_factory=QuoteStyleConfig)
     page_title_repair: PageTitleConfig = field(default_factory=PageTitleConfig)
     class_cleanup_repair: ClassCleanupConfig = field(default_factory=ClassCleanupConfig)
+    unused_css_repair: UnusedCssConfig = field(default_factory=UnusedCssConfig)
     stylesheet_dedupe_repair: StylesheetDedupeConfig = field(default_factory=StylesheetDedupeConfig)
     junk_file_repair: JunkFileConfig = field(default_factory=JunkFileConfig)
     hyphen_leftover_repair: HyphenLeftoverConfig = field(default_factory=HyphenLeftoverConfig)
@@ -568,6 +574,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.quote_style_repair, modules, "quote_style_repair")
     _apply_module_toggle(config.page_title_repair, modules, "page_title_repair")
     _apply_module_toggle(config.class_cleanup_repair, modules, "class_cleanup_repair")
+    _apply_module_toggle(config.unused_css_repair, modules, "unused_css_repair")
     _apply_module_toggle(config.stylesheet_dedupe_repair, modules, "stylesheet_dedupe_repair")
     _apply_module_toggle(config.junk_file_repair, modules, "junk_file_repair")
     _apply_module_toggle(config.hyphen_leftover_repair, modules, "hyphen_leftover_repair")
@@ -609,6 +616,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.quote_style_repair, "quote_style_repair", data.get("quote_style_repair", {}))
     _apply_section(config.page_title_repair, "page_title_repair", data.get("page_title_repair", {}))
     _apply_section(config.class_cleanup_repair, "class_cleanup_repair", data.get("class_cleanup_repair", {}))
+    _apply_section(config.unused_css_repair, "unused_css_repair", data.get("unused_css_repair", {}))
     _apply_section(config.stylesheet_dedupe_repair, "stylesheet_dedupe_repair", data.get("stylesheet_dedupe_repair", {}))
     _apply_section(config.junk_file_repair, "junk_file_repair", data.get("junk_file_repair", {}))
     _apply_section(config.hyphen_leftover_repair, "hyphen_leftover_repair", data.get("hyphen_leftover_repair", {}))
@@ -732,6 +740,7 @@ span_cleanup_repair = true
 quote_style_repair = true
 page_title_repair = true
 class_cleanup_repair = true
+unused_css_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -1275,6 +1284,17 @@ min_line_height = 1.4
 # on) that no style in the book mentions any more, so they can no longer
 # affect how anything looks. Names used by ebook_fix itself are kept. Spans
 # left with no attributes are then removed by Span Cleanup.
+
+# ---------------------------------------------------------------------
+# Unused CSS
+# ---------------------------------------------------------------------
+[unused_css_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Removes style rules for classes that no page in the book uses (a converter
+# writes a rule for every class in the original file). Rules for plain tags
+# such as body, p and h1, @font-face and @page rules, and anything used by
+# ebook_fix are kept. A book containing a script is left alone.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

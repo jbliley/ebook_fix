@@ -107,6 +107,7 @@ from ebook_fix.modules.line_height_repair import LineHeightRepair
 from ebook_fix.modules.reader_settings_repair import ReaderSettingsRepair
 from ebook_fix.modules.span_cleanup_repair import SpanCleanupRepair
 from ebook_fix.modules.class_cleanup_repair import ClassCleanupRepair
+from ebook_fix.modules.unused_css_repair import UnusedCssRepair
 from ebook_fix.modules.quote_style_repair import QuoteStyleRepair
 from ebook_fix.modules.page_title_repair import PageTitleRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
@@ -173,6 +174,7 @@ _REPAIR_MODULES = [
     ("reader_settings_repair", "Reader Settings"),
     ("class_cleanup_repair", "Class Cleanup"),
     ("span_cleanup_repair", "Span Cleanup"),
+    ("unused_css_repair", "Unused CSS"),
     ("quote_style_repair", "Quote Style"),
     ("page_title_repair", "Page Titles"),
     ("paragraph_spacing_repair", "Paragraph Spacing"),
@@ -224,6 +226,7 @@ _REPAIR_MODULE_CLASSES = {
     "reader_settings_repair": ReaderSettingsRepair,
     "class_cleanup_repair": ClassCleanupRepair,
     "span_cleanup_repair": SpanCleanupRepair,
+    "unused_css_repair": UnusedCssRepair,
     "quote_style_repair": QuoteStyleRepair,
     "page_title_repair": PageTitleRepair,
     "paragraph_spacing_repair": ParagraphSpacingRepair,

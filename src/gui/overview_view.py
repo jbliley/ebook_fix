@@ -62,7 +62,7 @@ BOXES = [
         "key": "styling",
         "title": "Styling and Fonts",
         "sections": ["CSS", "Span Soup", "Possible Decorative Color", "Possible Decorative Font"],
-        "modules": ["color_repair", "font_repair", "body_variant_repair", "paragraph_spacing_repair", "line_height_repair", "reader_settings_repair", "class_cleanup_repair", "span_cleanup_repair", "paragraph_indent_repair", "text_size_repair", "stylesheet_dedupe_repair"],
+        "modules": ["color_repair", "font_repair", "body_variant_repair", "paragraph_spacing_repair", "line_height_repair", "reader_settings_repair", "class_cleanup_repair", "span_cleanup_repair", "unused_css_repair", "paragraph_indent_repair", "text_size_repair", "stylesheet_dedupe_repair"],
     },
     {
         "key": "images",
@@ -99,6 +99,7 @@ PLAIN_NAMES = {
     "scene_marker_repair": "Show every scene break as a centered * * * with space around it",
     "body_variant_repair": "Give stray body paragraphs the same line height as the rest",
     "class_cleanup_repair": "Remove class names no style uses",
+    "unused_css_repair": "Remove style rules for classes no page uses",
     "span_cleanup_repair": "Remove span tags that do nothing",
     "reader_settings_repair": "Leave indents, spacing, justification, margins and hyphenation to the reading app",
     "line_height_repair": "Remove a tight fixed line height so your reader's spacing applies",
