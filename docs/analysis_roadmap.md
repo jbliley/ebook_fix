@@ -3798,3 +3798,9 @@ New module Div Paragraphs (`div_paragraph_repair`, on by default) turns text-onl
 In `chapters.py`: footnote and endnote reference numbers (inside `<sup>` or `<sub>`, or a link to a footnote target) are no longer counted as chapter markers, and a short `<div>` heading block whose class or id says chapter, title or heading can be a chapter marker. OmnibusExample's "23 chapters" were footnote numbers; it now has its 32 real chapters. Every other example book gives the same chapter results as before.
 
 Result: Hunter's Moon and OmnibusExample find `p-indent` as the body class at high confidence after repair, the visible text of both is identical with the module on and off, and all 23 example books are stable on a second run with valid XML.
+
+### Fixed: a small class was called the body text in books with plain paragraphs (2026-10-24)
+
+Phase 2 of `docs/detection_confidence_plan.md`. In War and Peace (10,298 plain `<p>` paragraphs, 136 `<p class="footnote">`), the class map called `footnote` the body text at medium confidence, because every use of that class is a `<p>`. The font and color checks accept a medium body class, so they were aimed at the footnote style. The plain `p` rule itself was already handled by Reader Settings, so no repair was skipped, and no stand-in profile for "no class" was added.
+
+Fix in `class_map.py`: when plain paragraphs are at least half of the main-content paragraphs, a class that covers less than 10 percent of them is labeled "unknown" instead of body text. The Call of Cthulhu had the same wrong label (`ph1`). Every other example book reports the same body class as before, and all 23 stay stable on a second run.

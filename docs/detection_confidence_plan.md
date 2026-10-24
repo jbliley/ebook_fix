@@ -1,6 +1,6 @@
 # Detection Confidence: Plan
 
-**Status:** Survey done (2026-10-24). Phase 1 (div paragraphs) is built, and two chapter detection fixes from Phase 3 were made along the way; see "Progress" at the end. Phases 2, 4 and 5 are still to do, and the rest of Phase 3 is open.
+**Status:** Survey done (2026-10-24). Phase 1 (div paragraphs) is built, and two chapter detection fixes from Phase 3 were made along the way; see "Progress" at the end. Phase 2 (classless body paragraphs) is done in a smaller form than planned. Phases 4 and 5 are still to do, and the rest of Phase 3 is open.
 
 Jacob wants the tool to be more sure about what each part of a book is (chapters, front and back matter, body text, headings), because most of the newer repairs only act when detection is confident, and a repair that is skipped does nothing for the reader. The long-term goal from the extra content plan still stands: anything that can be labeled with a confidence is handled automatically, and a person only reviews what stays uncertain.
 
@@ -95,4 +95,12 @@ Phase 1 first: it has the clearest evidence (two books, over 7,000 paragraphs th
 - **Footnote numbers are no longer chapter markers** (`chapters.py`). OmnibusExample's "23 confirmed chapters" were really the footnote reference numbers 1 to 23 (`<sup><a href="#ftn1"><span>1</span></a></sup>`), which happen to form a clean sequence. That false sequence also made Chapter Markup tag ordinary body paragraphs as chapter starts. A number inside a `<sup>` or `<sub>`, or inside a link to a footnote target (an `epub:type` of noteref, or an address such as `#ftn1`, `#fn2`, `#note3`), is now skipped.
 - **Heading blocks written as a `<div>`** (part of Phase 3). A short `<div>` whose class or id says chapter, title or heading, and which holds no paragraphs or other blocks, can now be a chapter marker, like a `<p>` or `<h2>` always could. OmnibusExample's `div.title-chapter` ("20") is now found: 32 real chapters in one confirmed sequence, zones confirmed, `title-chapter` recognized as the chapter heading class, and the 32 chapter titles are tagged correctly. Every other example book gives exactly the same chapter results as before.
 
-Still open from the survey: classless body paragraphs (War and Peace), medium-confidence heading classes (MM5, Numbers Killer), zones for books whose chapters share files (Watermarks-SmallChapterNumbers), books with no chapter sequence at all (GutenbergText-HRule, The Call of Cthulhu), and the low-confidence pages in Omnibus-Tarzan and Images-PageNumbers.
+Still open from the survey: medium-confidence heading classes (MM5, Numbers Killer), zones for books whose chapters share files (Watermarks-SmallChapterNumbers), books with no chapter sequence at all (GutenbergText-HRule, The Call of Cthulhu), and the low-confidence pages in Omnibus-Tarzan and Images-PageNumbers.
+
+### 2026-10-24: Phase 2 done, smaller than planned
+
+Looking at what actually depends on the body class changed the plan. For a book with plain `<p>` paragraphs (War and Peace), the repairs that matter already work: Reader Settings treats the bare `p` rule as body text whether or not any class is named, and it removes the indent and gap from War and Peace's `p { text-indent: 1em; margin-top: 0.25em; margin-bottom: 0.25em }`. So no pretend "no class" profile was added (every other module builds `.class` selectors from profile names, and a made-up name would have broken them).
+
+What was wrong was only the label. War and Peace's 136 `footnote` paragraphs (margin and smaller text on purpose) were called the body text at medium confidence, because all of its uses are `<p>` tags, while the 10,000 plain paragraphs were not counted at all. The font and color checks accept a medium body class, so they were aimed at the wrong style. Now, when plain paragraphs are at least half of the main-content paragraphs, a class covering under 10 percent of them is labeled "unknown" instead of body text (`class_map.py`: `UNCLASSED_BODY_SHARE`, `MINOR_CLASS_SHARE`).
+
+Result on the survey: War and Peace and The Call of Cthulhu no longer report a wrong body class, and every other example book reports exactly the same body class as before. All 23 example books are stable on a second run.

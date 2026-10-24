@@ -44,6 +44,13 @@ HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 # see _guess_role's dominant_p_share check.
 DOMINANT_P_SHARE = 0.5
 
+# When most of the book's main-content paragraphs carry no class at all (plain
+# <p>, as in most Project Gutenberg style books), a class that covers only a
+# small share of them is a special-purpose style (footnotes, poems, block
+# quotes), not the body text, however many of its uses are <p> tags.
+UNCLASSED_BODY_SHARE = 0.5
+MINOR_CLASS_SHARE = 0.1
+
 # A class whose usage coincides with at least this share of chapters.py's
 # own confirmed chapter-start markers is treated as "the" chapter-heading
 # class outright, ahead of any tag/style guessing -- see _guess_role's
@@ -156,6 +163,7 @@ def build_class_profiles(book, chapter_summary=None, frontmatter_summary=None) -
     profiles: dict = {}
     main_zone_p_total = 0  # denominator for main_zone_p_count above --
     # see _guess_role's "dominant body-text class" check below.
+    unclassed_main_p = 0   # <p> with no class at all, same zone rule
 
     for ch in getattr(book, "chapters", []) or []:
         tree = getattr(ch, "document", None)
@@ -174,6 +182,8 @@ def build_class_profiles(book, chapter_summary=None, frontmatter_summary=None) -
                 main_zone_p_total += 1
             cls_attr = el.get("class")
             if not cls_attr:
+                if tag == "p" and in_main_zone:
+                    unclassed_main_p += 1
                 continue
             for cls in cls_attr.split():
                 p = profiles.setdefault(cls, ClassProfile(class_name=cls))
@@ -190,7 +200,10 @@ def build_class_profiles(book, chapter_summary=None, frontmatter_summary=None) -
         p.properties = style_props.get(cls, {})
         if total_confirmed_chapters:
             p.chapter_marker_coverage = p.confirmed_chapter_marker_count / total_confirmed_chapters
-        p.likely_role, p.role_confidence = _guess_role(p, main_zone_p_total)
+        p.likely_role, p.role_confidence = _guess_role(
+            p, main_zone_p_total,
+            unclassed_p_share=(unclassed_main_p / main_zone_p_total) if main_zone_p_total else 0.0,
+        )
 
     return profiles
 
@@ -221,7 +234,7 @@ def _looks_large(size_value: str) -> bool:
     return False
 
 
-def _guess_role(p: ClassProfile, main_zone_p_total: int = 0):
+def _guess_role(p: ClassProfile, main_zone_p_total: int = 0, unclassed_p_share: float = 0.0):
     """Heuristic, not authoritative -- see module docstring. Order matters:
     more specific/confident checks run first so a class doesn't fall
     through to a vaguer guess it also happens to match.
@@ -287,6 +300,11 @@ def _guess_role(p: ClassProfile, main_zone_p_total: int = 0):
         return "chapter-heading", "high"
     if p_frac >= 0.5 and is_centered and (is_large or is_bold):
         return "chapter-heading", "medium"
+    if (unclassed_p_share >= UNCLASSED_BODY_SHARE and dominant_p_share < MINOR_CLASS_SHARE
+            and p_frac >= 0.6 and not is_large and not is_bold and not is_italic):
+        # Most paragraphs are plain <p> with no class, so this small class is a
+        # special-purpose style (footnote, poem, quote), not the body text.
+        return "unknown", "low"
     if dominant_p_share >= DOMINANT_P_SHARE and not is_large and not is_bold and not is_italic:
         # Used on most of the book's actual paragraphs -- about as
         # confident as this module gets that a class really is "the"
