@@ -3788,3 +3788,13 @@ Removing the rule is better than replacing its values with `auto`: with the rule
 Result: the Hunter's Moon stylesheet drops from 13.9 KB to 2.4 KB, War and Peace and MM5 shrink too, and a check that every rule for a class a page actually uses is unchanged found no losses other than selectors that required an unused class. A first version counted pages another module had already removed as still in use, which made 5 example books change on a second run; fixed. All 23 example books are stable on a second run with valid XML.
 
 Looked at and left alone: forced `height` rules (almost all `height: auto` on images, plus one table row), empty spans (they hold a meaningful space), double spaces after sentences (they sit across tag boundaries, where the page already collapses them), and whitespace-only text nodes (harmless indentation between tags).
+
+### Added: Div Paragraphs and two chapter detection fixes (2026-10-24)
+
+First step of `docs/detection_confidence_plan.md`. The survey found that Hunter's Moon and OmnibusExample write every paragraph as `<div class="p-indent">`, so the analysis counted 36 paragraphs in a 92,000 word book and chose a wrong or missing body-text style, which kept most paragraph repairs from acting on them.
+
+New module Div Paragraphs (`div_paragraph_repair`, on by default) turns text-only `<div>` tags into `<p>` tags in a book that is clearly built that way (at least 100 such divs, at least twice the number of real paragraphs, a class used on 20 or more divs with a typical length of 40 characters or more). Class, id and text are kept. Style rules that named `div.p-indent` or a bare `div` get a matching `p` selector next to them, and the converted classes get `margin-top: 0; margin-bottom: 0` so the gaps do not change (Reader Settings removes that again like any paragraph gap). Skipped on fixed-layout books. It runs first among the paragraph repairs, so Stray Line Break Removal, Paragraph Repair and the style repairs after it see real paragraphs.
+
+In `chapters.py`: footnote and endnote reference numbers (inside `<sup>` or `<sub>`, or a link to a footnote target) are no longer counted as chapter markers, and a short `<div>` heading block whose class or id says chapter, title or heading can be a chapter marker. OmnibusExample's "23 chapters" were footnote numbers; it now has its 32 real chapters. Every other example book gives the same chapter results as before.
+
+Result: Hunter's Moon and OmnibusExample find `p-indent` as the body class at high confidence after repair, the visible text of both is identical with the module on and off, and all 23 example books are stable on a second run with valid XML.

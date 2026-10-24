@@ -204,6 +204,11 @@ class SceneMarkerConfig:
 
 
 @dataclass(slots=True)
+class DivParagraphConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class UnusedCssConfig:
     enabled: bool = True
 
@@ -498,6 +503,7 @@ class Config:
     page_title_repair: PageTitleConfig = field(default_factory=PageTitleConfig)
     class_cleanup_repair: ClassCleanupConfig = field(default_factory=ClassCleanupConfig)
     unused_css_repair: UnusedCssConfig = field(default_factory=UnusedCssConfig)
+    div_paragraph_repair: DivParagraphConfig = field(default_factory=DivParagraphConfig)
     stylesheet_dedupe_repair: StylesheetDedupeConfig = field(default_factory=StylesheetDedupeConfig)
     junk_file_repair: JunkFileConfig = field(default_factory=JunkFileConfig)
     hyphen_leftover_repair: HyphenLeftoverConfig = field(default_factory=HyphenLeftoverConfig)
@@ -575,6 +581,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.page_title_repair, modules, "page_title_repair")
     _apply_module_toggle(config.class_cleanup_repair, modules, "class_cleanup_repair")
     _apply_module_toggle(config.unused_css_repair, modules, "unused_css_repair")
+    _apply_module_toggle(config.div_paragraph_repair, modules, "div_paragraph_repair")
     _apply_module_toggle(config.stylesheet_dedupe_repair, modules, "stylesheet_dedupe_repair")
     _apply_module_toggle(config.junk_file_repair, modules, "junk_file_repair")
     _apply_module_toggle(config.hyphen_leftover_repair, modules, "hyphen_leftover_repair")
@@ -617,6 +624,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.page_title_repair, "page_title_repair", data.get("page_title_repair", {}))
     _apply_section(config.class_cleanup_repair, "class_cleanup_repair", data.get("class_cleanup_repair", {}))
     _apply_section(config.unused_css_repair, "unused_css_repair", data.get("unused_css_repair", {}))
+    _apply_section(config.div_paragraph_repair, "div_paragraph_repair", data.get("div_paragraph_repair", {}))
     _apply_section(config.stylesheet_dedupe_repair, "stylesheet_dedupe_repair", data.get("stylesheet_dedupe_repair", {}))
     _apply_section(config.junk_file_repair, "junk_file_repair", data.get("junk_file_repair", {}))
     _apply_section(config.hyphen_leftover_repair, "hyphen_leftover_repair", data.get("hyphen_leftover_repair", {}))
@@ -741,6 +749,7 @@ quote_style_repair = true
 page_title_repair = true
 class_cleanup_repair = true
 unused_css_repair = true
+div_paragraph_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -1295,6 +1304,18 @@ min_line_height = 1.4
 # writes a rule for every class in the original file). Rules for plain tags
 # such as body, p and h1, @font-face and @page rules, and anything used by
 # ebook_fix are kept. A book containing a script is left alone.
+
+# ---------------------------------------------------------------------
+# Div Paragraphs
+# ---------------------------------------------------------------------
+[div_paragraph_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# In a book that writes its paragraphs as div tags (class="p-indent" and the
+# like) instead of p tags, turns them into real paragraphs so every other
+# repair can see them. The look does not change: matching p selectors are
+# added next to the div ones, and the text is not touched. A book that mixes
+# both kinds, or has only a few div paragraphs, is left alone.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

@@ -32,6 +32,7 @@ quote_style_repair = true
 page_title_repair = true
 class_cleanup_repair = true
 unused_css_repair = true
+div_paragraph_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -530,6 +531,18 @@ min_line_height = 1.4
 # writes a rule for every class in the original file). Rules for plain tags
 # such as body, p and h1, @font-face and @page rules, and anything used by
 # ebook_fix are kept. A book containing a script is left alone.
+
+# ---------------------------------------------------------------------
+# Div Paragraphs
+# ---------------------------------------------------------------------
+[div_paragraph_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# In a book that writes its paragraphs as div tags (class="p-indent" and the
+# like) instead of p tags, turns them into real paragraphs so every other
+# repair can see them. The look does not change: matching p selectors are
+# added next to the div ones, and the text is not touched. A book that mixes
+# both kinds, or has only a few div paragraphs, is left alone.
 
 # ---------------------------------------------------------------------
 [apostrophe_repair]

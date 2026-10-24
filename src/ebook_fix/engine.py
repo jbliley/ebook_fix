@@ -65,6 +65,7 @@ from ebook_fix.modules.reader_settings_repair import ReaderSettingsRepair
 from ebook_fix.modules.span_cleanup_repair import SpanCleanupRepair
 from ebook_fix.modules.class_cleanup_repair import ClassCleanupRepair
 from ebook_fix.modules.unused_css_repair import UnusedCssRepair
+from ebook_fix.modules.div_paragraph_repair import DivParagraphRepair
 from ebook_fix.modules.quote_style_repair import QuoteStyleRepair
 from ebook_fix.modules.page_title_repair import PageTitleRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
@@ -113,6 +114,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     ClassCleanupRepair,
     SpanCleanupRepair,
     UnusedCssRepair,
+    DivParagraphRepair,
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
     TextSizeRepair,
@@ -161,6 +163,12 @@ class Engine:
         # module before it in this list.
         if getattr(self.config, "running_title_repair", None) and getattr(self.config.running_title_repair, "enabled", True):
             modules.append(RunningTitleRepair(self.config.running_title_repair))
+        # Div Paragraphs goes first among the paragraph repairs: a book that
+        # writes its paragraphs as div tags becomes a book of p tags, so
+        # Stray Line Break Removal, Paragraph Repair and every style repair
+        # after it can see the paragraphs.
+        if getattr(self.config, "div_paragraph_repair", None) and getattr(self.config.div_paragraph_repair, "enabled", True):
+            modules.append(DivParagraphRepair(self.config.div_paragraph_repair))
         # Stray Line Break Removal goes right before Paragraph Repair:
         # a paragraph that starts with a stray <br/> would otherwise get
         # merged into the one before it and strand the break mid-sentence.

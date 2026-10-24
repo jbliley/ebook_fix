@@ -464,6 +464,44 @@ def _has_candidate_descendant(el) -> bool:
     return False
 
 
+_BLOCK_TAGS_INSIDE = frozenset({
+    "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "table",
+    "blockquote", "pre", "section", "article", "aside", "figure",
+})
+_NOTE_HREF_RE = re.compile(r"(?:^|[#_/-])(?:ftn|fn|note|endnote|footnote|ref)\w*", re.IGNORECASE)
+
+
+def _is_note_marker(el) -> bool:
+    """True when el is the number inside a footnote or endnote reference
+    (<sup><a href="#ftn1"><span>1</span></a></sup>), which is not a chapter
+    marker even though it reads as one number in a sequence."""
+    for anc in el.iterancestors():
+        if not isinstance(anc.tag, str):
+            continue
+        name = etree.QName(anc).localname.lower()
+        if name in ("sup", "sub"):
+            return True
+        if name == "a":
+            epub_type = " ".join(v for k, v in anc.attrib.items() if k.endswith("type")).lower()
+            if "noteref" in epub_type or "footnote" in epub_type:
+                return True
+            href = anc.get("href") or ""
+            if "#" in href and _NOTE_HREF_RE.search(href.split("#", 1)[1]):
+                return True
+    return False
+
+
+def _is_leaf_heading_div(el) -> bool:
+    """A <div> that is a short heading block of its own: its class or id says
+    chapter, title or heading, and it holds no paragraphs or other blocks."""
+    if not _css_mentions_chapter(el):
+        return False
+    return not any(
+        isinstance(d.tag, str) and etree.QName(d).localname.lower() in _BLOCK_TAGS_INSIDE
+        for d in el.iterdescendants()
+    )
+
+
 def _css_mentions_chapter(el) -> bool:
     for attr in ("class", "id"):
         val = el.get(attr)
@@ -497,10 +535,13 @@ def extract_candidates(href: str, tree, classify_fn=None, score_fn=None) -> list
         if not isinstance(el.tag, str):
             continue
         tag = etree.QName(el).localname.lower()
-        if tag not in CANDIDATE_TAGS:
+        if tag not in CANDIDATE_TAGS and not (tag == "div" and _is_leaf_heading_div(el)):
             continue
         if _has_candidate_descendant(el):
             # Don't double-count a heading that wraps a span, etc.
+            continue
+        if _is_note_marker(el):
+            # A footnote number is not a chapter number.
             continue
 
         text = _element_own_text(el)

@@ -55,7 +55,7 @@ BOXES = [
         ],
         "modules": [
             "gutenberg_repair", "running_title_repair", "linebreak_repair", "paragraph_repair",
-            "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "quote_style_repair", "page_title_repair", "whitespace_repair",
+            "div_paragraph_repair", "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "quote_style_repair", "page_title_repair", "whitespace_repair",
         ],
     },
     {
@@ -99,6 +99,7 @@ PLAIN_NAMES = {
     "scene_marker_repair": "Show every scene break as a centered * * * with space around it",
     "body_variant_repair": "Give stray body paragraphs the same line height as the rest",
     "class_cleanup_repair": "Remove class names no style uses",
+    "div_paragraph_repair": "Turn paragraphs written as div tags into real paragraphs",
     "unused_css_repair": "Remove style rules for classes no page uses",
     "span_cleanup_repair": "Remove span tags that do nothing",
     "reader_settings_repair": "Leave indents, spacing, justification, margins and hyphenation to the reading app",
