@@ -296,20 +296,23 @@ class ClassStandardizeRepair:
                 cls_attr = el.get("class")
                 if not cls_attr:
                     continue
+                if el.get("data-ebookfix-scenebreak") is not None:
+                    # A scene break marker carries its own centering and
+                    # spacing; stripping them here only made Scene Break
+                    # Markers put them back on every pass.
+                    continue
                 classes = cls_attr.split()
                 touched = any(c in self.by_old_name for c in classes)
                 if not touched:
                     continue
 
-                for c in classes:
-                    if c in self.by_old_name:
-                        rename_counts[c] = rename_counts.get(c, 0) + 1
-
                 new_classes = [self.by_old_name[c].new_name if c in self.by_old_name else c for c in classes]
                 deduped = list(dict.fromkeys(new_classes))  # two old classes can map to one new name
+                el_changed = False
                 if deduped != classes:
                     el.set("class", " ".join(deduped))
                     changed = True
+                    el_changed = True
 
                 el_roles = {self.by_old_name[c].role for c in classes if c in self.by_old_name}
                 extra_strip = CHAPTER_HEADING_STRIP_PROPERTIES if "chapter-heading" in el_roles else frozenset()
@@ -323,6 +326,14 @@ class ClassStandardizeRepair:
                         else:
                             del el.attrib["style"]
                         changed = True
+                        el_changed = True
+
+                # Only an element that actually changed is counted, so an
+                # already-standard one does not look like new work each pass.
+                if el_changed:
+                    for c in classes:
+                        if c in self.by_old_name:
+                            rename_counts[c] = rename_counts.get(c, 0) + 1
 
             if changed:
                 chapter.modified = True
@@ -439,4 +450,9 @@ class ClassStandardizeRepair:
             return "\n" + "\n".join(output_rules)
 
         new_text = RULE_RE.sub(replace_rule, text)
+        # A rule that is already in its standard form is rewritten to
+        # itself; that is not a change, and counting it made every
+        # auto-fix run "fix" the same rule again.
+        if changed and re.sub(r"\s+", "", new_text) == re.sub(r"\s+", "", text):
+            changed = False
         return new_text, changed

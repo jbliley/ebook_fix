@@ -30,6 +30,8 @@ already done and does nothing.
 """
 from __future__ import annotations
 
+import re
+
 from ebook_fix.config import SceneMarkerConfig
 from ebook_fix.headings import chapter_marker_elements, is_chapter_header
 from ebook_fix.linebreaks import _MARKER_GLYPHS, _MARKER_MAX_GLYPHS, _ORNAMENTS
@@ -64,11 +66,20 @@ def is_text_marker(el) -> bool:
     return all(ch in _REWRITABLE for ch in glyphs)
 
 
+def _declarations(style: str) -> set:
+    return {
+        re.sub(r"\s+", " ", d.strip().lower())
+        for d in (style or "").split(";") if d.strip()
+    }
+
+
 def _is_done(el) -> bool:
+    # Another repair may add a property to the marker (for example a page break
+    # after the last scene break of a chapter); that is still a finished marker.
     return (
         el.get(MARKER_ATTR) == "true"
         and "".join(el.itertext()).strip() == SCENE_BREAK_TEXT
-        and (el.get("style") or "").strip() == MARKER_STYLE
+        and _declarations(MARKER_STYLE) <= _declarations(el.get("style"))
     )
 
 

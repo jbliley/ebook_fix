@@ -33,7 +33,7 @@ On the page itself (`body`, `html`, the class on the <body> element, and
 On any rule at all:
 - a font size of 1em, 100% or inherit, which changes nothing but pins the
   size in some apps
-- an indent on centered or right-aligned text, which only pushes a title
+- a non-zero indent on centered or right-aligned text, which only pushes a title
   off center
 - rules left with nothing in them after the cleanup
 - hyphenation switches (hyphens, -webkit-hyphens, adobe-hyphenate, the
@@ -88,6 +88,9 @@ HYPHEN_PROPS = frozenset({
 JUNK_PREFIXES = ("-aw-",)
 JUNK_PROPS = frozenset({"-webkit-line-box-contain"})
 
+# A zero indent on a centered title is harmless (and Class Standardize writes one),
+# so only a real indent is removed there.
+_ZERO_LENGTHS = frozenset({"0", "0px", "0em", "0pt", "0%", "0rem"})
 NOOP_FONT_SIZES = frozenset({"1em", "100%", "inherit", "1.0em"})
 LABEL_NOOP = "redundant font size (1em)"
 LABEL_CENTER_INDENT = "indent on centered text"
@@ -193,7 +196,7 @@ def _rewrite_css(css_text: str, body_text: set, body_el: set, skip_classes: set)
                 return True
             if name == "font-size" and value.lower() in NOOP_FONT_SIZES:
                 return True
-            if name == "text-indent" and centered:
+            if name == "text-indent" and centered and value.strip().lower() not in _ZERO_LENGTHS:
                 return True
             if kind == "page":
                 return name in PAGE_PROPS or (name == "text-align" and value.lower() in FLEXIBLE_ALIGN)
@@ -213,7 +216,7 @@ def _rewrite_css(css_text: str, body_text: set, body_el: set, skip_classes: set)
                 counts[LABEL_OTHER] += 1
             elif name == "font-size" and value.lower() in NOOP_FONT_SIZES:
                 counts[LABEL_NOOP] += 1
-            elif name == "text-indent" and centered and kind is None:
+            elif name == "text-indent" and centered and kind is None and value.strip().lower() not in _ZERO_LENGTHS:
                 counts[LABEL_CENTER_INDENT] += 1
             elif kind == "page" and name not in ("line-height", "text-align"):
                 counts[LABEL_PAGE] += 1

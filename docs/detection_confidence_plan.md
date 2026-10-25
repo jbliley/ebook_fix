@@ -1,6 +1,6 @@
 # Detection Confidence: Plan
 
-**Status:** Survey done (2026-10-24). Phase 1 (div paragraphs) is built, and two chapter detection fixes from Phase 3 were made along the way; see "Progress" at the end. Phase 2 (classless body paragraphs) is done in a smaller form than planned. Phases 4 and 5 are still to do, and the rest of Phase 3 is open.
+**Status:** Survey done (2026-10-24). Phase 1 (div paragraphs) is built, and two chapter detection fixes from Phase 3 were made along the way; see "Progress" at the end. Phase 2 (classless body paragraphs) is done in a smaller form than planned. Phase 3 (heading blocks) is done. Phases 4 and 5 are still to do.
 
 Jacob wants the tool to be more sure about what each part of a book is (chapters, front and back matter, body text, headings), because most of the newer repairs only act when detection is confident, and a repair that is skipped does nothing for the reader. The long-term goal from the extra content plan still stands: anything that can be labeled with a confidence is handled automatically, and a person only reviews what stays uncertain.
 
@@ -104,3 +104,9 @@ Looking at what actually depends on the body class changed the plan. For a book 
 What was wrong was only the label. War and Peace's 136 `footnote` paragraphs (margin and smaller text on purpose) were called the body text at medium confidence, because all of its uses are `<p>` tags, while the 10,000 plain paragraphs were not counted at all. The font and color checks accept a medium body class, so they were aimed at the wrong style. Now, when plain paragraphs are at least half of the main-content paragraphs, a class covering under 10 percent of them is labeled "unknown" instead of body text (`class_map.py`: `UNCLASSED_BODY_SHARE`, `MINOR_CLASS_SHARE`).
 
 Result on the survey: War and Peace and The Call of Cthulhu no longer report a wrong body class, and every other example book reports exactly the same body class as before. All 23 example books are stable on a second run.
+
+### 2026-10-24: Phase 3 done
+
+The heading block around a confirmed chapter marker is now credited to its class (`class_map.py`: `MAX_HEADING_BLOCK_CHARS`, `MIN_BLOCK_MARKER_SHARE`). A class needs at least half of its uses to be such blocks before it is called a chapter heading, which keeps ordinary text classes from being promoted (an early version promoted `calibre9` in Images-PageNumbers from a few hits, which is why the share rule exists). Hunter's Moon and OmnibusExample `title-chapter` is recognized. The medium-confidence classes in MM5 stay medium: they are single-use title page classes, and medium is the honest label for them.
+
+Finding: testing Phase 3 on the auto-fix command showed that it kept changing books on every run (Scene Break Markers, Class Standardize and Reader Settings undoing each other). These are fixed and described in the roadmap. Auto-fix stability is not covered by the 23-book check yet; adding it is a good idea for the next phase.

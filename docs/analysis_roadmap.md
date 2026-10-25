@@ -3804,3 +3804,14 @@ Result: Hunter's Moon and OmnibusExample find `p-indent` as the body class at hi
 Phase 2 of `docs/detection_confidence_plan.md`. In War and Peace (10,298 plain `<p>` paragraphs, 136 `<p class="footnote">`), the class map called `footnote` the body text at medium confidence, because every use of that class is a `<p>`. The font and color checks accept a medium body class, so they were aimed at the footnote style. The plain `p` rule itself was already handled by Reader Settings, so no repair was skipped, and no stand-in profile for "no class" was added.
 
 Fix in `class_map.py`: when plain paragraphs are at least half of the main-content paragraphs, a class that covers less than 10 percent of them is labeled "unknown" instead of body text. The Call of Cthulhu had the same wrong label (`ph1`). Every other example book reports the same body class as before, and all 23 stay stable on a second run.
+
+### Fixed: heading blocks found by confidence, and auto-fix now settles (2026-10-24)
+
+Phase 3 of `docs/detection_confidence_plan.md`. In `class_map.py`, the nearest heading block (`div`, `p` or `h1` to `h6`, up to 120 characters) around a confirmed chapter marker is now credited to its class. A class is given the chapter heading role when at least half of its uses are such blocks, so a class used for ordinary text is never promoted by a few lucky hits. Hunter's Moon and OmnibusExample `title-chapter` classes are now recognized from the block itself, not only the span inside it. Every other example book reports the same heading classes as before.
+
+While testing this, the auto-fix command was found to keep making small changes on every run. Four causes were fixed:
+- Scene Break Markers rewrote its own style after Class Standardize added a page break. It now accepts a marker whose style already contains its declarations, and Class Standardize leaves scene break markers alone.
+- Class Standardize and Reader Settings undid each other on the chapter heading rule: Class Standardize writes `text-indent: 0` and Reader Settings removed it as "indent on centered text". Reader Settings now only removes a real (non-zero) indent on centered or right-aligned rules.
+- Class Standardize counted a rule that was already in its standard form as a change. It now reports a CSS change only when the text really differs, and counts an element only when its class or style actually changed.
+
+The Numbers Killer is now unchanged by a second auto-fix run. A book written with div paragraphs (Hunter's Moon) settles on the second auto-fix run, because its body class is only recognized after the first run recodes the paragraphs. All 22 repairable example books are stable on a second repair run with valid XML.

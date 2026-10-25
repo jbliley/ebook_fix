@@ -149,6 +149,14 @@ def build_class_profiles(book, chapter_summary=None, frontmatter_summary=None) -
         c.element for c in (chapter_summary.confirmed_boundaries or [])
         if c.element is not None
     }
+    # A chapter title is often a <span> (or <b>) inside a styled <p> or <div>
+    # block, and it is that block's class that carries the heading look.
+    # Count the short block around a confirmed marker as a marker too.
+    # A class only gets that credit when most of its uses are such blocks, so a
+    # body-text class that happens to hold a few chapter numbers is not mistaken
+    # for the heading class.
+    confirmed_blocks = _heading_blocks_around(confirmed_elements)
+    block_hits: dict = {}
     total_confirmed_chapters = len(chapter_summary.confirmed_boundaries or [])
 
     # None means "couldn't confirm zones at all" (chapters.py found no
@@ -193,10 +201,15 @@ def build_class_profiles(book, chapter_summary=None, frontmatter_summary=None) -
                     p.main_zone_p_count += 1
                 if el in confirmed_elements:
                     p.confirmed_chapter_marker_count += 1
+                elif el in confirmed_blocks:
+                    block_hits[cls] = block_hits.get(cls, 0) + 1
                 if href not in p.sample_hrefs and len(p.sample_hrefs) < 3:
                     p.sample_hrefs.append(href)
 
     for cls, p in profiles.items():
+        hits = block_hits.get(cls, 0)
+        if hits and hits >= MIN_BLOCK_MARKER_SHARE * p.usage_count:
+            p.confirmed_chapter_marker_count += hits
         p.properties = style_props.get(cls, {})
         if total_confirmed_chapters:
             p.chapter_marker_coverage = p.confirmed_chapter_marker_count / total_confirmed_chapters
@@ -206,6 +219,38 @@ def build_class_profiles(book, chapter_summary=None, frontmatter_summary=None) -
         )
 
     return profiles
+
+
+_HEADING_BLOCK_TAGS = frozenset({"p", "div", "h1", "h2", "h3", "h4", "h5", "h6"})
+MAX_HEADING_BLOCK_CHARS = 120
+MIN_BLOCK_MARKER_SHARE = 0.5
+
+
+def _heading_blocks_around(markers: set) -> set:
+    """The nearest <p>/<div>/heading around each marker element that is not
+    itself a block, when that block is short enough to be a title and holds
+    no other block inside it (a wrapper div that merely contains the title,
+    or the paragraphs after it, is not the heading)."""
+    blocks = set()
+    for el in markers:
+        if not isinstance(getattr(el, "tag", None), str):
+            continue
+        if etree.QName(el).localname.lower() in _HEADING_BLOCK_TAGS:
+            continue
+        for anc in el.iterancestors():
+            if not isinstance(anc.tag, str):
+                continue
+            if etree.QName(anc).localname.lower() not in _HEADING_BLOCK_TAGS:
+                continue
+            text = "".join(anc.itertext()).strip()
+            nested = any(
+                isinstance(d.tag, str) and etree.QName(d).localname.lower() in _HEADING_BLOCK_TAGS
+                for d in anc.iterdescendants()
+            )
+            if len(text) <= MAX_HEADING_BLOCK_CHARS and not nested:
+                blocks.add(anc)
+            break
+    return blocks
 
 
 def _dominant_tag(tag_counts: Counter):
