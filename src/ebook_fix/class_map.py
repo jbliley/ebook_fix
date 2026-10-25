@@ -186,9 +186,19 @@ def build_class_profiles(book, chapter_summary=None, frontmatter_summary=None) -
             if not isinstance(el.tag, str):
                 continue
             tag = etree.QName(el).localname.lower()
+            cls_attr = el.get("class")
+            if tag == "p" and cls_attr and all(
+                c.startswith(OWN_CLASS_PREFIX) for c in cls_attr.split()
+            ):
+                # A paragraph carrying only this tool's own class (the
+                # blank gap paragraphs Chapter Header Spacing writes under
+                # a header) is not the book's styling. Counted, it can
+                # outnumber the real paragraphs in a short book and be
+                # picked as the body class, which a second auto-fix run
+                # then standardized away (CrossReferences-Synthetic).
+                continue
             if tag == "p" and in_main_zone:
                 main_zone_p_total += 1
-            cls_attr = el.get("class")
             if not cls_attr:
                 if tag == "p" and in_main_zone:
                     unclassed_main_p += 1
@@ -220,6 +230,10 @@ def build_class_profiles(book, chapter_summary=None, frontmatter_summary=None) -
 
     return profiles
 
+
+# Classes this tool writes itself all start with this (ebookfix-header-gap,
+# ebookfix-chapter-wrapper); they are never part of a book's own styling.
+OWN_CLASS_PREFIX = "ebookfix-"
 
 _HEADING_BLOCK_TAGS = frozenset({"p", "div", "h1", "h2", "h3", "h4", "h5", "h6"})
 MAX_HEADING_BLOCK_CHARS = 120

@@ -11,7 +11,8 @@ ebook_fix.images) instead of re-scanning the book:
 2. <img> tags inside chapter content whose src points at a file
    that doesn't exist in the zip. These ARE fixed: the broken tag
    is removed from the chapter, since a reference to a file that
-   will never exist just renders as a broken-image icon.
+   will never exist just renders as a broken-image icon. Any text that
+   follows the tag is kept (lxml would otherwise delete it with the tag).
 
 If this ever runs without an analysis handed to it, it falls back
 to scanning the book itself via ebook_fix.images.analyze_book_images.
@@ -21,6 +22,24 @@ from __future__ import annotations
 from ebook_fix.config import ImageRepairConfig
 from ebook_fix.report import Report
 from ebook_fix.images import analyze_book_images
+
+
+def _remove_keep_tail(el) -> None:
+    """Remove `el` but keep the text that follows it. lxml's remove()
+    deletes that tail text along with the element, and in a book that
+    writes `<img .../>CHAPTER 20` the "tail" is the chapter heading
+    (Images-PageNumbers lost 8 of its 32 chapter headings this way)."""
+    tail = el.tail
+    parent = el.getparent()
+    if parent is None:
+        return
+    prev = el.getprevious()
+    parent.remove(el)
+    if tail:
+        if prev is not None:
+            prev.tail = (prev.tail or "") + tail
+        else:
+            parent.text = (parent.text or "") + tail
 
 
 class ImageRepair:
@@ -72,7 +91,7 @@ class ImageRepair:
                 continue
             parent = img.getparent()
             if parent is not None:
-                parent.remove(img)
+                _remove_keep_tail(img)
                 changed_hrefs.add(ref.href)
                 report.add(
                     ref.href,

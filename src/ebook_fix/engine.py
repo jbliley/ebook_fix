@@ -130,6 +130,30 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
 console = Console()
 
 
+class _AutoClassStandardize:
+    """Auto-fix's class mapping, rebuilt from each pass's own fresh analysis
+    (see RepairEngine.auto_fix). Reports under the same name as
+    ClassStandardizeRepair so its results merge into one report."""
+
+    name = ClassStandardizeRepair.name
+
+    def __init__(self, engine):
+        self._engine = engine
+
+    def repair(self, book, analysis=None):
+        if analysis is None:
+            return None
+        profiles = build_class_profiles(
+            book,
+            chapter_summary=analysis.chapters,
+            frontmatter_summary=analysis.frontmatter,
+        )
+        entries = self._engine._build_auto_class_mapping(profiles)
+        if not entries:
+            return None
+        return ClassStandardizeRepair(entries).repair(book, analysis)
+
+
 class Engine:
     def __init__(self, verbose=False, config=None, auto_repair_container=True):
         self.verbose = verbose
@@ -2292,9 +2316,14 @@ class Engine:
                 if auto_entries:
                     names = ", ".join(f".{e.old_name}" for e in auto_entries)
                     self.log(f"Auto class mapping (high confidence only): {names}")
-                    modules.append(ClassStandardizeRepair(auto_entries))
                 else:
-                    self.log("Auto class mapping: no high-confidence chapter-heading/body-text classes found -- skipped.")
+                    self.log("Auto class mapping: no high-confidence chapter-heading/body-text classes found at first look; it is checked again after each pass.")
+                # Added whether or not the first look found anything: an
+                # earlier repair can make a class recognizable (Div Paragraphs
+                # turns `<div class="p-indent">` into paragraphs, which only
+                # then show p-indent as the body class), and a mapping fixed
+                # from the first look would leave that for a second run to do.
+                modules.append(_AutoClassStandardize(self))
 
             self.log("")
 
