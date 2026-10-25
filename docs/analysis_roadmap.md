@@ -3815,3 +3815,9 @@ While testing this, the auto-fix command was found to keep making small changes 
 - Class Standardize counted a rule that was already in its standard form as a change. It now reports a CSS change only when the text really differs, and counts an element only when its class or style actually changed.
 
 The Numbers Killer is now unchanged by a second auto-fix run. A book written with div paragraphs (Hunter's Moon) settles on the second auto-fix run, because its body class is only recognized after the first run recodes the paragraphs. All 22 repairable example books are stable on a second repair run with valid XML.
+
+### Fixed: the ad line and ad picture switches were missing from the settings (2026-10-25)
+
+While checking the GitHub copy against the delivered files, the two switches for step 4 of the back matter cleanup plan (`remove_ad_lines` and `remove_ad_pictures`) were found to be missing from `config.py` and from its built-in default settings. They were added in the 2026-10-21 "Repairs" commit and dropped again by the 2026-10-22 "Scene Marker Repair" commit, because the `config.py` in that ZIP was built from a working copy that did not have them yet. The code that removes ad lines and ad pictures (`extra_partial.py`, `extra_content_removal.py`) was never affected, but the switches could not be turned on from the settings.
+
+`config.py` now has both switches again (off by default, as before). Checked on AdParts-Synthetic with both on: 2 ad lines, 1 ad picture and 1 ad page are removed, no ad text is left, and a second run changes nothing. Omnibus-Tarzan keeps all 50 of its pictures. The working copy used for these ZIPs is now re-synced from GitHub before every change, so this cannot happen again.
