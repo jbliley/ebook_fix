@@ -1,6 +1,6 @@
 # Detection Confidence: Plan
 
-**Status:** Survey done (2026-10-24). Phase 1 (div paragraphs) is built, and two chapter detection fixes from Phase 3 were made along the way; see "Progress" at the end. Phase 2 (classless body paragraphs) is done in a smaller form than planned. Phase 3 (heading blocks) is done. Phases 4 and 5 are still to do.
+**Status:** Survey done (2026-10-24). Phase 1 (div paragraphs) is built, and two chapter detection fixes from Phase 3 were made along the way; see "Progress" at the end. Phase 2 (classless body paragraphs) is done in a smaller form than planned. Phase 3 (heading blocks) is done. Phase 4 (zones) is done. Phase 5 is still to do.
 
 Jacob wants the tool to be more sure about what each part of a book is (chapters, front and back matter, body text, headings), because most of the newer repairs only act when detection is confident, and a repair that is skipped does nothing for the reader. The long-term goal from the extra content plan still stands: anything that can be labeled with a confidence is handled automatically, and a person only reviews what stays uncertain.
 
@@ -110,3 +110,11 @@ Result on the survey: War and Peace and The Call of Cthulhu no longer report a w
 The heading block around a confirmed chapter marker is now credited to its class (`class_map.py`: `MAX_HEADING_BLOCK_CHARS`, `MIN_BLOCK_MARKER_SHARE`). A class needs at least half of its uses to be such blocks before it is called a chapter heading, which keeps ordinary text classes from being promoted (an early version promoted `calibre9` in Images-PageNumbers from a few hits, which is why the share rule exists). Hunter's Moon and OmnibusExample `title-chapter` is recognized. The medium-confidence classes in MM5 stay medium: they are single-use title page classes, and medium is the honest label for them.
 
 Finding: testing Phase 3 on the auto-fix command showed that it kept changing books on every run (Scene Break Markers, Class Standardize and Reader Settings undoing each other). These are fixed and described in the roadmap. Auto-fix stability is not covered by the 23-book check yet; adding it is a good idea for the next phase.
+
+### 2026-10-25: Phase 4 done
+
+- **Shared chapter file** (Watermarks-SmallChapterNumbers): the guard that discarded zones when every chapter marker landed in one file now keeps them when that file has at least 150 words per marker (this book: about 2,600). A one-file book is always the story. This is anchored on the file, not on the position inside the file, because zones are labeled per page; the front matter that sits at the top of a chapter file stays inside the main zone.
+- **Project Gutenberg markers** (GutenbergText-HRule, The Call of Cthulhu): new `zone_anchors.py` finds the start and end lines, modern and old style, and anchors the zones on them when no chapter sequence was confirmed.
+- **Skipped from the plan:** the contents-list and first-long-run-of-paragraphs anchors. The books they were meant for turned out to be the three tiny fixed-layout test files, which should stay "unknown". If a real book shows up that needs them they can be added to `zone_anchors.py`.
+- Result on the survey: zones are confirmed for every example book except FixedLayout-Synthetic and PossibleFixedLayout-Synthetic. No other book changed. Auto-fix stability on the four books matches the earlier behavior; CrossReferences-Synthetic still changes on a second auto-fix run, which predates Phase 4 and is worth its own look.
+

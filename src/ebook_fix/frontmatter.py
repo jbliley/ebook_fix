@@ -68,6 +68,10 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
+from ebook_fix import zone_anchors
+
+CHAPTER_ANCHOR_NOTE = "the first and last confirmed chapter"
+
 FRONT_ZONE = "front"
 BACK_ZONE = "back"
 MAIN_ZONE = "main"
@@ -566,17 +570,40 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
     # matter -- see analyze_structure()/split-structure for the
     # separate, richer detection this book's own chapter *splitting*
     # already goes through instead of this older sequence.
+    #
+    # Phase 4 of docs/detection_confidence_plan.md narrowed this guard.
+    # A contents page is short (a dozen words per marker at most), while
+    # a file that really holds the chapters is long: when the one shared
+    # file has plenty of words for every marker (Watermarks-
+    # SmallChapterNumbers: 24 chapters in a 63,000 word file) the markers
+    # are real chapters, and the zones are anchored on that file.
     if len(confirmed_boundaries) > 1 and len(confirmed_hrefs) == 1:
-        confirmed_hrefs = set()
+        shared_href = next(iter(confirmed_hrefs))
+        shared_words = 0
+        for chapter in ordered:
+            if chapter.href == shared_href:
+                shared_words = len(_chapter_text(chapter).split())
+                break
+        only_page = len(ordered) == 1  # the whole book is one file: it is the story
+        if not only_page and not zone_anchors.markers_are_prose(shared_words, len(confirmed_boundaries)):
+            confirmed_hrefs = set()
 
     first_idx = None
     last_idx = None
+    anchor_note = CHAPTER_ANCHOR_NOTE
     if confirmed_hrefs:
         for i, href in enumerate(href_order):
             if href in confirmed_hrefs:
                 if first_idx is None:
                     first_idx = i
                 last_idx = i
+    elif not confirmed_boundaries:
+        # No chapter sequence at all. A Project Gutenberg file still says
+        # in its own words where the book starts and ends.
+        anchor = zone_anchors.find_gutenberg_anchor([_chapter_text(c) for c in ordered])
+        if anchor is not None:
+            first_idx, last_idx = anchor.first_idx, anchor.last_idx
+            anchor_note = anchor.source
 
     summary = BookFrontMatterSummary(boundaries_confirmed=first_idx is not None)
 
@@ -654,15 +681,19 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
         elif zone == FRONT_ZONE:
             label = MatterLabel.FRONT_MATTER
             confidence = "medium" if word_count <= SHORT_PAGE_WORD_THRESHOLD else "low"
-            reason = "comes before the first confirmed chapter"
+            reason = "comes before the first confirmed chapter" if anchor_note == CHAPTER_ANCHOR_NOTE else f"comes before {anchor_note}"
         elif zone == BACK_ZONE:
             label = MatterLabel.BACK_MATTER
             confidence = "medium" if word_count <= SHORT_PAGE_WORD_THRESHOLD else "low"
-            reason = "comes after the last confirmed chapter"
+            reason = "comes after the last confirmed chapter" if anchor_note == CHAPTER_ANCHOR_NOTE else f"comes after {anchor_note}"
         elif zone == MAIN_ZONE:
             label = MatterLabel.MAIN_CONTENT
             confidence = "high"
-            reason = "falls within the confirmed chapter sequence"
+            reason = (
+                "falls within the confirmed chapter sequence"
+                if anchor_note == CHAPTER_ANCHOR_NOTE
+                else f"falls between {anchor_note}"
+            )
         else:
             label = MatterLabel.MAIN_CONTENT
             confidence = "low"
