@@ -3832,3 +3832,18 @@ Phase 4 of `docs/detection_confidence_plan.md`. Four example books had no confir
 Checked on the 25 example EPUBs (analysis survey, before and after): only those four books changed, and each now reads zones confirmed (Watermarks 3 front, 1 main; HRule 3 front, 1 main; Cthulhu 1 front, 1 main, 2 back; CrossReferences 1 main). Auto-fix on the four gives the same output words as before the change and is stable on a second run, except CrossReferences-Synthetic, which already changed on a second run before this work and is a separate, older problem.
 
 Not done on purpose: the contents-list and "first long run of body paragraphs" anchors from the plan. No example book needs them (the remaining unconfirmed books are the three tiny fixed-layout test files, where zones do not mean anything), so adding them would be a speculative fix.
+
+### Fixed: story chapters mislabeled as front or back matter (2026-10-25)
+
+Phase 5 of `docs/detection_confidence_plan.md`. The investigation showed that the "low confidence pages" were not really uncertain: they were real story pages. When the confirmed chapter run covers only part of a book (an omnibus whose numbering restarts, or chapters whose numbers are hard to read), every page outside that run fell into the front or back zone and got the generic "front matter" or "back matter" label at low confidence. Omnibus-Tarzan had 154 of these, MM5 Complete 18 (chapters 1 to 4 and 21 to 24 called front and back matter), Images-PageNumbers 26.
+
+Every long generic front or back page across the 25 example EPUBs was either Project Gutenberg license text (559 to 2,917 words, always naming itself) or real story. Fix in `frontmatter.py`:
+- A front or back page with no label of its own and at least 600 words becomes main content at medium confidence, with the reason "story text (N words, long page) outside the confirmed chapter run".
+- A shorter page (200 words or more) that carries a heading starting with the word "Chapter" that the confirmed run did not include is treated the same way. A bare number does not count: page numbers and glossary entries produced false hits in Images-PageNumbers, which is why the first version of this rule was narrowed.
+- Project Gutenberg license pages are never moved. Teaser chapters and other labeled pages are untouched, since they get their label first.
+
+Result: low-confidence pages Omnibus-Tarzan 154 to 2, MM5 Complete 18 to 1, Images-PageNumbers 26 to 12 (the rest of those are the book's appendix and glossary, which really is back matter, and two short story-ending pages left low on purpose). The 22 other example books are unchanged. Zones in the three books are now truthful: MM5 Complete went from 18 front, 10 main, 10 back to 8, 27, 3.
+
+Effect on repairs: scene break markers on the newly recognized story pages are now normalized (Tarzan's `* * * * *` becomes the standard marker). Auto-fix on all three books keeps every visible word that Phase 4 kept, and Tarzan and MM5 are stable on a second run. Images-PageNumbers is still not stable on a second auto-fix run; it was not before this change either (a separate older problem).
+
+Known risk: a long afterword or author's note with no recognizable wording would now read as main content at medium confidence. None of the example books has one; it stays medium so it is never auto-acted on as story.

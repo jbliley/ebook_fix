@@ -81,6 +81,25 @@ UNKNOWN_ZONE = "unknown"
 # for confidence, never as the sole reason something gets a label.
 SHORT_PAGE_WORD_THRESHOLD = 150
 
+# A front or back page with no label of its own and at least this many words
+# is story text, not matter. Longest unlabeled non-story page seen across the
+# example books: 355 words (a "praise for" page). Shortest story page that
+# needs rescuing: 723 words (a split continuation page). Project Gutenberg
+# license pages (559 to 2,917 words) are excluded by name instead.
+LONG_STORY_PAGE_WORDS = 600
+
+# A shorter page still counts as story when it carries a "Chapter ..." heading
+# the chapter finder saw (just not as part of the confirmed run) and has this
+# many words. Short chapters of 228 and 328 words were the cases found.
+CHAPTER_HEADED_PAGE_WORDS = 200
+
+_LICENSE_MARKERS = ("project gutenberg", "gutenberg.org", "gutenberg-tm", "gutenberg\u2122")
+
+
+def _is_license_text(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _LICENSE_MARKERS)
+
 
 class MatterLabel(Enum):
     COVER = "cover"
@@ -545,6 +564,13 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
     # to give these their own label instead of falling through to the
     # generic MAIN_CONTENT catch-all. Only the first marker per href is
     # kept; a file wouldn't realistically carry more than one of these.
+    # Pages carrying a heading that literally starts with the word "Chapter"
+    # that the confirmed run did not include. A bare number is not enough:
+    # page numbers and glossary entries produce those (Images-PageNumbers).
+    candidate_hrefs = {
+        c.href for c in (getattr(chapter_summary, "candidates", None) or [])
+        if re.match(r"\s*chapter\b", getattr(c, "text", "") or "", re.I)
+    }
     unnumbered_by_href = {}
     for c in getattr(chapter_summary, "unnumbered_chapters", None) or []:
         unnumbered_by_href.setdefault(c.href, c.text.strip().split()[0].lower())
@@ -678,6 +704,23 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
             reason = "opens like a preview of another book"
         elif zone in (FRONT_ZONE, BACK_ZONE) and (extra := _extra_label_from_text(text, word_count)) is not None:
             label, confidence, reason = extra
+        elif zone in (FRONT_ZONE, BACK_ZONE) and not _is_license_text(text) and (
+            word_count >= LONG_STORY_PAGE_WORDS
+            or (word_count >= CHAPTER_HEADED_PAGE_WORDS and chapter.href in candidate_hrefs)
+        ):
+            # Phase 5 of docs/detection_confidence_plan.md. Real front and
+            # back matter is short. A long page with none of the wording
+            # any front or back matter label looks for is story text the
+            # confirmed chapter run did not reach (the run restarts in an
+            # omnibus, or skips chapters whose numbers are hard to read).
+            zone = MAIN_ZONE
+            label = MatterLabel.MAIN_CONTENT
+            confidence = "medium"
+            reason = (
+                f"story text ({word_count} words, " + (
+                    "long page" if word_count >= LONG_STORY_PAGE_WORDS else "opens with a chapter heading"
+                ) + ") outside the confirmed chapter run, with no front or back matter wording"
+            )
         elif zone == FRONT_ZONE:
             label = MatterLabel.FRONT_MATTER
             confidence = "medium" if word_count <= SHORT_PAGE_WORD_THRESHOLD else "low"

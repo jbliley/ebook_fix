@@ -1,6 +1,6 @@
 # Detection Confidence: Plan
 
-**Status:** Survey done (2026-10-24). Phase 1 (div paragraphs) is built, and two chapter detection fixes from Phase 3 were made along the way; see "Progress" at the end. Phase 2 (classless body paragraphs) is done in a smaller form than planned. Phase 3 (heading blocks) is done. Phase 4 (zones) is done. Phase 5 is still to do.
+**Status:** Survey done (2026-10-24). Phase 1 (div paragraphs) is built, and two chapter detection fixes from Phase 3 were made along the way; see "Progress" at the end. Phase 2 (classless body paragraphs) is done in a smaller form than planned. Phase 3 (heading blocks) is done. Phase 4 (zones) is done. Phase 5 (low-confidence page labels) is done.
 
 Jacob wants the tool to be more sure about what each part of a book is (chapters, front and back matter, body text, headings), because most of the newer repairs only act when detection is confident, and a repair that is skipped does nothing for the reader. The long-term goal from the extra content plan still stands: anything that can be labeled with a confidence is handled automatically, and a person only reviews what stays uncertain.
 
@@ -117,4 +117,10 @@ Finding: testing Phase 3 on the auto-fix command showed that it kept changing bo
 - **Project Gutenberg markers** (GutenbergText-HRule, The Call of Cthulhu): new `zone_anchors.py` finds the start and end lines, modern and old style, and anchors the zones on them when no chapter sequence was confirmed.
 - **Skipped from the plan:** the contents-list and first-long-run-of-paragraphs anchors. The books they were meant for turned out to be the three tiny fixed-layout test files, which should stay "unknown". If a real book shows up that needs them they can be added to `zone_anchors.py`.
 - Result on the survey: zones are confirmed for every example book except FixedLayout-Synthetic and PossibleFixedLayout-Synthetic. No other book changed. Auto-fix stability on the four books matches the earlier behavior; CrossReferences-Synthetic still changes on a second auto-fix run, which predates Phase 4 and is worth its own look.
+
+### 2026-10-25: Phase 5 done
+
+The investigation found one group, not several: story pages outside a partial confirmed chapter run were labeled generic front or back matter at low confidence (Omnibus-Tarzan 151 of its 154, MM5 Complete 17 of 18, Images-PageNumbers 24 of 26, all generic and over 300 words; the only other long generic pages were Project Gutenberg license text). A long unlabeled page is now main content at medium confidence, with a shorter "Chapter ..." headed page treated the same way (details in the roadmap). Low-confidence pages: Omnibus-Tarzan 154 to 2, MM5 Complete 18 to 1, Images-PageNumbers 26 to 12 (mostly its real appendix). Other books unchanged.
+
+Not done: the two page-image and chapter-piece groups the plan guessed at did not show up as separate groups; the 12 pages left in Images-PageNumbers are appendix and glossary pages (correctly uncertain) and two story-ending pages under 450 words with no chapter heading. Open from Phase 4's note: auto-fix on CrossReferences-Synthetic and Images-PageNumbers still changes the file on a second run; worth its own look, since the survey's 23-book check does not cover auto-fix stability.
 
