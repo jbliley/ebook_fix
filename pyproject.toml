@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ebook_fix"
+version = "0.1.0"
+description = "An automated tool that can fix both common and uncommon issues with ebook files"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-2.0-only" }
+dependencies = [
+    "lxml>=5.0",
+    "rich>=13.7",
+    "Flask>=3.0",
+    "waitress>=3.0",
+]
+
+[project.scripts]
+ebook-fix = "ebook_fix.cli:main"
+ebook-fix-gui = "gui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ebook_fix*", "gui*", "metadata*"]
+
+[tool.setuptools.package-data]
+gui = ["templates/*.html"]
+metadata = ["schemes/*.json"]
+"ebook_fix.fb2" = ["genres.json"]
