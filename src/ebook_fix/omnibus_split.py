@@ -909,7 +909,12 @@ def _front_copy_ok(chapter, label, titles: list, creator_words: list, pages: set
     if re.search(r"\bcontents\b", text[:80], re.IGNORECASE) or _internal_page_links(chapter, pages) >= 3:
         return False                     # a contents page with no entry of its own
     if found == MatterLabel.COPYRIGHT:
-        return True                      # copyright pages name the books, and are meant to be copied
+        # A copyright page that names two or more of the omnibus's books is the
+        # omnibus's own (its ISBN, its list of titles); it stays in Book One only.
+        flat = _norm(text)
+        if sum(1 for t in titles if t and t in flat) >= 2:
+            return False
+        return True                      # a single-book copyright page is still copied
     if words <= _SHORT_TITLE_PAGE_WORDS:
         flat = _norm(text)
         if any(t and t in flat for t in titles):

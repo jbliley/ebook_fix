@@ -3869,3 +3869,26 @@ Measured on the auto-fix output of all 24 example books, three kinds of leftover
 Checks: all 24 example books give the same output on a second auto-fix run and the same visible word counts as before this change; every output parses as strict XML, every `<link>` and every manifest entry points at a file that exists; and the module's own analysis finds nothing left to remove in any output (unused selectors went from 21 to 0 by its own count). Fixed-layout books are skipped as before, and a book with a script is still left alone.
 
 Not changed on purpose: the inline `style` attributes the tool writes on its own markup (chapter wrappers, gap paragraphs, scene breaks) stay inline, since inline styles are the most reliable across reading apps. Styled classes the profiler cannot place (contents pages, title pages, scene breaks in the larger books) are the next survey, not part of this change.
+
+## Omnibus splitter: the omnibus's own copyright page stays in Book One (2026-10-26)
+
+Jacob's call (the split books are for reading in his own library): the copyright page that belongs to the omnibus itself is no longer copied into the other books. Before, every book after the first got a copy, carrying the omnibus's ISBN and the list of every title in it. `_front_copy_ok` in `omnibus_split.py` now treats a copyright page that names two or more of the omnibus's books as the omnibus's own and leaves it in Book One only. A copyright page that names one book (or none) is still copied as before.
+
+Checked on the four real omnibus files (OmnibusExample, Ravaged Land, the First Mountain Man file, the Tarzan collection): only OmnibusExample Book Two changed (3 copied pages down to 2, the omnibus copyright page gone); every other book has the same copies as before, and splitting twice gives byte-identical files. The Ravaged Land copyright page is a general fiction notice naming no books, so it is still copied. The publisher's foreword ("Dear Readers") is still copied into every book, as before.
+
+## Plan docs closed out (2026-10-26)
+
+Jacob went through the open items in the finished plan docs. Decisions, so none of them has to be asked again:
+
+- **Series tag in the title:** removed automatically when the series is clear (as now). A series typed by hand is never changed.
+- **Library-level series view:** not wanted in ebook_fix; Calibre covers it.
+- **"About the author" as an extra page:** stays on the removal list, switched off.
+- **Replace original:** stays off by default until Jacob has used Fix on many real books.
+- **Before / After:** stays a tab.
+- **Red flags on the Overview:** the current list is right; red means something serious is wrong.
+- **Omnibus copyright page:** Book One only (see the entry above).
+- **ISBN lookup:** no on/off setting and no "add found ISBN to identifiers" button. The split result page has no "open this book" button; Browse is used.
+
+Waiting for a real sample (nothing to build until one turns up): ads, newsletter pages and teasers beyond the few in `examples/`; the Title/Author search against live Open Library on old books; AZW3 fonts, SVG and two-header MOBI7+KF8 hybrids; FB2 tables, citations, code, strikethrough, named styles and a body-level image; an omnibus whose book starts at a chapter with no title page, and notes shared across books.
+
+The plan docs for the finished features were removed from the repository on this date: `detection_confidence_plan.md`, `isbn_lookup_plan.md`, `backmatter_cleanup_plan.md`, `gui_redesign_plan.md`, `series_labeling_plan.md`, `mobi_conversion_plan.md`, `azw3_kf8_conversion_plan.md`, `fb2_conversion_plan.md` and `omnibus_splitter_plan.md`. Their full text stays in git history: `git show ba860ba:docs/<file name>`. The AZW3 byte-level notes (the "Reference: what's confirmed" section) and the omnibus design decisions are the parts most worth rereading there.
