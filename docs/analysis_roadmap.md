@@ -3903,4 +3903,16 @@ Result: chapter boundaries needing review went from 166 to 53 (BrokenSentences 7
 
 Checks: Fix This Book run on the three changed books through the GUI code. BrokenSentences 7 to 81 files, Watermarks 5 to 29, ChaptersMisaligned 64 to 76. Visible word counts match the old output except one added "Start" label; nothing lost. The command line `repair`, `auto-fix`, `convert` and `split-omnibus` outputs for all 31 examples are identical to before.
 
-Found, not yet fixed: a second Fix This Book on an already fixed book still changes a few things (a dead link to an emptied `page_styles.css` and empty `<style>` blocks in the split pages that Unused CSS removes on the next run). This was already true before this change and was worse then (the old code also split more chapters on the second run; that part is gone now). The command line repair settles in two passes, so the difference is in the GUI Fix path.
+Found, fixed the same day: a second Fix This Book on an already fixed book still changed things; see "Fixed: Fix This Book now settles on a second run" below.
+
+### Fixed: Fix This Book now settles on a second run (2026-10-27)
+
+Measured first: running Fix This Book and then Fix again on the result, the second run changed the book in 13 of the 24 example EPUBs (BrokenSentences, ChaptersMisaligned, Watermarks, MM21, Tarzan, War and Peace and others): scene break markers added late, empty `<style>` blocks and links to emptied stylesheets left in split pages, class names tidied late, and in some books more chapters split.
+
+Cause (`gui/app.py`, `fix_book`): which repairs run is decided from the book as it was before the Fix. A repair with nothing to do at that moment stayed unticked, even though other repairs (and a split) create work for it. The command line `repair` has no such problem because it runs everything the config file has on, and converges in two passes. The next Fix then ticked the repairs and did the work.
+
+Change: when the person has not chosen their own ticks, Fix now runs every repair the config file has on (Extra Content Removal keeps its own rule, the Overview box). A repair with nothing to do still changes nothing. Ticks the person has chosen on the Overview are respected exactly as before. Fix also applies the same fixed-layout guard the Overview shows and the command line uses (`Engine._apply_fixed_layout_guard`); without it the new default would have run risky repairs on a fixed-layout book (found by the test, FixedLayout-Synthetic lost an image and its page list before the guard was added).
+
+Result: second Fix identical on 23 of 24 books (11 before). Checks: visible word counts of the first Fix match the old output for every book, every page parses as strict XML, and FixedLayout-Synthetic is identical to before. The command line commands are untouched.
+
+Still open: RunTogetherText. Its first Fix generates a contents list from five chapter markers nobody confirmed (PROLOGUE and FIRST, THIRD, FIFTH, SIXTH MACHINATION, with SECOND and FOURTH missing), and the second Fix reads that generated list as confirmation and splits there. A contents list the tool wrote itself should not count as outside evidence. It affects only books whose chapter boundaries are still unresolved.

@@ -1916,6 +1916,11 @@ def fix_book(session_id):
     # sync to Calibre at all, reporting "metadata_repair is disabled in
     # config" even with sync_calibre_opf/sync_calibre_db turned on.
     metadata_sync_enabled = config.metadata_repair.enabled
+    # What the config file says, kept so repairs that only become useful after
+    # other repairs have run can be added back below.
+    config_enabled = {attr: bool(getattr(getattr(config, attr), "enabled", True))
+                      for attr, _label in _REPAIR_MODULES}
+    default_selection = _read_staged(_staged_modules_path(session_dir)) is None
     for attr, _label in _REPAIR_MODULES:
         getattr(config, attr).enabled = attr in selected
 
@@ -2068,9 +2073,29 @@ def fix_book(session_id):
         frontmatter_labels = staged_review.get("frontmatter_labels", {}) if staged_review is not None else {}
         analysis_report = EPUBAnalyzer().analyze(book, frontmatter_overrides=frontmatter_labels, progress=_set_progress)
 
+        # The default ticks were worked out on the book as it was before this
+        # Fix, so a repair with nothing to do then stayed off, even though other
+        # repairs (and a split) create work for it: Unused CSS clearing the style
+        # blocks and stylesheet links they leave behind, Scene Break Markers
+        # finishing after Scene Break Normalizer, Class Cleanup after class
+        # changes. Left unticked, the next Fix would do that work and the book
+        # would never settle. When the person has not chosen their own ticks, the
+        # repairs the config file has on all run, as the command line `repair`
+        # does; a repair with nothing to do changes nothing. Extra Content Removal
+        # keeps its own rule (what the Overview box ticked), and the fixed-layout
+        # guard still applies in the engine.
+        if default_selection:
+            for attr, _label in _REPAIR_MODULES:
+                if attr != "extra_content_removal" and config_enabled.get(attr):
+                    getattr(config, attr).enabled = True
+
         engine = Engine(config=config)
         engine.progress = _set_progress
-        reports_by_module, pass_num = engine.run_selected_repairs(book, engine.modules, analysis_report, max_passes=5)
+        # The same fixed-layout guard the Overview shows and the command line
+        # applies: repairs that would break a fixed-layout book are dropped here,
+        # now that more of them can be on by default.
+        repair_modules, _guard_skipped = engine._apply_fixed_layout_guard(engine.modules, analysis_report)
+        reports_by_module, pass_num = engine.run_selected_repairs(book, repair_modules, analysis_report, max_passes=5)
     engine_output = buf.getvalue()
 
     output_path = _fixed_output_path(session_dir)
