@@ -134,6 +134,17 @@ class BoundaryEvidence:
     # scoring to boost confidence.
     anchor_link_count: int = 0
 
+    # Counting-run consistency: True when the whole winning sequence of
+    # chapter markers counts up with no (or almost no) gaps, every marker
+    # stands alone on its own line in the same style, and nearly every
+    # section is a real chapter's worth of text. A run like that is very
+    # unlikely to be anything but chapters (see apply_sequence_completeness).
+    sequence_complete: bool = False
+
+    # Words between this boundary and the next, filled in by
+    # apply_content_length_check; None until it runs.
+    section_words: int | None = None
+
     # -- Requirement 3: margin over the runner-up sequence --
     # Lives here rather than only at the book level so a boundary
     # carries its own reasoning even if inspected in isolation; should
@@ -174,6 +185,7 @@ class BoundaryEvidence:
             or bool(self.matched_anchor_id)
             or self.css_hint_consistent
             or self.heading_hierarchy_consistent
+            or self.sequence_complete
         )
 
     @property
@@ -1011,6 +1023,7 @@ def apply_content_length_check(book: Any, tree: BookStructure,
             continue
         
         count = word_counts[i]
+        node.evidence.section_words = count
         
         # If it's a short-chapter book, relax the minimum
         if is_short_chapter_book:
@@ -1241,6 +1254,68 @@ def apply_coverage_check(book: Any, tree: BookStructure) -> BookStructure:
     return tree
 
 
+# A counting run needs at least this many chapters before it counts as
+# evidence by itself; a handful of numbers in a row proves little.
+MIN_COMPLETE_RUN = 10
+# Share of sections that must hold at least COMPLETE_RUN_MIN_WORDS words. This
+# is deliberately stricter than the content-length check, which relaxes itself
+# for books made of short sections (footnote lists, for one).
+COMPLETE_RUN_MIN_WORDS = 100
+COMPLETE_RUN_MIN_SHARE = 0.9
+
+
+def apply_sequence_completeness(tree: BookStructure) -> BookStructure:
+    """Marks a winning chapter sequence as corroborated by its own
+    consistency: markers that count 1, 2, 3 ... with no gaps (or at most one
+    missing number per 25 chapters), each standing alone in its element, all in
+    one style, and almost all followed by a real chapter's worth of text.
+
+    Why that is enough: a book with no contents list and no cross-links can
+    still be certain about its chapters when twenty or eighty numbers in a
+    row, each followed by pages of prose, are all in order. The things that
+    can look like a numbered run but are not chapters (a footnote list, a
+    numbered list) fail the length requirement, which here is NOT relaxed for
+    short sections. A run with real gaps (ChaptersMisaligned) or a marker that
+    shares its line with other text is left for a person.
+
+    Runs after apply_content_length_check, which fills in section_words.
+    """
+    nodes = [n for n in _walk_structure_nodes(tree.nodes, include_parts=False)
+             if n.evidence and n.evidence.in_winning_sequence and n.evidence.candidate]
+    if len(nodes) < MIN_COMPLETE_RUN:
+        return tree
+    cands = [n.evidence.candidate for n in nodes]
+    numbers = [c.number for c in cands]
+    if any(v is None for v in numbers):
+        return tree
+    if any(not getattr(c, "isolated", False) for c in cands):
+        return tree
+    if len({getattr(c, "style", None) for c in cands}) != 1:
+        return tree
+    missing = 0
+    for before, after in zip(numbers, numbers[1:]):
+        if after <= before:
+            return tree                      # backwards or repeated: not a clean count
+        missing += after - before - 1
+    if missing > max(1, len(nodes) // 25):
+        return tree
+    margin = nodes[0].evidence.sequence_margin
+    if margin is not None and margin < MIN_SEQUENCE_MARGIN:
+        return tree
+    real = sum(1 for n in nodes
+               if n.evidence.section_words is not None and n.evidence.section_words >= COMPLETE_RUN_MIN_WORDS)
+    if real < len(nodes) * COMPLETE_RUN_MIN_SHARE:
+        return tree
+    for n in nodes:
+        n.evidence.sequence_complete = True
+        n.evidence.notes.append(
+            f"Counts up from {numbers[0]} to {numbers[-1]} across {len(nodes)} chapters"
+            + (f" (only {missing} number missing)" if missing == 1 else f" ({missing} numbers missing)" if missing else " with no gaps")
+            + ", each followed by a full chapter of text."
+        )
+    return tree
+
+
 def score_confidence(book: Any, tree: BookStructure,
                       min_words: int = MIN_CHAPTER_WORDS) -> BookStructure:
     """0g's entry point: runs the two remaining per-boundary checks
@@ -1252,6 +1327,7 @@ def score_confidence(book: Any, tree: BookStructure,
     signal; nothing downstream should need to re-derive them.
     """
     apply_content_length_check(book, tree, min_words=min_words)
+    apply_sequence_completeness(tree)
     apply_structural_cleanliness_check(tree)
     apply_coverage_check(book, tree)
     return tree
