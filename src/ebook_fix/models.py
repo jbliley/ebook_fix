@@ -102,6 +102,10 @@ class Book:
     spine: list[str] = field(default_factory=list)
     toc: list[TocEntry] = field(default_factory=list)
     toc_source: str = ""  # "ncx", "nav", or "" if the book has neither
+    # True when the contents list was written by this tool's TOC Generation (it carries a
+    # marker), so it is the tool's own guess and must not count as outside evidence for the
+    # chapters it was built from.
+    toc_generated: bool = False
     # How many TOC entries (nested ones included) the file had when it was
     # first loaded; book.toc itself is refreshed after splits, this is not.
     original_toc_count: int = -1

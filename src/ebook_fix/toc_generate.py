@@ -259,7 +259,11 @@ def _build_toc_ol(E, entries):
     return ol
 
 
-def build_nav_bytes(book, entries, title=None) -> bytes:
+GENERATED_MARK = "ebookfix:generated"
+GENERATED_NAV_ATTR = "data-ebookfix-generated"
+
+
+def build_nav_bytes(book, entries, title=None, generated=False) -> bytes:
     """Renders `entries` (a TocEntry list -- book.toc's own existing
     entries, this module's build_toc_entries output, or
     build_spine_fallback_entries's output) as a complete EPUB3
@@ -274,6 +278,8 @@ def build_nav_bytes(book, entries, title=None) -> bytes:
     nav = etree.SubElement(body, E + "nav")
     nav.set(f"{{{EPUB_OPS_NS}}}type", "toc")
     nav.set("id", "toc")
+    if generated:
+        nav.set(GENERATED_NAV_ATTR, "true")   # see structure.apply_toc_corroboration
     heading = etree.SubElement(nav, E + "h1")
     heading.text = "Table of Contents"
     nav.append(_build_toc_ol(E, entries))
@@ -317,7 +323,7 @@ def _build_nav_point(E, entry, play_order_counter):
     return point
 
 
-def build_ncx_document(book, entries):
+def build_ncx_document(book, entries, generated=False):
     """Builds a complete, brand-new <ncx> root element (head, docTitle,
     navMap) from `entries` -- nothing in the project has needed to do
     this before now; every prior NCX-editing function (crossref.py's
@@ -331,6 +337,10 @@ def build_ncx_document(book, entries):
     ncx.set("version", "2005-1")
 
     head = etree.SubElement(ncx, E + "head")
+    if generated:
+        meta_gen = etree.SubElement(head, E + "meta")   # see structure.apply_toc_corroboration
+        meta_gen.set("name", GENERATED_MARK)
+        meta_gen.set("content", "true")
     meta_uid = etree.SubElement(head, E + "meta")
     meta_uid.set("name", "dtb:uid")
     meta_uid.set("content", getattr(book.metadata, "identifier", "") or "")

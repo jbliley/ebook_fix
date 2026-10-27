@@ -599,6 +599,10 @@ def apply_toc_corroboration(book: Any, tree: BookStructure) -> BookStructure:
     entries = list(getattr(book, "toc", None) or [])
     if not entries:
         return tree
+    if getattr(book, "toc_generated", False):
+        # The tool wrote this list from the very chapters being judged; reading
+        # it back as confirmation would make every boundary vouch for itself.
+        return tree
 
     flat_entries = _flatten_toc(entries)
     
@@ -676,6 +680,10 @@ def _internal_link_targets(book: Any) -> dict:
         doc = getattr(chapter, "document", None)
         chapter_href = getattr(chapter, "href", "")
         if doc is None:
+            continue
+        # A contents page this tool wrote itself (see toc_generate) links to the
+        # very chapters being judged; those links are not outside evidence.
+        if any(isinstance(el.tag, str) and el.get("data-ebookfix-generated") for el in doc.iter()):
             continue
         for el in doc.iter():
             if not isinstance(el.tag, str) or etree.QName(el).localname.lower() != "a":

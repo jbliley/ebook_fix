@@ -255,7 +255,8 @@ class TocGenerationRepair:
 
     def _regenerate_nav(self, book, entries, report):
         item = book.nav_item
-        data = build_nav_bytes(book, entries)
+        data = build_nav_bytes(book, entries, generated=True)
+        book.toc_generated = True
         base = PurePosixPath(book.package_path).parent
         chapter = book.nav_chapter
         if chapter is not None and chapter.document is not None:
@@ -312,7 +313,8 @@ class TocGenerationRepair:
             spine.set("toc", item_id)
         book.opf_modified = True
 
-        book.ncx_document = build_ncx_document(book, entries)
+        book.ncx_document = build_ncx_document(book, entries, generated=True)
+        book.toc_generated = True
         book.ncx_href = href
         book.ncx_modified = True
 
@@ -351,7 +353,8 @@ class TocGenerationRepair:
         book.opf_modified = True
 
         base = PurePosixPath(book.package_path).parent
-        book.new_files[str(base / href)] = build_nav_bytes(book, entries)
+        book.new_files[str(base / href)] = build_nav_bytes(book, entries, generated=True)
+        book.toc_generated = True
 
         report.add(
             book.package_path or "content.opf",

@@ -393,6 +393,11 @@ class EPUBParser:
 
         book.toc = self._merge_split_labels(entries)
         book.toc_source = source
+        # A contents list this tool wrote itself carries a marker (see toc_generate).
+        marker_item = ncx_item if source == "ncx" else nav_item if source == "nav" else None
+        if marker_item is not None:
+            raw = self._read_optional(archive, str(base / marker_item.href)) or b""
+            book.toc_generated = (b"ebookfix:generated" in raw) or (b"data-ebookfix-generated" in raw)
 
         def _count(items):
             return sum(1 + _count(getattr(e, "children", None) or []) for e in items)

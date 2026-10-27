@@ -3915,4 +3915,15 @@ Change: when the person has not chosen their own ticks, Fix now runs every repai
 
 Result: second Fix identical on 23 of 24 books (11 before). Checks: visible word counts of the first Fix match the old output for every book, every page parses as strict XML, and FixedLayout-Synthetic is identical to before. The command line commands are untouched.
 
-Still open: RunTogetherText. Its first Fix generates a contents list from five chapter markers nobody confirmed (PROLOGUE and FIRST, THIRD, FIFTH, SIXTH MACHINATION, with SECOND and FOURTH missing), and the second Fix reads that generated list as confirmation and splits there. A contents list the tool wrote itself should not count as outside evidence. It affects only books whose chapter boundaries are still unresolved.
+Still open when this entry was written: RunTogetherText (fixed the same day, see below).
+
+### Fixed: a contents list the tool wrote no longer confirms its own chapters (2026-10-27)
+
+RunTogetherText still changed on a second Fix This Book: the first Fix generated a contents list from five chapter markers nobody had confirmed, and the second Fix read that list as outside evidence and split at them.
+
+Two routes let it vouch for itself. (1) TOC corroboration matched the generated entries. (2) Anchor corroboration counted the generated nav page's links to the chapter anchors (`#chapter-2` and so on) as in-book cross-references. Both are closed.
+
+- TOC Generation now marks what it writes: an `ebookfix:generated` meta in the NCX head and a `data-ebookfix-generated` attribute on the nav element. Lists built by other code (EPUB 3 Upgrade rebuilding a nav from a real NCX, the omnibus splitter) are not marked, since those carry the book's own entries.
+- The parser reads the marker back into `book.toc_generated`; TOC corroboration is skipped for a marked list, and anchor corroboration skips links found on a marked contents page.
+
+Result: second Fix identical on all 24 example books. Word counts and XML validity checked as in the entries above.
