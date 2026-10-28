@@ -49,6 +49,24 @@ after the first comma don't count -- they're not what's actually being
 embedded) matches a family this book embeds via its own @font-face
 rule(s).
 
+Reader's-font rule (2026-10-28)
+-----------------------------------------------------
+Raised by Jacob, same reasoning as ebook_fix.color's size rule: the
+reader's own font setting should win. He chose to remove embedded
+fonts on titles, drop caps and other small sections too (the 9
+leftover findings in the example books were all small display uses),
+which also lets the font file go once nothing needs it. So every
+embedded font usage is confident EXCEPT:
+- a family stack ending in monospace, cursive or fantasy (code, a
+  handwritten letter -- the generic fallback names the intent);
+- text containing private-use characters (U+E000-U+F8FF), which means
+  the font draws symbols or icons and the reader's font would show
+  empty boxes;
+- a selector too complex to measure what it reaches (descendant
+  selectors, pseudo-elements), same caution as color.
+
+The older review-only description below is what applied before that.
+
 Review only (flagged, never auto-repaired)
 -----------------------------------------------------
 Everything else -- an embedded font's family declared on <em>/<i>/<b>/
@@ -74,7 +92,7 @@ from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE, FONT_FACE_RE, FONT
 from ebook_fix.class_map import build_class_profiles
 from ebook_fix.chapters import analyze_book_chapters
 from ebook_fix.frontmatter import analyze_book_frontmatter, MAIN_ZONE
-from ebook_fix.color import is_confident_selector_group, is_confident_paragraph_context
+from ebook_fix.color import is_confident_selector_group, is_confident_paragraph_context, ColorReach
 
 # Matches a `font-family: ...;` declaration. Deliberately not reusing
 # ebook_fix.css.FONT_FAMILY_RE as-is for scanning arbitrary rule
@@ -196,8 +214,43 @@ class BookFontSummary:
         return confident_families - review_families
 
 
+SPECIAL_GENERICS = frozenset({"monospace", "cursive", "fantasy"})
+PRIVATE_USE_RE = re.compile("[\ue000-\uf8ff]")
+
+
+def _has_special_generic(declared: str) -> bool:
+    names = [n.strip().strip('"\'').strip().lower() for n in declared.split(",")]
+    return any(n in SPECIAL_GENERICS for n in names)
+
+
+def decide_font_css(selector_group, declared, reach, body_text_classes):
+    """(confident, reason) for one CSS rule declaring an embedded font."""
+    if is_confident_selector_group(selector_group, body_text_classes):
+        return True, "embedded font-family on the confirmed body-text class or <body> itself"
+    if _has_special_generic(declared):
+        return False, "embedded font with a monospace/cursive/fantasy stack (code or handwriting)"
+    matched = reach.matched_group(selector_group)
+    if matched is None:
+        return False, "selector too complex to measure what text it reaches"
+    for el in matched:
+        if PRIVATE_USE_RE.search(el.xpath("string(.)")):
+            return False, "embedded font draws symbol glyphs (private-use characters)"
+    return True, "embedded font on text the reader's own font can display"
+
+
+def decide_font_inline(el, declared, href, reach, main_hrefs):
+    """(confident, reason) for one inline style / <font face> usage."""
+    if (main_hrefs is None or href in main_hrefs) and is_confident_paragraph_context(el):
+        return True, "inline embedded font-family set directly on a main-narrative <p>"
+    if _has_special_generic(declared):
+        return False, "embedded font with a monospace/cursive/fantasy stack (code or handwriting)"
+    if PRIVATE_USE_RE.search(el.xpath("string(.)")):
+        return False, "embedded font draws symbol glyphs (private-use characters)"
+    return True, "embedded font on text the reader's own font can display"
+
+
 def _scan_css_text(text: str, href: str, location_kind: str, body_text_classes: frozenset,
-                    family_to_hrefs: dict, summary: BookFontSummary, counters: dict) -> None:
+                    family_to_hrefs: dict, summary: BookFontSummary, counters: dict, reach=None) -> None:
     if not text:
         return
     cleaned = COMMENT_RE.sub("", text)
@@ -221,12 +274,9 @@ def _scan_css_text(text: str, href: str, location_kind: str, body_text_classes: 
             href=href, location_kind=location_kind,
             context=selector_group, family=declared, resolved_family=resolved,
         )
-        if is_confident_selector_group(selector_group, body_text_classes):
-            finding.reason = "embedded font-family on the confirmed body-text class or <body> itself"
-            summary.confident.append(finding)
-        else:
-            finding.reason = "embedded font-family on a class/selector without a confirmed body-text role"
-            summary.review.append(finding)
+        confident, reason = decide_font_css(selector_group, declared, reach, body_text_classes)
+        finding.reason = reason
+        (summary.confident if confident else summary.review).append(finding)
 
 
 def analyze_book_font_usage(book, chapter_summary=None, frontmatter_summary=None, class_profiles=None) -> BookFontSummary:
@@ -296,13 +346,14 @@ def analyze_book_font_usage(book, chapter_summary=None, frontmatter_summary=None
         return summary  # book embeds no fonts at all (or none any @font-face rule actually references) -- nothing to scan for
 
     counters: dict = {}
+    reach = ColorReach(book)
 
     # 1. External CSS files
     for res in getattr(book, "css", []) or []:
         _scan_css_text(
             contents.get(res.href), href=res.href, location_kind="external_css",
             body_text_classes=body_text_classes, family_to_hrefs=family_to_hrefs,
-            summary=summary, counters=counters,
+            summary=summary, counters=counters, reach=reach,
         )
 
     # 2. Embedded <style> blocks, inline style="" attributes, and
@@ -313,8 +364,6 @@ def analyze_book_font_usage(book, chapter_summary=None, frontmatter_summary=None
         if root is None:
             continue
         href = getattr(ch, "href", "")
-        in_main_zone = main_hrefs is None or href in main_hrefs
-
         for el in root.iter():
             if not isinstance(el.tag, str):
                 continue
@@ -324,7 +373,7 @@ def analyze_book_font_usage(book, chapter_summary=None, frontmatter_summary=None
                 _scan_css_text(
                     el.text, href=href, location_kind="embedded_style",
                     body_text_classes=body_text_classes, family_to_hrefs=family_to_hrefs,
-                    summary=summary, counters=counters,
+                    summary=summary, counters=counters, reach=reach,
                 )
                 continue
 
@@ -343,16 +392,9 @@ def analyze_book_font_usage(book, chapter_summary=None, frontmatter_summary=None
                             context=f'<{local} style="{style_val}">',
                             family=fm.group(1).strip(), resolved_family=resolved, element=el,
                         )
-                        if in_main_zone and is_confident_paragraph_context(el):
-                            finding.reason = "inline embedded font-family set directly on a main-narrative <p>"
-                            summary.confident.append(finding)
-                        else:
-                            finding.reason = (
-                                "inline embedded font-family on a decorative/nested element"
-                                if in_main_zone else
-                                "inline embedded font-family outside the main narrative zone"
-                            )
-                            summary.review.append(finding)
+                        confident, reason = decide_font_inline(el, finding.family, href, reach, main_hrefs)
+                        finding.reason = reason
+                        (summary.confident if confident else summary.review).append(finding)
 
             if local == "font" and el.get("face"):
                 value = el.get("face")
@@ -367,15 +409,8 @@ def analyze_book_font_usage(book, chapter_summary=None, frontmatter_summary=None
                         context=f'<font face="{value}">',
                         family=value, resolved_family=resolved, element=el,
                     )
-                    if in_main_zone and is_confident_paragraph_context(el):
-                        finding.reason = "legacy <font face> directly on a main-narrative paragraph"
-                        summary.confident.append(finding)
-                    else:
-                        finding.reason = (
-                            "legacy <font face> on a decorative/nested element"
-                            if in_main_zone else
-                            "legacy <font face> outside the main narrative zone"
-                        )
-                        summary.review.append(finding)
+                    confident, reason = decide_font_inline(el, value, href, reach, main_hrefs)
+                    finding.reason = reason
+                    (summary.confident if confident else summary.review).append(finding)
 
     return summary

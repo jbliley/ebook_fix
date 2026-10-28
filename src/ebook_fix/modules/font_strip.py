@@ -70,8 +70,10 @@ from ebook_fix.fonts import (
     FONT_FAMILY_DECLARATION_RE,
     FONT_FAMILY_VALUE_RE,
     first_family,
+    decide_font_css,
+    decide_font_inline,
 )
-from ebook_fix.color import is_confident_selector_group, is_confident_paragraph_context
+from ebook_fix.color import ColorReach
 
 OPF_NS = "http://www.idpf.org/2007/opf"
 XMLENC_NS = "http://www.w3.org/2001/04/xmlenc#"
@@ -102,12 +104,23 @@ class FontStripRepair:
     def repair(self, book, analysis=None):
         fonts = analysis.fonts if analysis is not None else analyze_book_font_usage(book)
         body_text_classes = fonts.body_text_classes
+        main_hrefs = fonts.main_hrefs
+        # Measured fresh against the book as it is right now, same as
+        # Color Strip -- see ebook_fix.fonts's "Reader's-font rule".
+        reach = ColorReach(book)
+
+        def declared_of(el):
+            fm = FONT_FAMILY_VALUE_RE.search(el.get("style") or "")
+            return fm.group(1).strip() if fm else (el.get("face") or "")
+
         report = self._remove_matching(
             book,
-            main_hrefs=fonts.main_hrefs,
             family_to_hrefs=fonts.family_to_hrefs,
-            css_predicate=lambda selector, finding_id: is_confident_selector_group(selector, body_text_classes),
-            element_predicate=lambda el, finding_id, href: is_confident_paragraph_context(el),
+            css_predicate=lambda selector, body, finding_id: decide_font_css(
+                selector, (FONT_FAMILY_VALUE_RE.search(body).group(1).strip() if FONT_FAMILY_VALUE_RE.search(body) else ""),
+                reach, body_text_classes)[0],
+            element_predicate=lambda el, finding_id, href: decide_font_inline(
+                el, declared_of(el), href, reach, main_hrefs)[0],
         )
 
         removable_families = fonts.fully_confident_families()
@@ -127,9 +140,8 @@ class FontStripRepair:
         fonts = analyze_book_font_usage(book)
         return self._remove_matching(
             book,
-            main_hrefs=None,  # id membership alone decides -- zone doesn't matter here
             family_to_hrefs=fonts.family_to_hrefs,
-            css_predicate=lambda selector, finding_id: finding_id in accepted_ids,
+            css_predicate=lambda selector, body, finding_id: finding_id in accepted_ids,
             element_predicate=lambda el, finding_id, href: finding_id in accepted_ids,
         )
 
@@ -137,11 +149,11 @@ class FontStripRepair:
     # Shared removal walk -- CSS-level font-family declarations only
     # -----------------------------------------------------
 
-    def _remove_matching(self, book, main_hrefs, family_to_hrefs, css_predicate, element_predicate):
+    def _remove_matching(self, book, family_to_hrefs, css_predicate, element_predicate):
         """Walks every CSS file, embedded <style> block, inline
         style="", and <font face> tag exactly once, in the same order
         ebook_fix.fonts.analyze_book_font_usage does, removing a
-        `font-family` declaration wherever css_predicate(selector, id)
+        `font-family` declaration wherever css_predicate(selector, body, id)
         or element_predicate(element, id, href) says to -- but only
         ever a declaration whose family resolves to one of this book's
         own embedded fonts (family_to_hrefs), exactly matching what
@@ -179,7 +191,6 @@ class FontStripRepair:
             if root is None:
                 continue
             href = getattr(chapter, "href", "")
-            in_main_zone = main_hrefs is None or href in main_hrefs
             changed = False
             chapter_count = 0
 
@@ -204,7 +215,7 @@ class FontStripRepair:
                         i = counters.get(key, 0)
                         counters[key] = i + 1
                         finding_id = f"inline_style:{href}:{i}"
-                        if in_main_zone and element_predicate(el, finding_id, href):
+                        if element_predicate(el, finding_id, href):
                             stripped, count = self._strip_inline_style(style_val)
                             if count:
                                 if stripped:
@@ -220,7 +231,7 @@ class FontStripRepair:
                         i = counters.get(key, 0)
                         counters[key] = i + 1
                         finding_id = f"font_tag:{href}:{i}"
-                        if in_main_zone and element_predicate(el, finding_id, href):
+                        if element_predicate(el, finding_id, href):
                             del el.attrib["face"]
                             changed = True
                             chapter_count += 1
@@ -403,7 +414,7 @@ class FontStripRepair:
 
     def _strip_css_text(self, text: str, href: str, location_kind: str, family_to_hrefs: dict, predicate, counters: dict):
         """Remove a `font-family: ...;` declaration, but only from a
-        rule `predicate(selector_group, finding_id)` says yes to AND
+        rule `predicate(selector_group, body, finding_id)` says yes to AND
         whose declared family resolves to one of this book's own
         embedded fonts -- leaving every other rule, every other
         declaration within a stripped rule, and any font-family naming
@@ -427,7 +438,7 @@ class FontStripRepair:
             i = counters.get(key, 0)
             counters[key] = i + 1
             finding_id = f"{location_kind}:{href}:{i}"
-            if not predicate(selector, finding_id):
+            if not predicate(selector, body, finding_id):
                 return m.group(0)
             new_body, n = FONT_FAMILY_DECLARATION_RE.subn("", body)
             if not n:

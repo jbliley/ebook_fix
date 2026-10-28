@@ -237,15 +237,14 @@ class ColorReach:
             total += _words(el)
         return total
 
-    def measure_group(self, selector_group: str):
-        """Words reached by a comma-separated selector group, or None
-        if any part is too complex to measure."""
-        key = selector_group.strip()
+    def matched_group(self, selector_group: str):
+        """Elements a comma-separated selector group matches, or None if
+        any part is too complex to measure."""
+        key = "m:" + selector_group.strip()
         if key in self._cache:
             return self._cache[key]
         matched: list = []
-        result = 0
-        for part in [p.strip() for p in key.split(",") if p.strip()]:
+        for part in [p.strip() for p in selector_group.split(",") if p.strip()]:
             m = MEASURABLE_SELECTOR_RE.match(part)
             if not m:
                 self._cache[key] = None
@@ -268,12 +267,20 @@ class ColorReach:
                 el_classes = (el.get("class") or "").split()
                 if any(c not in el_classes for c in classes):
                     continue
-                if ids and el.get("id") != ids[0]:
-                    continue
                 if any(i != el.get("id") for i in ids):
                     continue
                 matched.append(el)
-        result = self.measure_elements(matched)
+        self._cache[key] = matched
+        return matched
+
+    def measure_group(self, selector_group: str):
+        """Words reached by a comma-separated selector group, or None
+        if any part is too complex to measure."""
+        key = selector_group.strip()
+        if key in self._cache:
+            return self._cache[key]
+        matched = self.matched_group(key)
+        result = None if matched is None else self.measure_elements(matched)
         self._cache[key] = result
         return result
 

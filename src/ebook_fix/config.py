@@ -1534,19 +1534,17 @@ keep_small_sections = true
 # ---------------------------------------------------------------------
 [font_repair]
 
-# Removes an embedded font-family declaration only where analysis is
-# confident it's safe to -- the same confident/review split as Color
-# Strip above, applied to embedded fonts: the confirmed body-text
-# class, the <body> element itself, or inline font-family set directly
-# on a main-narrative paragraph. Once every usage of a given embedded
-# font anywhere in the book turns out confident, the @font-face rule
-# and the font file itself (manifest entry, and any
-# META-INF/encryption.xml reference) are removed too, letting the
-# reading system's own font choice apply instead. A font still used
-# elsewhere (a heading, a pull-quote) keeps its file and @font-face
-# rule even while its confident usages get stripped. Everything
-# review-bucket is left alone and reported instead under "[Possible
-# Decorative Font]" in the analyze output, never auto-repaired.
+# Removes embedded fonts so the reading system's own font choice
+# applies: body text, titles, drop caps and any other embedded font
+# usage. Kept and reported under "[Possible Decorative Font]" in the
+# analyze output: a font whose stack ends in monospace, cursive or
+# fantasy (code, handwriting), a font drawing symbol or icon glyphs
+# (private-use characters), and a selector too complex to measure.
+# Once every usage of a given embedded font anywhere in the book is
+# removable, the @font-face rule and the font file itself (manifest
+# entry, and any META-INF/encryption.xml reference) are removed too.
+# A font that is still kept somewhere keeps its file and @font-face
+# rule.
 enabled = true
 
 # ---------------------------------------------------------------------
