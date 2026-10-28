@@ -31,6 +31,16 @@ On the page itself (`body`, `html`, the class on the <body> element, and
 - font-family, font-size, color and background (the app's font, size and theme)
 
 On any rule at all:
+- a font-family made only of plain serif / sans-serif names (serif,
+  sans-serif, Times New Roman, Georgia, Arial and the like), on any
+  element: the app's font setting. Monospace and cursive/fantasy
+  stacks (code, a handwritten letter) and named display fonts are kept.
+  Added 2026-10-28.
+- text-align: justify on any class used only on plain paragraphs or
+  divs (chapter-opening paragraph variants such as .first1, block text,
+  and so on), not just the main body class: the app's justification
+  setting. Headings and chapter titles keep theirs. Left/start/center
+  on such classes stay, since those can be deliberate. Added 2026-10-28.
 - a font size of 1em, 100% or inherit, which changes nothing but pins the
   size in some apps
 - a non-zero indent on centered or right-aligned text, which only pushes a title
@@ -98,6 +108,45 @@ LABEL_EMPTY = "empty rules"
 LABEL_OTHER = "hyphenation and converter leftovers"
 LABEL_PAGE = "page margins and padding"
 LABEL_INLINE = "inline styles on body text"
+LABEL_FONT = "generic serif/sans-serif font family"
+LABEL_JUSTIFY = "justified text on paragraph classes"
+
+# Plain serif / sans-serif names only. Monospace, cursive and fantasy are
+# deliberate choices (code, a handwritten letter) and are not in this set.
+GENERIC_FONT_NAMES = frozenset({
+    "serif", "sans-serif", "times", "times new roman", "georgia", "arial", "helvetica",
+    "verdana", "tahoma", "palatino", "palatino linotype", "book antiqua", "trebuchet ms",
+    "calibri", "cambria",
+})
+_PARAGRAPH_TAGS = frozenset({"p", "div", "blockquote"})
+_SIMPLE_CLASS_SEL = re.compile(r"^(?:p|div|blockquote)?\.([\w-]+)$")
+
+
+def _generic_font_only(value: str) -> bool:
+    value = re.sub(r"\s*!important\s*$", "", value.strip(), flags=re.IGNORECASE)
+    names = [n.strip().strip("\"'").strip().lower() for n in value.split(",") if n.strip()]
+    return bool(names) and all(n in GENERIC_FONT_NAMES for n in names)
+
+
+def _paragraph_like_classes(book) -> set:
+    """Classes whose every use is on a plain paragraph/div/blockquote that
+    is not inside a heading."""
+    tags = {}
+    for chapter in book.chapters:
+        doc = chapter.document
+        if doc is None:
+            continue
+        for el in doc.iter():
+            if not isinstance(el.tag, str):
+                continue
+            classes = (el.get("class") or "").split()
+            if not classes:
+                continue
+            ok = _local(el) in _PARAGRAPH_TAGS and not any(
+                isinstance(a.tag, str) and _local(a) in _HEADINGS for a in el.iterancestors())
+            for c in classes:
+                tags[c] = tags.get(c, True) and ok
+    return {c for c, ok in tags.items() if ok}
 
 
 def _is_any_rule_prop(name: str) -> bool:
@@ -160,7 +209,7 @@ def _heading_classes(book) -> set:
     return found
 
 
-def _rewrite_css(css_text: str, body_text: set, body_el: set, skip_classes: set):
+def _rewrite_css(css_text: str, body_text: set, body_el: set, skip_classes: set, para_like: set = frozenset()):
     """(new_text, Counter of what was removed). Strips what the module
     documents, then appends rules restoring each body class's original top
     margin right after a heading or chapter title."""
@@ -190,9 +239,18 @@ def _rewrite_css(css_text: str, body_text: set, body_el: set, skip_classes: set)
             kind = None
         centered = bool(re.search(r"text-align\s*:\s*(?:center|right)\b", body, re.IGNORECASE))
         original_top = {}
+        justify_ok = False
+        if selectors and not any(c in skip_classes for s in selectors for c in re.findall(r"\.([\w-]+)", s)):
+            justify_ok = all(
+                (m := _SIMPLE_CLASS_SEL.match(s)) is not None and m.group(1) in para_like
+                for s in selectors)
 
         def should_remove(name, value):
             if _is_any_rule_prop(name):
+                return True
+            if name == "font-family" and _generic_font_only(value):
+                return True
+            if name == "text-align" and value.lower() == "justify" and justify_ok:
                 return True
             if name == "font-size" and value.lower() in NOOP_FONT_SIZES:
                 return True
@@ -220,6 +278,10 @@ def _rewrite_css(css_text: str, body_text: set, body_el: set, skip_classes: set)
                 counts[LABEL_CENTER_INDENT] += 1
             elif kind == "page" and name not in ("line-height", "text-align"):
                 counts[LABEL_PAGE] += 1
+            elif kind is None and name == "font-family":
+                counts[LABEL_FONT] += 1
+            elif kind is None and name == "text-align":
+                counts[LABEL_JUSTIFY] += 1
             else:
                 counts[name] += 1
         top = original_top.get("v")
@@ -270,6 +332,7 @@ class ReaderSettingsRepair:
     def _scan(self, book, analysis, write: bool) -> Counter:
         body_text, body_el = find_body_classes(book, analysis)
         skip = _heading_classes(book)
+        para_like = _paragraph_like_classes(book)
         counts = Counter()
         base = PurePosixPath(getattr(book, "package_path", "") or "").parent
 
@@ -280,7 +343,7 @@ class ReaderSettingsRepair:
             text = new_files[zpath].decode("utf-8", "replace") if new_files and zpath in new_files else contents.get(res.href)
             if not text:
                 continue
-            new_text, c = _rewrite_css(text, body_text, body_el, skip)
+            new_text, c = _rewrite_css(text, body_text, body_el, skip, para_like)
             if c:
                 counts.update(c)
                 if write:
@@ -293,7 +356,7 @@ class ReaderSettingsRepair:
             touched = False
             for style in doc.iter("{*}style"):
                 if style.text:
-                    new_text, c = _rewrite_css(style.text, body_text, body_el, skip)
+                    new_text, c = _rewrite_css(style.text, body_text, body_el, skip, para_like)
                     if c:
                         counts.update(c)
                         touched = True
@@ -306,15 +369,38 @@ class ReaderSettingsRepair:
                     continue
                 if _local(el) == "p":
                     classes = set((el.get("class") or "").split())
-                    if classes and not classes <= body_text:
-                        continue
                     if any(_local(a) in _HEADINGS for a in el.iterancestors()):
                         continue
-                    new_style, removed = _strip(style_attr, _remove_in_paragraph)
+                    if classes and not classes <= body_text:
+                        # another paragraph class: only the justification setting
+                        # (and a generic font, handled below) is the app's business
+                        if not classes <= para_like:
+                            continue
+                        new_style, removed = _strip(
+                            style_attr, lambda n, v: n == "text-align" and v.lower() == "justify")
+                    else:
+                        new_style, removed = _strip(style_attr, _remove_in_paragraph)
                 else:
                     new_style, removed = _strip(style_attr, _remove_in_body)
                 if removed:
                     counts[LABEL_INLINE] += len(removed)
+                    touched = True
+                    if write:
+                        new_style = new_style.strip().strip(";").strip()
+                        if new_style:
+                            el.set("style", new_style)
+                        else:
+                            del el.attrib["style"]
+            # a plain serif / sans-serif font family on any other element
+            for el in doc.iter():
+                if not isinstance(el.tag, str) or _local(el) in ("p", "body") or _is_ebookfix_element(el):
+                    continue
+                style_attr = el.get("style")
+                if not style_attr or "font-family" not in style_attr.lower():
+                    continue
+                new_style, removed = _strip(style_attr, lambda n, v: n == "font-family" and _generic_font_only(v))
+                if removed:
+                    counts[LABEL_FONT] += len(removed)
                     touched = True
                     if write:
                         new_style = new_style.strip().strip(";").strip()
@@ -349,7 +435,7 @@ class ReaderSettingsRepair:
         for label, n in sorted(counts.items()):
             if label == LABEL_EMPTY:
                 detail = f"{n} stylesheet rule(s) left with nothing in them {verb} removed"
-            elif label in (LABEL_OTHER, LABEL_PAGE, LABEL_INLINE, LABEL_NOOP, LABEL_CENTER_INDENT):
+            elif label in (LABEL_OTHER, LABEL_PAGE, LABEL_INLINE, LABEL_NOOP, LABEL_CENTER_INDENT, LABEL_FONT, LABEL_JUSTIFY):
                 detail = f"{label}: {n} declaration(s) {verb} removed so the reading app's own setting applies"
             else:
                 detail = f"{n} '{label}' setting(s) on body text {verb} removed so the reading app's own setting applies"
