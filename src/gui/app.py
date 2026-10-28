@@ -716,6 +716,9 @@ def _frontmatter_review_groups(book):
     scores that "high") aren't included here at all: nothing to
     review there.
 
+    Only pages a repair could remove are listed (see the note in the loop
+    below): the label of every other page changes nothing.
+
     Only ever considers a book where chapters.py actually confirmed a
     chapter sequence to anchor zones on. With no confirmed sequence at
     all, every single page in the book falls into frontmatter.py's
@@ -734,6 +737,15 @@ def _frontmatter_review_groups(book):
     items = []
     for m in summary.chapters:
         if m.zone not in (FRONT_ZONE, BACK_ZONE) or m.confidence == "high":
+            continue
+        # Only a page a repair could actually remove (ad, newsletter, teaser,
+        # books-by-the-author, about-the-author, publisher, colophon) needs a
+        # person's decision. Any other front/back label (title page, front
+        # matter, back matter ...) is settled by the page's position outside the
+        # confirmed chapters, and nothing acts on the label itself: a page
+        # guessed wrong only means repairs skip it. See the roadmap entry
+        # "Front and back matter labels no longer ask for review" (2026-10-28).
+        if m.label not in EXTRA_LABELS:
             continue
         chapter = chapters_by_href.get(m.href)
         preview = element_text_preview(chapter.document, word_limit=40) if chapter is not None else ""
