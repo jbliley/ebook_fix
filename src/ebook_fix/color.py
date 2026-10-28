@@ -72,6 +72,32 @@ ColorStripRepair.apply_review_removals) without upgrading it to
 `confident` for every book -- the id is only meant to stay stable
 across two calls to this function against the same, unchanged book
 content, the same assumption chapter-split ids already rely on.
+
+Size rule (2026-10-28)
+-----------------------------------------------------
+Raised by Jacob: on an e-reader the reader's own light/dark theme
+should decide text colors, and he was already ticking "remove" on
+every color finding in the Review tab. So the confident bucket now
+also takes any color that is not a very small section:
+
+- A color whose value is `inherit`/`initial`/`unset`/`currentColor`
+  (it sets no real color).
+- A color that only reaches link text (the reader colors links
+  itself), empty elements such as <hr>, or classes nothing uses.
+- A color reaching more than a very small section of the book: more
+  than SMALL_SECTION_MAX_SHARE of the book's words, or more than
+  SMALL_SECTION_MAX_WORDS words. Inline colors are totalled per color
+  value across the book, so a "this character always talks in blue"
+  convention is measured as a whole, not one span at a time.
+
+What stays in `review`: a colored section that is very small (a few
+words or lines, e.g. one colored word, a short letter or a "THE END"
+line), a color declared in the same rule/style as a background (the
+two are a contrast pair, removing only one could leave unreadable
+text), and a selector too complex to measure (descendant selectors,
+pseudo-elements such as a drop cap's ::first-letter).
+ebook_fix.modules.color_strip's `keep_small_sections` setting can turn
+the small-section exemption off.
 """
 
 from __future__ import annotations
@@ -102,6 +128,210 @@ DECORATIVE_TAGS = frozenset({
     "em", "i", "b", "strong", "small", "sup", "sub", "cite", "q", "span",
 })
 
+# "Very small section" -- see the module docstring's size rule. A color
+# reaching no more than this share of the book's words AND no more than
+# this many words is kept for review instead of removed.
+SMALL_SECTION_MAX_SHARE = 0.01
+SMALL_SECTION_MAX_WORDS = 250
+
+# Values that set no actual color -- always safe to drop.
+NEUTRAL_COLOR_VALUES = frozenset({"inherit", "initial", "unset", "revert", "currentcolor"})
+
+BACKGROUND_RE = re.compile(r'(?<![a-zA-Z-])background(?:-color|-image)?\s*:\s*([^;}]+)', re.IGNORECASE)
+NO_BACKGROUND_VALUES = frozenset({"none", "transparent", "inherit", "initial", "unset", "revert"})
+
+# One simple selector the reach measurement can resolve without a full
+# CSS engine: optional tag, any number of .class/#id parts, and the
+# link states/[href] a link rule carries. Anything else (descendant or
+# child combinators, ::first-letter, :first-child, other attribute
+# selectors) is "too complex to measure" and stays in review.
+MEASURABLE_SELECTOR_RE = re.compile(
+    r'^(\*|[a-zA-Z][a-zA-Z0-9]*)?((?:[.#][a-zA-Z_-][\w-]*)*)'
+    r'(?:\[href\]|:(?:link|visited|hover|active|focus))*$'
+)
+CLASS_OR_ID_PART_RE = re.compile(r'([.#])([a-zA-Z_-][\w-]*)')
+
+
+def is_neutral_color_value(value: str) -> bool:
+    return (value or "").strip().lower().rstrip(";").strip() in NEUTRAL_COLOR_VALUES
+
+
+def has_background(declarations: str) -> bool:
+    """True if a rule body / style attribute declares an actual
+    background (anything other than none/transparent/inherit...)."""
+    for m in BACKGROUND_RE.finditer(declarations or ""):
+        value = m.group(1).strip().lower()
+        if value and value.split()[0] not in NO_BACKGROUND_VALUES:
+            return True
+    return False
+
+
+def _local(el) -> str:
+    return etree.QName(el).localname.lower()
+
+
+def _words(el) -> int:
+    return len(el.xpath("string(.)").split())
+
+
+class ColorReach:
+    """How much of the book's text a color reaches -- built once per
+    analysis/repair call from the book's live chapter documents, so it
+    always reflects current content (never a stale snapshot).
+
+    Link text is never counted: the reading system colors links
+    itself, so a color that only ever reaches link text is always
+    removable. A nested match is counted once (its outermost matched
+    ancestor already covers the words)."""
+
+    def __init__(self, book):
+        self.total_words = 0
+        self._by_tag: dict = {}
+        self._by_class: dict = {}
+        self._by_id: dict = {}
+        self._all: list = []
+        self._inline_by_value: dict = {}
+        self._cache: dict = {}
+        for ch in getattr(book, "chapters", []) or []:
+            tree = getattr(ch, "document", None)
+            root = tree if tree is not None and hasattr(tree, "iter") else (tree.getroot() if tree is not None else None)
+            if root is None:
+                continue
+            body_words = None
+            for el in root.iter():
+                if not isinstance(el.tag, str):
+                    continue
+                local = _local(el)
+                if local == "body" and body_words is None:
+                    body_words = _words(el)
+                self._all.append(el)
+                self._by_tag.setdefault(local, []).append(el)
+                for cl in (el.get("class") or "").split():
+                    self._by_class.setdefault(cl, []).append(el)
+                if el.get("id"):
+                    self._by_id.setdefault(el.get("id"), []).append(el)
+                style_val = el.get("style")
+                if style_val:
+                    cm = COLOR_VALUE_RE.search(style_val)
+                    if cm:
+                        self._inline_by_value.setdefault(cm.group(1).strip().lower(), []).append(el)
+                if local == "font" and el.get("color"):
+                    self._inline_by_value.setdefault(el.get("color").strip().lower(), []).append(el)
+            self.total_words += body_words or 0
+
+    # -- measuring ------------------------------------------------
+
+    def measure_elements(self, elements) -> int:
+        matched = set(elements)
+        total = 0
+        for el in matched:
+            skip = False
+            for anc in el.iterancestors():
+                if anc in matched:
+                    skip = True
+                    break
+            if skip:
+                continue
+            if _local(el) == "a" or any(isinstance(a.tag, str) and _local(a) == "a" for a in el.iterancestors()):
+                continue
+            total += _words(el)
+        return total
+
+    def measure_group(self, selector_group: str):
+        """Words reached by a comma-separated selector group, or None
+        if any part is too complex to measure."""
+        key = selector_group.strip()
+        if key in self._cache:
+            return self._cache[key]
+        matched: list = []
+        result = 0
+        for part in [p.strip() for p in key.split(",") if p.strip()]:
+            m = MEASURABLE_SELECTOR_RE.match(part)
+            if not m:
+                self._cache[key] = None
+                return None
+            tag = (m.group(1) or "").lower()
+            classes, ids = [], []
+            for kind, name in CLASS_OR_ID_PART_RE.findall(m.group(2) or ""):
+                (classes if kind == "." else ids).append(name)
+            if ids:
+                candidates = self._by_id.get(ids[0], [])
+            elif classes:
+                candidates = self._by_class.get(classes[0], [])
+            elif tag and tag != "*":
+                candidates = self._by_tag.get(tag, [])
+            else:
+                candidates = self._all
+            for el in candidates:
+                if tag and tag != "*" and _local(el) != tag:
+                    continue
+                el_classes = (el.get("class") or "").split()
+                if any(c not in el_classes for c in classes):
+                    continue
+                if ids and el.get("id") != ids[0]:
+                    continue
+                if any(i != el.get("id") for i in ids):
+                    continue
+                matched.append(el)
+        result = self.measure_elements(matched)
+        self._cache[key] = result
+        return result
+
+    def inline_words(self, value: str) -> int:
+        """Words reached by inline color of this value, totalled over
+        the whole book (all inline styles and <font> tags using it)."""
+        key = "inline:" + (value or "").strip().lower()
+        if key not in self._cache:
+            self._cache[key] = self.measure_elements(self._inline_by_value.get((value or "").strip().lower(), []))
+        return self._cache[key]
+
+    def is_small(self, words: int) -> bool:
+        if words > SMALL_SECTION_MAX_WORDS:
+            return False
+        return words <= SMALL_SECTION_MAX_SHARE * max(self.total_words, 1)
+
+
+def _word_count_text(words: int) -> str:
+    return f"{words} word" if words == 1 else f"{words} words"
+
+
+def decide_css(selector_group, declarations, reach, body_text_classes, keep_small=True):
+    """(confident, reason, small) for one CSS rule that sets a color.
+    See the module docstring's size rule."""
+    if is_confident_selector_group(selector_group, body_text_classes):
+        return True, "color on the confirmed body-text class or <body> itself", False
+    cm = COLOR_VALUE_RE.search(declarations)
+    value = cm.group(1).strip() if cm else ""
+    if is_neutral_color_value(value):
+        return True, "color value sets no real color (inherit/initial/unset)", False
+    if has_background(declarations):
+        return False, "color sits in the same rule as a background (contrast pair)", False
+    words = reach.measure_group(selector_group)
+    if words is None:
+        return False, "selector too complex to measure how much text it colors", False
+    if words == 0:
+        return True, "color only reaches link text, empty elements, or nothing the book uses", False
+    if keep_small and reach.is_small(words):
+        return False, f"color on a very small section ({_word_count_text(words)})", True
+    return True, f"color reaching {words} words, more than a very small section", False
+
+
+def decide_inline(el, value, style_val, href, reach, main_hrefs, keep_small=True):
+    """(confident, reason, small) for one inline style="color:..." or
+    <font color> element."""
+    if (main_hrefs is None or href in main_hrefs) and is_confident_paragraph_context(el):
+        return True, "inline color set directly on a main-narrative <p>", False
+    if is_neutral_color_value(value):
+        return True, "color value sets no real color (inherit/initial/unset)", False
+    if style_val and has_background(style_val):
+        return False, "inline color sits in the same style as a background (contrast pair)", False
+    words = reach.inline_words(value)
+    if words == 0:
+        return True, "inline color only reaches link text or empty elements", False
+    if keep_small and reach.is_small(words):
+        return False, f"inline color {value} on a very small section ({_word_count_text(words)} in the whole book)", True
+    return True, f"inline color {value} reaching {words} words, more than a very small section", False
+
 
 @dataclass
 class ColorFinding:
@@ -112,6 +342,7 @@ class ColorFinding:
     value: str = ""           # the declared color value, e.g. "#000000" or "red"
     reason: str = ""          # human-readable explanation of the bucket this landed in
     element: object = None    # live element; inline_style/font_tag findings only, not saved to the JSON cache
+    small: bool = False       # review finding kept only because it is a very small section
 
 
 @dataclass
@@ -170,7 +401,7 @@ def is_confident_paragraph_context(element) -> bool:
     return False
 
 
-def _scan_css_text(text: str, href: str, location_kind: str, body_text_classes: frozenset, summary: BookColorSummary, counters: dict) -> None:
+def _scan_css_text(text: str, href: str, location_kind: str, body_text_classes: frozenset, summary: BookColorSummary, counters: dict, reach: ColorReach, keep_small: bool = True) -> None:
     if not text:
         return
     cleaned = COMMENT_RE.sub("", text)
@@ -190,15 +421,13 @@ def _scan_css_text(text: str, href: str, location_kind: str, body_text_classes: 
             href=href, location_kind=location_kind,
             context=selector_group, value=cm.group(1).strip(),
         )
-        if is_confident_selector_group(selector_group, body_text_classes):
-            finding.reason = "color on the confirmed body-text class or <body> itself"
-            summary.confident.append(finding)
-        else:
-            finding.reason = "color on a class/selector without a confirmed body-text role"
-            summary.review.append(finding)
+        confident, reason, small = decide_css(selector_group, body, reach, body_text_classes, keep_small)
+        finding.reason = reason
+        finding.small = small
+        (summary.confident if confident else summary.review).append(finding)
 
 
-def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, class_profiles=None) -> BookColorSummary:
+def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, class_profiles=None, keep_small=True) -> BookColorSummary:
     if chapter_summary is None:
         chapter_summary = analyze_book_chapters(book)
     if frontmatter_summary is None:
@@ -215,6 +444,7 @@ def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, cla
         main_hrefs = {cm.href for cm in frontmatter_summary.chapters if cm.zone == MAIN_ZONE}
 
     summary = BookColorSummary(body_text_classes=body_text_classes, main_hrefs=main_hrefs)
+    reach = ColorReach(book)
     # id counters, keyed by (href, location_kind) -- see ColorFinding.id.
     # Recomputed fresh every call, same "pure enumeration order, not a
     # persisted key" precedent the GUI's own chapter-split candidate
@@ -228,6 +458,7 @@ def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, cla
         _scan_css_text(
             contents.get(res.href), href=res.href, location_kind="external_css",
             body_text_classes=body_text_classes, summary=summary, counters=counters,
+            reach=reach, keep_small=keep_small,
         )
 
     # 2. Embedded <style> blocks, inline style="" attributes, and
@@ -238,8 +469,6 @@ def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, cla
         if root is None:
             continue
         href = getattr(ch, "href", "")
-        in_main_zone = main_hrefs is None or href in main_hrefs
-
         for el in root.iter():
             if not isinstance(el.tag, str):
                 continue
@@ -249,6 +478,7 @@ def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, cla
                 _scan_css_text(
                     el.text, href=href, location_kind="embedded_style",
                     body_text_classes=body_text_classes, summary=summary, counters=counters,
+                    reach=reach, keep_small=keep_small,
                 )
                 continue
 
@@ -265,16 +495,12 @@ def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, cla
                         context=f'<{local} style="{style_val}">',
                         value=cm.group(1).strip(), element=el,
                     )
-                    if in_main_zone and is_confident_paragraph_context(el):
-                        finding.reason = "inline color set directly on a main-narrative <p>"
-                        summary.confident.append(finding)
-                    else:
-                        finding.reason = (
-                            "inline color on a decorative/nested element"
-                            if in_main_zone else
-                            "inline color outside the main narrative zone"
-                        )
-                        summary.review.append(finding)
+                    confident, reason, small = decide_inline(
+                        el, finding.value, style_val, href, reach, main_hrefs, keep_small,
+                    )
+                    finding.reason = reason
+                    finding.small = small
+                    (summary.confident if confident else summary.review).append(finding)
 
             if local == "font" and el.get("color"):
                 value = el.get("color")
@@ -287,15 +513,11 @@ def analyze_book_color(book, chapter_summary=None, frontmatter_summary=None, cla
                     context=f'<font color="{value}">',
                     value=value, element=el,
                 )
-                if in_main_zone and is_confident_paragraph_context(el):
-                    finding.reason = "legacy <font color> directly on a main-narrative paragraph"
-                    summary.confident.append(finding)
-                else:
-                    finding.reason = (
-                        "legacy <font color> on a decorative/nested element"
-                        if in_main_zone else
-                        "legacy <font color> outside the main narrative zone"
-                    )
-                    summary.review.append(finding)
+                confident, reason, small = decide_inline(
+                    el, value, None, href, reach, main_hrefs, keep_small,
+                )
+                finding.reason = reason
+                finding.small = small
+                (summary.confident if confident else summary.review).append(finding)
 
     return summary

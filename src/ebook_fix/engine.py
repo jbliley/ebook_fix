@@ -1296,9 +1296,10 @@ class Engine:
             if color.review_count:
                 self.log("\n[Possible Decorative Color -- Manual Review]")
                 self.log(
-                    f"  • Hardcoded text color outside the confirmed body text "
-                    f"(possibly intentional): {color.review_count} -- "
-                    f"not auto-repaired, review and remove by hand if unwanted"
+                    f"  • Hardcoded text color kept for review (a very small colored "
+                    f"section, a color paired with a background, or a rule too complex "
+                    f"to measure): {color.review_count} -- "
+                    f"not auto-repaired, remove by hand if unwanted"
                 )
 
                 if details:

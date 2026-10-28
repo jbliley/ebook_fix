@@ -3927,3 +3927,17 @@ Two routes let it vouch for itself. (1) TOC corroboration matched the generated 
 - The parser reads the marker back into `book.toc_generated`; TOC corroboration is skipped for a marked list, and anchor corroboration skips links found on a marked contents page.
 
 Result: second Fix identical on all 24 example books. Word counts and XML validity checked as in the entries above.
+
+### Changed: Color Strip removes all text color except very small sections (2026-10-28)
+
+Jacob's reasoning: on an e-reader the reader's own light or dark theme should decide text color, and he was already ticking "remove" on every color item in the Review tab. A survey of the 24 example EPUBs showed why: of the 34 color items left for review, nearly all were link colors (`a`, `a:link`, `a[href]`, spans inside links), `<hr>` lines with a gray color, `color: inherit`, and a few "THE END" spans inside links. None was real colored prose.
+
+`color.py` now measures how much text a color reaches (`ColorReach`) and decides from that. A color is removed when any of these is true: it is the body text class or `<body>`; its value is `inherit`, `initial`, `unset` or `currentColor`; it only reaches link text, empty elements or nothing the book uses (link text is never counted, the reader colors links itself); or it reaches more than a very small section. "Very small" is no more than 1% of the book's words and no more than 250 words. Inline `style="color:..."` and `<font color>` are totalled per color value across the whole book, so a "this character speaks in blue" convention counts as one section, not one span at a time.
+
+Kept for review: a very small colored section (a few words or lines), a color set in the same rule or style as a background (a contrast pair, removing only the color could leave unreadable text), and a selector too complex to measure (descendant selectors, `::first-letter` drop caps). New setting `keep_small_sections` under `[color_repair]` (default true); false removes the very small sections too, and only the background pairs and unmeasurable selectors stay.
+
+Changes: `color.py` (`ColorReach`, `decide_css`, `decide_inline`, `small` flag on findings), `modules/color_strip.py` (recomputes reach fresh each pass, like the other repairs), `config.py` (new setting and comments), wording in `engine.py`, `gui/analysis_view.py` and `gui/templates/review.html`. The fixed-layout guard still skips Color Strip on fixed-layout books.
+
+Result: color items needing review across the 24 examples went from 34 to 1 (FixedLayout-Synthetic, white text paired with a background). 33 are now removed automatically. Checks: `repair` run twice on all 24 examples plus a new synthetic color book. Visible word counts of every output match the old code exactly, every page parses as strict XML, and the second run changes nothing. The synthetic book confirmed the very small cases stay (one colored word, a 23-word letter, a two-word inline span), a background pair stays, drop-cap and descendant rules stay, and with `keep_small_sections = false` the small ones go while the pair stays.
+
+Ideas this opens (not built): the same "reader decides" rule fits `font-size` and `font-family` declared on body text (Text Size and Font Strip already cover most of it), `background-color` on body text, and `text-align: justify` forced on every paragraph.

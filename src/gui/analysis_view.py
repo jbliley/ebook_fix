@@ -501,9 +501,9 @@ def build_manual_review(analysis_report) -> list[Section]:
     color = analysis_report.color
     if color.review_count:
         sections.append(Section("Possible Decorative Color", [
-            f"Hardcoded text color outside the confirmed body text "
-            f"(possibly intentional): {color.review_count} -- "
-            f"not auto-repaired, review and remove by hand if unwanted",
+            f"Hardcoded text color kept for review (a very small colored section, "
+            f"a color paired with a background, or a rule too complex to measure): "
+            f"{color.review_count} -- not auto-repaired, remove by hand if unwanted",
         ]))
 
     fonts = analysis_report.fonts

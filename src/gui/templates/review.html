@@ -99,12 +99,13 @@
 
   <h2>Possible Decorative Color</h2>
   {% if not has_color_findings %}
-  <p class="empty-state">No hardcoded color outside the confirmed body text &mdash; nothing here needs review.</p>
+  <p class="empty-state">No hardcoded text color is being kept for review &mdash; nothing here needs a decision.</p>
   {% else %}
   <p class="details-toggle">
-    Hardcoded text color the standard Color Strip repair leaves alone because it doesn't look
-    like body text &mdash; a pull-quote, a character's dialogue color, a heading. Check a row to
-    remove that one anyway; leave it unchecked to keep it exactly as the book has it.
+    Color Strip now removes hardcoded text color so your reader's own light or dark theme decides.
+    It keeps only a very small colored section (a few words or lines), a color set together with a
+    background, and a rule too complex to measure. Check a row to remove that one anyway; leave it
+    unchecked to keep it exactly as the book has it.
   </p>
   <div style="margin-bottom:0.5rem;">
     <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllChecked('color_accept', true)">Select All</button>

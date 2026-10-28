@@ -407,6 +407,12 @@ class ColorRepairConfig:
     # own theme/night-mode, and the confident/review split already
     # keeps this from touching anything genuinely ambiguous.
     enabled: bool = True
+    # Since 2026-10-28 Color Strip removes any color that reaches more
+    # than a very small section of the book's text (see ebook_fix.color,
+    # "Size rule"). True keeps a very small colored section (a few
+    # words or lines) for review; False removes those too, so every
+    # hardcoded text color goes except one paired with a background.
+    keep_small_sections: bool = True
 
 
 @dataclass(slots=True)
@@ -1510,14 +1516,18 @@ enabled = true
 # ---------------------------------------------------------------------
 [color_repair]
 
-# Removes a hardcoded text `color` only where analysis is confident
-# it's safe to: the confirmed body-text class, the <body> element
-# itself, or inline color set directly on a main-narrative paragraph.
-# Everything else -- a pull-quote, a character's dialogue color, a
-# narrowly-used or unmapped class, anything outside the main
-# narrative -- is left alone and reported instead under "[Possible
-# Decorative Color]" in the analyze output, never auto-repaired.
+# Removes hardcoded text color so the reading system's own light or
+# dark theme decides: the body text class, <body> itself, inline color
+# on a paragraph, color that only reaches links or empty elements, and
+# any color reaching more than a very small section of the book.
+# A very small colored section (a few words or lines) and a color set
+# in the same rule as a background are left alone and reported under
+# "[Possible Decorative Color]" in the analyze output.
 enabled = true
+
+# Keep a very small colored section for review. Set to false to remove
+# those too (a color paired with a background is still left alone).
+keep_small_sections = true
 
 # ---------------------------------------------------------------------
 # Font Strip
