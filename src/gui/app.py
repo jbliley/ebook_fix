@@ -65,7 +65,7 @@ from ebook_fix.parser import EPUBParser
 from ebook_fix import omnibus_split
 from ebook_fix.splitter import SplitMarker, marker_number
 from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, _walk_structure_nodes, NodeKind
-from ebook_fix.text_range import text_range as _text_range_between
+from ebook_fix.text_range import text_range as _text_range_between, text_to_end_of_doc as _text_to_end
 from ebook_fix.writer import EPUBWriter
 from ebook_fix.apostrophes import analyze_book_possessives, apply_possessive_resolutions
 from ebook_fix.color import analyze_book_color
@@ -552,6 +552,77 @@ def _words_before(element) -> int:
 PART_HEADING_MAX_WORDS = 40
 
 
+# A "boundary" that is really a line of a contents list (a Part or chapter
+# name followed by a run of page numbers) or a stray heading sitting inside
+# a table cell or list is not something a person can usefully decide on:
+# there is no safe place to cut. Such nodes are left out of the Review list.
+CONTENTS_ENTRY_MAX_WORDS = 200
+CONTENTS_ENTRY_MIN_TOKENS = 12
+CONTENTS_ENTRY_NUMBER_SHARE = 0.25
+TINY_UNSAFE_MAX_WORDS = 10
+
+
+def _looks_like_contents_entry(node, nxt) -> bool:
+    cand = node.evidence.candidate if node.evidence else None
+    if cand is None or cand.element is None:
+        return False
+    try:
+        if nxt is not None and nxt.start_href == node.start_href and nxt.evidence.candidate is not None:
+            text = _text_range_between(cand.element, nxt.evidence.candidate.element)
+        else:
+            # Last boundary in its file: judge the rest of the file.
+            text = _text_to_end(cand.element)
+    except Exception:
+        return False
+    tokens = text.split()
+    if len(tokens) < CONTENTS_ENTRY_MIN_TOKENS or len(tokens) > CONTENTS_ENTRY_MAX_WORDS:
+        return False
+    numeric = sum(1 for t in tokens if t.strip(".,)(").isdigit())
+    return numeric >= len(tokens) * CONTENTS_ENTRY_NUMBER_SHARE
+
+
+# Three or more boundaries in a row, each followed by no more than this many
+# words before the next one (or the end of the file), are a stack of headings,
+# the lines of a contents list, not chapters.
+HEADING_STACK_MIN = 3
+HEADING_STACK_MAX_WORDS = 40
+
+
+def _words_after_node(node, nxt) -> int | None:
+    cand = node.evidence.candidate if node.evidence else None
+    if cand is None or cand.element is None:
+        return None
+    try:
+        if nxt is not None and nxt.start_href == node.start_href and nxt.evidence.candidate is not None:
+            return len(_text_range_between(cand.element, nxt.evidence.candidate.element).split())
+        return len(_text_to_end(cand.element).split())
+    except Exception:
+        return None
+
+
+def _drop_unactionable_nodes(nodes):
+    drop = set()
+    tiny_run = []
+    for i, node in enumerate(nodes):
+        nxt = nodes[i + 1] if i + 1 < len(nodes) else None
+        ev = node.evidence
+        if _looks_like_contents_entry(node, nxt):
+            drop.add(i)
+        if (ev is not None and ev.structurally_clean is False
+                and ev.section_words is not None and ev.section_words <= TINY_UNSAFE_MAX_WORDS):
+            drop.add(i)
+        words = _words_after_node(node, nxt)
+        if words is not None and words <= HEADING_STACK_MAX_WORDS:
+            tiny_run.append(i)
+        else:
+            if len(tiny_run) >= HEADING_STACK_MIN:
+                drop.update(tiny_run)
+            tiny_run = []
+    if len(tiny_run) >= HEADING_STACK_MIN:
+        drop.update(tiny_run)
+    return [n for i, n in enumerate(nodes) if i not in drop]
+
+
 def _absorb_heading_only_parts(nodes):
     """Returns (kept_nodes, split_elements). A Part node directly followed
     by a chapter node in the same file, with only a heading's worth of text
@@ -631,8 +702,11 @@ def _split_candidate_groups(book):
 
     split_elements: dict = {}
     for href in list(by_href):
+        by_href[href] = _drop_unactionable_nodes(by_href[href])
         by_href[href], found = _absorb_heading_only_parts(by_href[href])
         split_elements.update(found)
+        if not by_href[href]:
+            del by_href[href]
 
     first_href = next(iter(by_href), None)   # the book's first chapter start, in reading order
 
