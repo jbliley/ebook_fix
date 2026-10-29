@@ -65,6 +65,7 @@ from ebook_fix.parser import EPUBParser
 from ebook_fix import omnibus_split
 from ebook_fix.splitter import SplitMarker, marker_number
 from ebook_fix.structure import SplitConfidence, analyze_structure, element_text_preview, _walk_structure_nodes, NodeKind
+from ebook_fix.text_range import text_range as _text_range_between
 from ebook_fix.writer import EPUBWriter
 from ebook_fix.apostrophes import analyze_book_possessives, apply_possessive_resolutions
 from ebook_fix.color import analyze_book_color
@@ -543,6 +544,53 @@ def _words_before(element) -> int:
     return len(" ".join(parts).split())
 
 
+# A Part/Book heading ("BOOK ONE: 1805") that is followed straight away by
+# the first chapter of that part (no more than this many words in between,
+# the heading itself included) is not a boundary anyone has to decide on:
+# the heading belongs on the same page as that chapter. Splitting at both
+# would leave a page holding nothing but the three-word Part heading.
+PART_HEADING_MAX_WORDS = 40
+
+
+def _absorb_heading_only_parts(nodes):
+    """Returns (kept_nodes, split_elements). A Part node directly followed
+    by a chapter node in the same file, with only a heading's worth of text
+    between them, is dropped from the list and the chapter's cut point moves
+    up to the Part heading, so the heading rides with its first chapter.
+    `split_elements` maps id(node) of such a chapter to the element to cut
+    at (nodes are kept alive by the caller, so id() is stable here)."""
+    kept = []
+    split_elements = {}
+    i = 0
+    while i < len(nodes):
+        node = nodes[i]
+        nxt = nodes[i + 1] if i + 1 < len(nodes) else None
+        if (
+            node.kind == NodeKind.PART
+            and nxt is not None
+            and nxt.kind == NodeKind.CHAPTER
+            and node.evidence is not None and nxt.evidence is not None
+            and node.evidence.candidate is not None and nxt.evidence.candidate is not None
+        ):
+            part_el = node.evidence.candidate.element
+            chap_el = nxt.evidence.candidate.element
+            try:
+                between = len(_text_range_between(part_el, chap_el).split())
+            except Exception:
+                between = None
+            if between is not None and between <= PART_HEADING_MAX_WORDS:
+                split_elements[id(nxt)] = part_el
+                nxt.evidence.notes.append(
+                    f"Starts at the Part heading \"{node.title}\", which sits straight above it, so the heading stays with this chapter."
+                )
+                kept.append(nxt)
+                i += 2
+                continue
+        kept.append(node)
+        i += 1
+    return kept, split_elements
+
+
 def _split_candidate_groups(book):
     """Every chapter and part boundary worth showing a person, grouped by
     the file it's in. A file normally needs 2+ candidates to be split at
@@ -581,6 +629,11 @@ def _split_candidate_groups(book):
             continue
         by_href.setdefault(node.start_href, []).append(node)
 
+    split_elements: dict = {}
+    for href in list(by_href):
+        by_href[href], found = _absorb_heading_only_parts(by_href[href])
+        split_elements.update(found)
+
     first_href = next(iter(by_href), None)   # the book's first chapter start, in reading order
 
     groups = []
@@ -588,7 +641,7 @@ def _split_candidate_groups(book):
         lone = len(nodes) == 1
         if lone and (
             href != first_href
-            or _words_before(nodes[0].evidence.candidate.element) < LONE_BOUNDARY_MIN_PREAMBLE_WORDS
+            or _words_before(split_elements.get(id(nodes[0]), nodes[0].evidence.candidate.element)) < LONE_BOUNDARY_MIN_PREAMBLE_WORDS
         ):
             continue
         candidates = []
@@ -609,6 +662,9 @@ def _split_candidate_groups(book):
                 "preview": element_text_preview(node.evidence.candidate.element),
                 "is_part": node.kind == NodeKind.PART,
                 "node": node,
+                # Where to cut: normally the marker itself, but a chapter
+                # that opens a Part is cut at the Part heading above it.
+                "split_element": split_elements.get(id(node), node.evidence.candidate.element),
             })
         groups.append({"href": href, "candidates": candidates, "lone": lone, "min_accept": 1 if lone else 2})
     return groups
@@ -2028,12 +2084,12 @@ def fix_book(session_id):
             accepted_ids = _default_accepted_split_ids(groups)
         markers_by_href = {}
         for group in groups:
-            accepted_nodes = [item["node"] for item in group["candidates"] if item["id"] in accepted_ids]
-            if len(accepted_nodes) < group.get("min_accept", 2):
+            accepted_items = [item for item in group["candidates"] if item["id"] in accepted_ids]
+            if len(accepted_items) < group.get("min_accept", 2):
                 continue
             markers_by_href[group["href"]] = [
-                SplitMarker(element=node.evidence.candidate.element, title=node.title, number=marker_number(node.evidence.candidate))
-                for node in accepted_nodes
+                SplitMarker(element=item["split_element"], title=item["node"].title, number=marker_number(item["node"].evidence.candidate))
+                for item in accepted_items
             ]
         if markers_by_href:
             engine_for_split = Engine(config=config)
