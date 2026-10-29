@@ -1265,6 +1265,11 @@ def apply_coverage_check(book: Any, tree: BookStructure) -> BookStructure:
 # A counting run needs at least this many chapters before it counts as
 # evidence by itself; a handful of numbers in a row proves little.
 MIN_COMPLETE_RUN = 10
+# A shorter run (down to this many) also counts, but only when every section
+# is at least SHORT_RUN_MIN_WORDS long (named sections such as "First
+# Machination ... Seventh Machination").
+MIN_SHORT_RUN = 5
+SHORT_RUN_MIN_WORDS = 300
 # Share of sections that must hold at least COMPLETE_RUN_MIN_WORDS words. This
 # is deliberately stricter than the content-length check, which relaxes itself
 # for books made of short sections (footnote lists, for one).
@@ -1288,9 +1293,13 @@ def apply_sequence_completeness(tree: BookStructure) -> BookStructure:
 
     Runs after apply_content_length_check, which fills in section_words.
     """
-    nodes = [n for n in _walk_structure_nodes(tree.nodes, include_parts=False)
-             if n.evidence and n.evidence.in_winning_sequence and n.evidence.candidate]
-    if len(nodes) < MIN_COMPLETE_RUN:
+    all_nodes = [n for n in _walk_structure_nodes(tree.nodes, include_parts=False)
+                 if n.evidence and n.evidence.in_winning_sequence and n.evidence.candidate]
+    # A bare Prologue or Epilogue has no number of its own; it frames the
+    # counted run rather than being part of it.
+    nodes = [n for n in all_nodes if getattr(n.evidence.candidate, "label_kind", None) != "unnumbered"]
+    asides = [n for n in all_nodes if getattr(n.evidence.candidate, "label_kind", None) == "unnumbered"]
+    if len(nodes) < MIN_SHORT_RUN:
         return tree
     cands = [n.evidence.candidate for n in nodes]
     numbers = [c.number for c in cands]
@@ -1310,11 +1319,23 @@ def apply_sequence_completeness(tree: BookStructure) -> BookStructure:
     margin = nodes[0].evidence.sequence_margin
     if margin is not None and margin < MIN_SEQUENCE_MARGIN:
         return tree
+    # A short run (5 to 9 markers) proves less than a long one, so each
+    # section has to be a much bigger piece of text.
+    short = len(nodes) < MIN_COMPLETE_RUN
+    min_words = SHORT_RUN_MIN_WORDS if short else COMPLETE_RUN_MIN_WORDS
     real = sum(1 for n in nodes
-               if n.evidence.section_words is not None and n.evidence.section_words >= COMPLETE_RUN_MIN_WORDS)
+               if n.evidence.section_words is not None and n.evidence.section_words >= min_words)
     if real < len(nodes) * COMPLETE_RUN_MIN_SHARE:
         return tree
-    for n in nodes:
+    first_order = nodes[0].evidence.candidate.book_order
+    last_order = nodes[-1].evidence.candidate.book_order
+    framing = []
+    for a in asides:
+        order = a.evidence.candidate.book_order
+        words = a.evidence.section_words
+        if (order < first_order or order > last_order) and words is not None and words >= COMPLETE_RUN_MIN_WORDS:
+            framing.append(a)
+    for n in nodes + framing:
         n.evidence.sequence_complete = True
         n.evidence.notes.append(
             f"Counts up from {numbers[0]} to {numbers[-1]} across {len(nodes)} chapters"

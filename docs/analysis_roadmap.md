@@ -3977,3 +3977,13 @@ Change (`gui/app.py`, `_split_candidate_groups`, new `_absorb_heading_only_parts
 Result: Review chapter items went from 53 to 36 across the examples (War and Peace 17 to 0). Checks: every example split with all boundaries accepted, before and after the change; the only difference is War and Peace, which no longer gets 17 three-word Book pages (369 files stay 369, word count identical at 571177). Every other example produced the same file count and word count as before.
 
 Still open in this area: Omnibus-Tarzan's 23 "Book N" headings (no contents match, "Book 19" is not found, the omnibus splitter already owns that job), RunTogetherText's 5 machination headings, and Images-PageNumbers' Part, Prologue and Epilogue headings.
+
+### Changed: short named runs and their Prologue count as counting-run confirmation (2026-10-29)
+
+Counted first: after the Part heading change, 36 chapter items were left in the Review tab. RunTogetherText's 5 were a clean run of named sections (Prologue, First Machination, Third to Seventh Machination) that the counting-run rule of 2026-10-26 rejected for two reasons: it needs 10 chapters, and the Prologue's number (1) repeats the First Machination's.
+
+Change (`structure.py`, `apply_sequence_completeness`): a bare Prologue or Epilogue is set aside when counting. A run of 5 to 9 markers now counts as well as one of 10 or more, with a stricter size bar: at least 90 percent of the sections must hold 300 words or more (100 for long runs). Everything else is unchanged: no backwards or repeated numbers, at most one missing number per 25 chapters, every marker alone in its element, one style throughout, no weak sequence margin. A Prologue or Epilogue sitting before or after the run and holding at least 100 words is confirmed along with it.
+
+Result: Review chapter items went from 36 to 31 across the 24 example EPUBs (RunTogetherText 5 to 0, Images-PageNumbers' Prologue now corroborated). Checks: every example split with all boundaries accepted gives the same file and word counts as before the change; RunTogetherText's default split (6 to 11 files) is stable on a second pass with no review items left. No other book gained items.
+
+Still open in this area: Omnibus-Tarzan's 23 "Book N" headings, Images-PageNumbers' Part I to III headings and a 4-word Epilogue inside a table cell, and the First Mountain Man's 3 Book headings.
