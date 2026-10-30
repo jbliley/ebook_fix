@@ -50,9 +50,13 @@
 
 {% if selected.status == 'removed' %}
 <p class="empty-state">
-  This page was removed entirely during repair (e.g. Gutenberg Boilerplate Removal dropping a
-  whole trailing back-matter file with no content of its own left) &mdash; there's no "after"
-  version to show.
+  {% if selected.removed_reason %}
+  This page was removed during repair. {{ selected.removed_reason }}
+  {% else %}
+  This page was removed entirely during repair (the repair that did it was not recorded for
+  this run).
+  {% endif %}
+  There's no "after" version to show.
 </p>
 <div class="before-after-grid before-after-single">
   <div>

@@ -460,6 +460,12 @@ def _has_candidate_descendant(el) -> bool:
         if not isinstance(child.tag, str):
             continue
         if etree.QName(child).localname.lower() in CANDIDATE_TAGS:
+            # An empty <span> (a page-number anchor such as
+            # <span role="doc-pagebreak" id="pg_9"/> placed ahead of the
+            # chapter number) holds no text of its own, so it is not a
+            # nested candidate and must not hide the heading around it.
+            if not "".join(child.itertext()).strip():
+                continue
             return True
     return False
 
@@ -1231,6 +1237,71 @@ def _promote_sections_over_restarting_numbers(all_candidates: list) -> int:
     return len(labeled)
 
 
+# A short run of heading-sized roman numerals ("I", "II", "III") plus a much
+# longer clean run of bare numbers ("1" ... "54") counting straight through it
+# is a book of Parts with numbered chapters, not a book of three chapters.
+MIN_LONG_RUN = 10
+LONG_RUN_RATIO = 3
+MAX_PART_RUN = 12
+# Real chapters are long. A run of printed page numbers left in a conversion
+# has sections about a page (300 words) long, so a run only wins on the
+# strength of its own length when the median section is much longer.
+MIN_MEDIAN_CHAPTER_WORDS = 500
+
+
+def _word_offsets(book) -> tuple[dict, int]:
+    """({element: words of text before it in reading order}, total words)."""
+    offsets: dict = {}
+    total = 0
+    for chapter in book.chapters:
+        doc = getattr(chapter, "document", None)
+        if doc is None:
+            continue
+        for event, el in etree.iterwalk(doc, events=("start", "end")):
+            if not isinstance(el.tag, str):
+                continue
+            if event == "start":
+                offsets[el] = total
+                total += len((el.text or "").split())
+            else:
+                total += len((el.tail or "").split())
+    return offsets, total
+
+
+def _chapters_under_numbered_parts(book, best, all_sequences):
+    """(best, all_sequences, demoted candidates). When the winning run is a
+    handful of roman-numeral headings and another run of bare numbers is far
+    longer, counts cleanly from 1 through the whole book and has real-sized
+    sections, the long run is the chapters and the roman headings are Parts."""
+    if best is None or best.length > MAX_PART_RUN:
+        return best, all_sequences, []
+    if not all(getattr(c, "is_heading_tag", False) for c in best.candidates):
+        return best, all_sequences, []
+    others = [s for s in all_sequences if s is not best and s.length >= MIN_LONG_RUN
+              and s.length >= LONG_RUN_RATIO * best.length]
+    if not others:
+        return best, all_sequences, []
+    long_run = max(others, key=lambda s: s.length)
+    cands = sorted(long_run.candidates, key=lambda c: c.book_order)
+    numbers = [c.number for c in cands]
+    if numbers[0] > 2 or any(b - a != 1 for a, b in zip(numbers, numbers[1:])):
+        return best, all_sequences, []
+    if any(not getattr(c, "isolated", False) or c.element is None for c in cands):
+        return best, all_sequences, []
+    # The headings sit inside the run: chapters before and after each one.
+    first, last = cands[0].book_order, cands[-1].book_order
+    if any(not (first <= p.book_order <= last or p.book_order < first) for p in best.candidates):
+        return best, all_sequences, []
+    offsets, total = _word_offsets(book)
+    starts = [offsets.get(c.element) for c in cands]
+    if any(v is None for v in starts):
+        return best, all_sequences, []
+    sizes = [b - a for a, b in zip(starts, starts[1:])] + [total - starts[-1]]
+    if sorted(sizes)[len(sizes) // 2] < MIN_MEDIAN_CHAPTER_WORDS:
+        return best, all_sequences, []
+    return long_run, [s for s in all_sequences if s is not best], list(best.candidates)
+
+
 def _add_titled_sections(book, summary) -> None:
     """Fallback for a collection of titled stories with no chapter labels
     or numbers (see titled_sections.py). Never touches a book that has a
@@ -1308,8 +1379,17 @@ def analyze_book_chapters(book) -> BookChapterSummary:
         return summary
 
     best, all_sequences = _find_best_sequence(chapter_candidates)
+    best, all_sequences, demoted = _chapters_under_numbered_parts(book, best, all_sequences)
     summary.best_sequence = best
     summary.other_sequences = [s for s in all_sequences if s is not best]
+    if demoted:
+        # Roman headings that turned out to be Parts (I, II, III) with the
+        # bare-number chapters running through them.
+        for c in demoted:
+            c.label_kind = "part"
+            c.confirmed = True
+        summary.parts = sorted(list(summary.parts) + demoted, key=lambda c: c.book_order)
+        _assign_part_indices(chapter_candidates, summary.parts)
 
     confirmed_boundaries = list(unnumbered_candidates)
     if best is not None:

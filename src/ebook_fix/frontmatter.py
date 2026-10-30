@@ -440,6 +440,31 @@ def _chapter_text(chapter):
     return "".join(parts)
 
 
+_CONTENTS_MIN_LINKS = 8
+_CONTENTS_LINK_SHARE = 0.7
+
+
+def _is_contents_link_page(chapter, word_count: int) -> bool:
+    """A page that is a list of links to other pages of the book (an HTML
+    contents page): at least 8 internal links and most of its words are
+    link text. Found on The Mist, whose contents page names "About the
+    Author" and was read as that page."""
+    doc = chapter.document
+    if doc is None or word_count == 0:
+        return False
+    links = 0
+    link_words = 0
+    for a in doc.iter():
+        if not isinstance(a.tag, str) or not a.tag.rsplit("}", 1)[-1].lower() == "a":
+            continue
+        href = a.get("href") or ""
+        if not href or re.match(r"^[A-Za-z][A-Za-z0-9+.\-]*:", href):
+            continue
+        links += 1
+        link_words += len("".join(a.itertext()).split())
+    return links >= _CONTENTS_MIN_LINKS and link_words >= _CONTENTS_LINK_SHARE * word_count
+
+
 def _label_from_href(href):
     """Returns (label, exact) or None. `exact` means the filename's
     stem (no extension, no path) IS the hint, e.g. "titlepage.xhtml"
@@ -466,7 +491,9 @@ def _label_from_text(text, word_count, metadata=None):
         return MatterLabel.ACKNOWLEDGMENTS, "high"
     if _AFTERWORD_RE.search(text):
         return MatterLabel.AFTERWORD, "high"
-    if _ABOUT_AUTHOR_RE.search(text):
+    if _ABOUT_AUTHOR_RE.search(text[:_HEADING_WINDOW + 90]):
+        # Only as the page's own heading. Anywhere in the text it also matched
+        # a contents list that names the page ("... About the Author ...").
         return MatterLabel.ABOUT_AUTHOR, "high"
     if _COLOPHON_RE.search(text):
         return MatterLabel.COLOPHON, "high"
@@ -501,10 +528,13 @@ def _label_from_text(text, word_count, metadata=None):
     # _TITLE_MATCH_MIN_WORD_LEN) so a one-word title/surname doesn't
     # corroborate against unrelated short pages by coincidence.
     if word_count <= 60 and metadata is not None:
-        title_words = [w for w in re.findall(r"[\w'-]+", metadata.title or "")
-                        if len(w) >= _TITLE_MATCH_MIN_WORD_LEN]
         creator_words = [w for w in re.findall(r"[\w'-]+", metadata.creator or "")
                           if len(w) >= _TITLE_MATCH_MIN_WORD_LEN]
+        # A title tag written "Author, First - Book Title" (a Calibre file
+        # name) carries the author's name; those words are not the title.
+        creator_lower = {w.lower() for w in creator_words}
+        title_words = [w for w in re.findall(r"[\w'-]+", metadata.title or "")
+                        if len(w) >= _TITLE_MATCH_MIN_WORD_LEN and w.lower() not in creator_lower]
         lower_text = text.lower()
         title_hit = bool(title_words) and any(w.lower() in lower_text for w in title_words)
         creator_hit = bool(creator_words) and any(w.lower() in lower_text for w in creator_words)
@@ -674,6 +704,17 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
 
         href_label = _label_from_href(chapter.href)
         text_label, text_confidence = _label_from_text(text, word_count, metadata=book.metadata)
+        if text_label is not MatterLabel.COPYRIGHT and _is_contents_link_page(chapter, word_count):
+            text_label, text_confidence = MatterLabel.TABLE_OF_CONTENTS, "high"
+        elif text_label in (MatterLabel.TABLE_OF_CONTENTS, MatterLabel.TITLE_PAGE) \
+                and zone in (FRONT_ZONE, BACK_ZONE) and not _is_license_text(text):
+            # A "mini contents" page above a "thank you, sign up for our
+            # newsletters" notice, or a publisher's "Also by" list that names
+            # the author, matches the contents or title page pattern first.
+            # What the page says it is wins when it clearly says so.
+            extra_first = _extra_label_from_text(text, word_count)
+            if extra_first is not None and extra_first[1] == "high":
+                text_label, text_confidence = extra_first[0], extra_first[1]
 
         if text_label is not None:
             label = text_label

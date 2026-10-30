@@ -86,6 +86,7 @@ class SplitSegment:
     number: int | None = None
     elements: list = field(default_factory=list)  # body children, in order
     leading: bool = False  # True only for the untitled chunk before a file's first marker
+    container: object = None  # the element whose children these are (see _shared_container)
 
 
 # ---------------------------------------------------------------------
@@ -172,6 +173,42 @@ def _effective_container(body):
     return container
 
 
+def _shared_container(body, container, markers):
+    """A deeper container to cut on, or None. Some conversions put a small
+    title block first and the whole book in a second <div> after it
+    (<body><div><h1>Title</h1></div><div>...everything...</div></body>), so the
+    single-child walk above stops at <body> and every marker looks like it
+    sits in one element. When all the markers share a lower ancestor and
+    nothing follows that ancestor (no later siblings or text at any level up
+    to <body>), cutting on that ancestor's children is safe: whatever comes
+    before it stays in the first file, and each later file gets a copy of the
+    same wrapper around its slice."""
+    if len(markers) < 2 or any(m.element is None for m in markers):
+        return None
+    paths = [list(reversed([m.element] + list(m.element.iterancestors()))) for m in markers]
+    lca = None
+    for level in zip(*paths):
+        if all(node is level[0] for node in level):
+            lca = level[0]
+        else:
+            break
+    if lca is None or any(lca is m.element for m in markers) or lca is body or lca is container:
+        return None
+    node = lca
+    while node is not body:
+        if (node.tail or "").strip():
+            return None
+        nxt = node.getnext()
+        while nxt is not None and not isinstance(nxt.tag, str):
+            nxt = nxt.getnext()
+        if nxt is not None:
+            return None
+        node = node.getparent()
+        if node is None:
+            return None
+    return lca
+
+
 def _wrapper_chain(body, container):
     """Elements from `body`'s direct child down to and including
     `container` itself (see _effective_container), in top-down order
@@ -256,6 +293,10 @@ def split_body_at_markers(document, markers: list) -> list:
         raise SplitError("No split markers given.")
 
     container = _effective_container(body)
+    if len({id(_ancestor_under_body(container, m.element)) for m in markers if m.element is not None}) < len(markers):
+        deeper = _shared_container(body, container, markers)
+        if deeper is not None:
+            container = deeper
     children = list(container)
     placed: list = []  # (index_in_children, marker, top_element)
 
@@ -290,11 +331,11 @@ def split_body_at_markers(document, markers: list) -> list:
 
     leading = children[0:boundaries[0]]
     if leading:
-        segments.append(SplitSegment(title="", number=None, elements=leading, leading=True))
+        segments.append(SplitSegment(title="", number=None, elements=leading, leading=True, container=container))
 
     for (start, marker, _), end in zip(placed, boundaries[1:]):
         segments.append(
-            SplitSegment(title=marker.title, number=marker.number, elements=children[start:end])
+            SplitSegment(title=marker.title, number=marker.number, elements=children[start:end], container=container)
         )
 
     return segments
@@ -327,7 +368,9 @@ def build_split_documents(document, segments: list) -> list:
     if body is None:
         raise SplitError("No <body> element found in this document.")
 
-    container = _effective_container(body)
+    container = next((seg.container for seg in segments if seg.container is not None), None)
+    if container is None:
+        container = _effective_container(body)
     chain = _wrapper_chain(body, container)  # e.g. [<div>] for a calibre-style single wrapper
 
     documents = [document]

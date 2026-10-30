@@ -31,6 +31,8 @@ finds nothing to switch.
 """
 from __future__ import annotations
 
+import re
+
 from ebook_fix.class_map import build_class_profiles
 from ebook_fix.config import BodyVariantConfig
 from ebook_fix.report import Report
@@ -48,6 +50,32 @@ _ZERO = frozenset(("0", "0%", "0em", "0px", "0pt", "0rem", "auto"))
 _SIDE = frozenset(("margin-left", "margin-right", "padding-left", "padding-right"))
 _FLEXIBLE_ALIGN = frozenset(("justify", "left", "start"))
 MAX_SHARE = 0.25
+# A variant whose top or bottom margin differs from the body class by more
+# than this is spaced on purpose (the opening paragraph of a bonus story set
+# 8em down the page, The Mist), not a stray copy, and is left alone.
+MAX_MARGIN_DIFF_EM = 0.75
+_LENGTH = re.compile(r"^(-?\d*\.?\d+)\s*(em|rem|ex|px|pt|%)?$")
+
+
+def _margin_em(value) -> float | None:
+    """A margin as ems, or None when it cannot be read (then it counts as
+    deliberate: the safe answer is to leave the paragraph as it is)."""
+    m = _LENGTH.match((value or "0").strip())
+    if not m:
+        return None
+    number, unit = float(m.group(1)), m.group(2) or ""
+    if number == 0:
+        return 0.0
+    return {"em": number, "rem": number, "ex": number / 2, "px": number / 16,
+            "pt": number / 12, "%": number / 100}.get(unit)
+
+
+def _spacing_is_deliberate(props: dict, body_props: dict) -> bool:
+    for key in ("margin-top", "margin-bottom"):
+        a, b = _margin_em(props.get(key)), _margin_em(body_props.get(key))
+        if a is None or b is None or abs(a - b) > MAX_MARGIN_DIFF_EM:
+            return True
+    return False
 
 
 def _props(profile) -> dict:
@@ -89,6 +117,8 @@ def find_body_variants(book, analysis=None, reader_settings: bool = True) -> lis
         if _comparable(props, reader_settings) != base:
             continue
         if props == body_props:
+            continue
+        if _spacing_is_deliberate(props, body_props):
             continue
         if set(profile.tag_counts) - {"p"}:
             continue

@@ -489,6 +489,14 @@ def _module_counts(session_dir: Path, ov: dict) -> dict:
     return counts
 
 
+def _removed_reasons_path(session_dir: Path) -> Path:
+    """Page href -> "Repair name: what it said", written by apply_repair()
+    for every page a repair took out, so the Before/After tab can say which
+    repair removed a page and why instead of guessing. GUI-only bookkeeping,
+    like split_mapping.json."""
+    return session_dir / "removed_reasons.json"
+
+
 def _split_mapping_path(session_dir: Path) -> Path:
     """Original href -> list of resulting hrefs, written by
     apply_repair() whenever a staged split actually runs -- see the
@@ -2275,6 +2283,13 @@ def fix_book(session_id):
     # an earlier run that a person has since re-applied differently.
     _split_mapping_path(session_dir).write_text(json.dumps(new_hrefs_by_origin), encoding="utf-8")
 
+    removed_reasons = {}
+    for name, report in reports_by_module.items():
+        for issue in report.issues:
+            if "removed" in issue.category.lower() and issue.location:
+                removed_reasons.setdefault(issue.location, f"{name}: {issue.description}")
+    _removed_reasons_path(session_dir).write_text(json.dumps(removed_reasons), encoding="utf-8")
+
     module_summaries = [
         {"name": name, "count": report.count}
         for name, report in reports_by_module.items()
@@ -2597,6 +2612,14 @@ def book_before_after(session_id):
     if mapping_path.exists():
         split_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
 
+    removed_reasons = {}
+    reasons_path = _removed_reasons_path(session_dir)
+    if reasons_path.exists():
+        try:
+            removed_reasons = json.loads(reasons_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            removed_reasons = {}
+
     chapters = []
     for c in original_book.chapters:
         if c.href in split_mapping:
@@ -2613,6 +2636,7 @@ def book_before_after(session_id):
             "title": c.title or c.href,
             "status": status,
             "after_options": after_options,
+            "removed_reason": removed_reasons.get(c.href, "") if status == "removed" else "",
         })
 
     if not chapters:

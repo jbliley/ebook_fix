@@ -529,13 +529,22 @@ def analyze_book_paragraphs(book, frontmatter_summary=None, chapter_markers=None
                 )
             )
 
+        # A front or back matter page (title, dedication, newsletter notice,
+        # "Also by" list) is set out line by line on purpose: its blank lines
+        # and short lines are its layout, not conversion leftovers, and the
+        # blank paragraph at the top of such a page is its top spacing (found
+        # on The Mist: dedication, epigraph, newsletter). Only story pages get
+        # blank-paragraph removal, scene-break conversion and paragraph merges.
+        layout_page = main_hrefs is not None and chapter.href not in main_hrefs
+
         meaningful = []
         for p in chapter.document.findall(".//{*}p"):
             junk = _is_junk(p)
             empty = _is_empty(p)
 
             if (
-                not junk and empty and not _holds_link_target(p, referenced)
+                not layout_page
+                and not junk and empty and not _holds_link_target(p, referenced)
                 # a blank line Chapter Header Spacing put there itself: it is
                 # the tool's own spacing, never a conversion leftover. (Where
                 # the header is not a confirmed chapter start, as in a title
@@ -551,9 +560,10 @@ def analyze_book_paragraphs(book, frontmatter_summary=None, chapter_markers=None
             if not junk and not empty:
                 meaningful.append(p)
 
-        chapter_summary.meaningful_paragraphs = meaningful
+        # Nothing is merged on a layout page (see above).
+        chapter_summary.meaningful_paragraphs = [] if layout_page else meaningful
 
-        for first, second in zip(meaningful, meaningful[1:]):
+        for first, second in ([] if layout_page else zip(meaningful, meaningful[1:])):
             if looks_mid_sentence(first, second):
                 chapter_summary.mid_sentence_splits.append(
                     MidSentenceSplit(

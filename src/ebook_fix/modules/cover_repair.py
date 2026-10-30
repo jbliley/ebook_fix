@@ -51,6 +51,7 @@ place.
 from __future__ import annotations
 
 import posixpath
+import re
 import struct
 import zipfile
 from pathlib import PurePosixPath
@@ -137,6 +138,35 @@ def _page_has_text(chapter) -> bool:
     return False
 
 
+_TITLE_PAGE_TYPES = ("titlepage", "title-page", "doc-titlepage")
+_TITLE_PAGE_NAME = re.compile(r"^(?:title|titlepage|title[-_ ]?page)\d*$", re.IGNORECASE)
+
+
+def _declares_title_page(chapter) -> bool:
+    """True when the page says it is the book's title page: an
+    epub:type of titlepage, a file named title/titlepage, or a <title>
+    of "Title Page". A title page often carries its own artwork in the
+    cover's proportions (The Mist), so the same shape alone must not make
+    it a duplicate of the cover."""
+    doc = chapter.document
+    for el in doc.iter():
+        if not isinstance(el.tag, str):
+            continue
+        for key, value in el.attrib.items():
+            if key.endswith("type") or key == "role":
+                if any(t in value.lower() for t in _TITLE_PAGE_TYPES):
+                    return True
+    stem = posixpath.splitext(posixpath.basename(chapter.href))[0]
+    if _TITLE_PAGE_NAME.match(stem):
+        return True
+    title_el = doc.find(".//{*}title")
+    if title_el is not None and _TITLE_PAGE_NAME.match(
+        "".join(title_el.itertext()).strip().replace(" ", "")
+    ):
+        return True
+    return False
+
+
 def find_duplicate_cover_page(book, cover):
     """Returns (chapter, image_path) for a page that holds nothing but
     a second copy of the cover art near the real cover page, or None.
@@ -165,6 +195,9 @@ def find_duplicate_cover_page(book, cover):
                 images = _page_images(book, c)
                 if not images:
                     continue
+                if _declares_title_page(c):
+                    # A title page is not a second copy of the cover.
+                    return None
                 if len(set(images)) != 1 or images[0] == cover_path:
                     return None
                 try:
