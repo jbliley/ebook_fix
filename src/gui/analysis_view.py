@@ -176,6 +176,12 @@ def build_overview(analysis_report) -> list[Section]:
         seq = ch_summary.best_sequence
         files_spanned = len({c.href for c in seq.candidates})
         structure_lines.append(f"Chapters Detected: {seq.length} ({seq.style.value}) across {files_spanned} file(s)")
+    elif any(getattr(c, "label_kind", "") == "titled" for c in ch_summary.confirmed_boundaries):
+        titled = [c for c in ch_summary.confirmed_boundaries if getattr(c, "label_kind", "") == "titled"]
+        structure_lines.append(
+            f"Chapters Detected: {len(titled)} (titled sections confirmed by the contents page) "
+            f"across {len({c.href for c in titled})} file(s)"
+        )
     else:
         structure_lines.append("Chapters Detected: None (run `map-structure` to check for weaker, unlabeled candidates)")
     if fm.boundaries_confirmed:

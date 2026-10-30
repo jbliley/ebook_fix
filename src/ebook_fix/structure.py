@@ -911,8 +911,32 @@ def _text_to_end_of_doc(element) -> str:
     return text_to_end_of_doc(element)
 
 
+def _body_of(doc_root):
+    """The <body> of a page, or the whole document when it has none."""
+    if doc_root is None:
+        return doc_root
+    if isinstance(doc_root.tag, str) and doc_root.tag.rsplit("}", 1)[-1].lower() == "body":
+        return doc_root
+    for el in doc_root.iter():
+        if isinstance(el.tag, str) and el.tag.rsplit("}", 1)[-1].lower() == "body":
+            return el
+    return doc_root
+
+
+def _doc_text(doc_root) -> str:
+    """A page's reading text. The <head> (its <title>) is left out: it is
+    never read, and a converter that writes the title straight against the
+    first heading ("</title>...<h3>WAKEFIELD.") would otherwise glue two
+    words together in one count and not in another, so the whole-book
+    coverage check failed on a book that was in fact fully accounted for."""
+    return "".join(_body_of(doc_root).itertext())
+
+
 def _text_before(doc_root, end_element) -> str:
-    return text_before(doc_root, end_element)
+    full = _body_of(doc_root).xpath(".//text()")
+    at_or_after_end = text_from(end_element)
+    n = len(full) - len(at_or_after_end)
+    return "".join(str(t) for t in full[:n])
 
 
 def _content_word_count(book: Any, start_href: str, start_element,
@@ -953,7 +977,7 @@ def _content_word_count(book: Any, start_href: str, start_element,
     text_parts = [_text_to_end_of_doc(start_element)]
     for c in chapters[start_idx + 1:end_idx]:
         if c.document is not None:
-            text_parts.append("".join(c.document.itertext()))
+            text_parts.append(_doc_text(c.document))
     text_parts.append(_text_before(end_chapter.document, end_element))
     return _words("".join(text_parts))
 
@@ -1167,7 +1191,7 @@ def _book_total_word_count(book: Any) -> int:
     total = 0
     for c in getattr(book, "chapters", []) or []:
         if c.document is not None:
-            total += _words("".join(c.document.itertext()))
+            total += _words(_doc_text(c.document))
     return total
 
 
@@ -1186,7 +1210,7 @@ def _leading_word_count(book: Any, end_href: str, end_element) -> int:
     text_parts = []
     for c in chapters[:end_idx]:
         if c.document is not None:
-            text_parts.append("".join(c.document.itertext()))
+            text_parts.append(_doc_text(c.document))
     text_parts.append(_text_before(end_chapter.document, end_element))
     return _words("".join(text_parts))
 
@@ -1206,7 +1230,7 @@ def _back_matter_word_count(book: Any, last_chapter_href: str) -> int:
     total = 0
     for c in chapters[idx + 1:]:
         if c.document is not None:
-            total += _words("".join(c.document.itertext()))
+            total += _words(_doc_text(c.document))
     return total
 
 

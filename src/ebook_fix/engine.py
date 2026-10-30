@@ -726,6 +726,12 @@ class Engine:
                     f"Chapters Detected: {seq.length} ({seq.style.value}) "
                     f"across {files_spanned} file(s)"
                 )
+            elif any(getattr(c, "label_kind", "") == "titled" for c in ch_summary.confirmed_boundaries):
+                titled = [c for c in ch_summary.confirmed_boundaries if getattr(c, "label_kind", "") == "titled"]
+                self.log(
+                    f"Chapters Detected: {len(titled)} (titled sections confirmed by the contents page) "
+                    f"across {len({c.href for c in titled})} file(s)"
+                )
             else:
                 self.log("Chapters Detected: None (run `map-structure` to check for weaker, unlabeled candidates)")
 

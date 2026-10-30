@@ -1231,6 +1231,18 @@ def _promote_sections_over_restarting_numbers(all_candidates: list) -> int:
     return len(labeled)
 
 
+def _add_titled_sections(book, summary) -> None:
+    """Fallback for a collection of titled stories with no chapter labels
+    or numbers (see titled_sections.py). Never touches a book that has a
+    numbered chapter run."""
+    from ebook_fix.titled_sections import add_titled_sections
+
+    try:
+        add_titled_sections(book, summary)
+    except Exception:
+        pass
+
+
 def analyze_book_chapters(book) -> BookChapterSummary:
     all_candidates = []
     order = 0
@@ -1292,6 +1304,7 @@ def analyze_book_chapters(book) -> BookChapterSummary:
 
     if not chapter_candidates:
         summary.confirmed_boundaries = list(unnumbered_candidates)
+        _add_titled_sections(book, summary)
         return summary
 
     best, all_sequences = _find_best_sequence(chapter_candidates)
@@ -1304,5 +1317,6 @@ def analyze_book_chapters(book) -> BookChapterSummary:
             c.confirmed = True
         confirmed_boundaries.extend(best.candidates)
     summary.confirmed_boundaries = confirmed_boundaries
+    _add_titled_sections(book, summary)
 
     return summary
