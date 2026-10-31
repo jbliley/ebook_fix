@@ -26,13 +26,14 @@ from ebook_fix.mobi.mobi_header import (
     exth_start_offset,
     read_exth,
     extract_metadata,
+    MobiMetadata,
     exth_int,
 )
 
 # File extensions this module will attempt to open. `cli.py` checks
 # against this list to decide whether to route here instead of the
 # EPUB-only Engine pipeline.
-MOBI_EXTENSIONS = (".mobi", ".azw", ".azw3", ".prc")
+MOBI_EXTENSIONS = (".mobi", ".azw", ".azw3", ".prc", ".pdb")
 
 
 @dataclass
@@ -70,6 +71,31 @@ def _detect_generation(file_version: int, exth_records) -> tuple[str, bool]:
     return "KF8/AZW3", True
 
 
+def _analyze_palmdoc(path: Path, data: bytes, palmdb, report: MobiAnalysisReport) -> MobiAnalysisReport:
+    """The plain-text PalmDOC (.pdb) case: no MOBI header, EXTH or cover,
+    so the report is built from the PalmDOC header and a guess at the
+    metadata (see ebook_fix.mobi.palmdoc)."""
+    from ebook_fix.mobi.palmdoc import read_palmdoc
+    from ebook_fix.mobi.reader import MobiError
+
+    try:
+        book = read_palmdoc(path, data, palmdb)
+    except MobiError as exc:
+        report.error = str(exc)
+        return report
+    header = book.header
+    report.generation = book.generation
+    report.compression = COMPRESSION_NAMES.get(header.compression, f"Unknown ({header.compression})")
+    report.encryption = ENCRYPTION_NAMES.get(0, "None")
+    report.text_length = header.text_length
+    report.text_record_count = header.text_record_count
+    report.palmdb_record_count = palmdb.record_count
+    report.metadata = MobiMetadata(
+        title=book.title, author=", ".join(book.authors), date=book.date,
+    )
+    return report
+
+
 def analyze_mobi(path: Path) -> MobiAnalysisReport:
     """Reads and analyzes one MOBI/AZW/AZW3/PRC file. Never raises for
     a malformed or unsupported file -- any problem is captured in the
@@ -90,6 +116,10 @@ def analyze_mobi(path: Path) -> MobiAnalysisReport:
     try:
         palmdb = read_palmdb(data)
         record0_offset = palmdb.records[0].offset
+        from ebook_fix.mobi.palmdoc import is_palmdoc, read_palmdoc
+
+        if is_palmdoc(data, palmdb):
+            return _analyze_palmdoc(path, data, palmdb, report)
         header = read_mobi_header(data, record0_offset)
     except (ValueError, IndexError) as exc:
         report.error = str(exc)

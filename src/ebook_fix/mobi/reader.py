@@ -235,10 +235,17 @@ def read_mobi(path: Path) -> MobiBook:
     data = path.read_bytes()
 
     if not is_palmdb(data):
-        raise MobiError("This doesn't look like a MOBI/AZW/PRC book (no PalmDB container found).")
+        raise MobiError(
+            "This doesn't look like a MOBI/AZW/PRC or plain-text PalmDOC (.pdb) book. Other .pdb "
+            "formats (eReader, Plucker and so on) aren't supported."
+        )
 
     try:
         palmdb = read_palmdb(data)
+        from ebook_fix.mobi.palmdoc import is_palmdoc, read_palmdoc
+
+        if is_palmdoc(data, palmdb):
+            return read_palmdoc(path, data, palmdb)
         record0 = palmdb.records[0].offset
         header = read_mobi_header(data, record0)
     except (ValueError, IndexError, struct.error) as exc:

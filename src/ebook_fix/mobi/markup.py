@@ -719,6 +719,52 @@ def find_link_targets(text: bytes) -> set:
     return {int(m.group(1)) for m in _FILEPOS_RE.finditer(text)}
 
 
+_VISIBLE_STRIP = re.compile(r"<[^>]*>|&nbsp;|&#160;|&#xa0;|\s+| ", re.I)
+_NON_TEXT_CONTENT = re.compile(r"<(?:img|hr|table|svg|object)\b", re.I)
+
+
+def _page_is_blank(body: str) -> bool:
+    """True for a page with no readable text and nothing else that shows
+    (no image, rule or table) -- typically a vertical spacer such as
+    `<blockquote height="5em"> </blockquote>` that a MOBI puts in front of
+    a chapter and ends with a page break."""
+    if _NON_TEXT_CONTENT.search(body):
+        return False
+    if "\x01L" in body or "\x01I" in body:     # carries a link or image placeholder
+        return False
+    return not _VISIBLE_STRIP.sub("", body)
+
+
+def _merge_blank_pages(result: MarkupResult) -> int:
+    """Folds every blank page into the page after it, so a spacer that
+    only exists to push a chapter down the page doesn't turn into a whole
+    empty page of its own in the EPUB. The blank page's anchors (a
+    table-of-contents target usually lives on exactly this spacer) move to
+    the start of the next page. A blank page at the very end of the book
+    is left alone. Returns how many pages were folded away."""
+    pages = result.pages
+    if len(pages) < 2:
+        return 0
+    merged: list = []
+    carried_body = ""
+    carried_ids: set = set()
+    folded = 0
+    for index, page in enumerate(pages):
+        last = index == len(pages) - 1
+        if not last and _page_is_blank(page.body):
+            carried_body += "".join(f'<a id="{i}"></a>' for i in sorted(page.ids))
+            carried_ids |= page.ids
+            folded += 1
+            continue
+        if carried_ids:
+            page.body = carried_body + page.body
+            page.ids = page.ids | carried_ids
+            carried_body, carried_ids = "", set()
+        merged.append(page)
+    result.pages = merged
+    return folded
+
+
 def convert_markup(text: bytes, encoding: str, extra_targets, images: dict, image_href) -> MarkupResult:
     """Converts the book's raw markup into pages.
 
@@ -734,6 +780,7 @@ def convert_markup(text: bytes, encoding: str, extra_targets, images: dict, imag
     targets = find_link_targets(text) | {int(t) for t in extra_targets if t is not None}
     converter = _Converter(text, encoding, targets, images, image_href)
     result = converter.run()
+    _merge_blank_pages(result)
     for index, page in enumerate(result.pages):
         for ident in page.ids:
             result.id_page.setdefault(ident, index)

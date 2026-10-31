@@ -1027,7 +1027,7 @@ def browse():
         "path = tkinter.filedialog.askopenfilename(\n"
         "    title='Choose a book',\n"
         "    filetypes=[\n"
-        "        ('Books', ('*.epub', '*.mobi', '*.azw', '*.azw3', '*.prc', '*.fb2')),\n"
+        "        ('Books', ('*.epub', '*.mobi', '*.azw', '*.azw3', '*.prc', '*.pdb', '*.fb2')),\n"
         "        ('EPUB files', '*.epub'),\n"
         "        ('All files', '*.*'),\n"
         "    ],\n"
@@ -1082,7 +1082,7 @@ def upload():
     suffix = path_obj.suffix.lower()
     converted_here = False
     if suffix in MOBI_EXTENSIONS or suffix in FB2_EXTENSIONS:
-        # A MOBI/AZW/AZW3/PRC or FB2 book is converted to an EPUB first (see
+        # A MOBI/AZW/AZW3/PRC/PDB or FB2 book is converted to an EPUB first (see
         # ebook_fix.mobi.convert / ebook_fix.fb2.convert; an AZW3 is routed
         # to ebook_fix.mobi.kf8_convert by convert_mobi_to_epub), and that EPUB
         # is what gets opened -- everything else in the GUI only knows
@@ -1103,7 +1103,7 @@ def upload():
     elif suffix != ".epub":
         return render_template(
             "index.html",
-            error="That doesn't look like a supported book file (expected a .epub, or a MOBI/AZW/AZW3/PRC/FB2 to convert to EPUB).",
+            error="That doesn't look like a supported book file (expected a .epub, or a MOBI/AZW/AZW3/PRC/PDB/FB2 to convert to EPUB).",
         )
 
     session_id = str(uuid.uuid4())
