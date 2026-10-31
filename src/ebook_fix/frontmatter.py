@@ -119,6 +119,10 @@ class MatterLabel(Enum):
     # A preview of another book ("Turn the page for an exciting preview
     # of ...") after the story. Back matter: not part of this book.
     TEASER_CHAPTER = "teaser chapter"
+    # An extra short story or chapter the author put after the book ("Read
+    # on for an exclusive short story by ..."). It is part of what the
+    # reader bought, so unlike a teaser it is never offered for removal.
+    BONUS_STORY = "bonus story"
     # Pages that are not part of the book itself (see the "Extra pages"
     # note at the top of this file). They can sit at the front or the
     # back; the zone found from position stays what the page says.
@@ -145,7 +149,7 @@ BACK_LABELS = {
     MatterLabel.ACKNOWLEDGMENTS, MatterLabel.AFTERWORD,
     MatterLabel.ABOUT_AUTHOR, MatterLabel.COLOPHON, MatterLabel.BACK_MATTER,
     MatterLabel.TEASER_CHAPTER, MatterLabel.ADVERTISEMENT, MatterLabel.NEWSLETTER,
-    MatterLabel.BOOKS_BY,
+    MatterLabel.BOOKS_BY, MatterLabel.BONUS_STORY,
 }
 
 
@@ -209,6 +213,22 @@ _TEASER_PHRASES = (
     "turnthepagefor", "previewof", "excerptfrom", "sneakpeek", "readonforapreview",
     "readonforanexcerpt", "teaserchapter", "firstchapterof", "chapterofthenew",
 )
+
+
+# The title page of a bonus story: a short page that announces "an exclusive
+# short story" (or a bonus story/chapter) and names it.
+_BONUS_PHRASES = (
+    "exclusiveshortstory", "bonusshortstory", "bonusstory", "bonuschapter",
+    "exclusivestory", "specialshortstory", "shortstoryby", "bonusnovella",
+)
+BONUS_TITLE_MAX_WORDS = 60
+
+
+def _looks_like_bonus_story_title(text: str, word_count: int) -> bool:
+    if word_count > BONUS_TITLE_MAX_WORDS:
+        return False
+    letters = re.sub(r"[^a-z]", "", text[:500].lower())
+    return any(phrase in letters for phrase in _BONUS_PHRASES)
 
 
 def _looks_like_teaser(text: str) -> bool:
@@ -704,7 +724,9 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
 
         href_label = _label_from_href(chapter.href)
         text_label, text_confidence = _label_from_text(text, word_count, metadata=book.metadata)
-        if text_label is not MatterLabel.COPYRIGHT and _is_contents_link_page(chapter, word_count):
+        if zone == BACK_ZONE and _looks_like_bonus_story_title(text, word_count):
+            text_label, text_confidence = MatterLabel.BONUS_STORY, "high"
+        elif text_label is not MatterLabel.COPYRIGHT and _is_contents_link_page(chapter, word_count):
             text_label, text_confidence = MatterLabel.TABLE_OF_CONTENTS, "high"
         elif text_label in (MatterLabel.TABLE_OF_CONTENTS, MatterLabel.TITLE_PAGE) \
                 and zone in (FRONT_ZONE, BACK_ZONE) and not _is_license_text(text):
@@ -783,6 +805,13 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
             confidence = "low"
             reason = "no confirmed chapter sequence to anchor a zone on"
 
+        if (summary.chapters and summary.chapters[-1].label == MatterLabel.BONUS_STORY.value
+                and zone == MAIN_ZONE and label is MatterLabel.MAIN_CONTENT and confidence != "high"):
+            # The story itself, straight after its title page. It stays in
+            # the main zone so it is repaired like any story text.
+            label = MatterLabel.BONUS_STORY
+            confidence = "medium"
+            reason = "story text straight after a bonus story title page"
         summary.chapters.append(ChapterMatter(
             href=chapter.href, zone=zone, label=label.value,
             confidence=confidence, reason=reason,

@@ -30,7 +30,7 @@ from ebook_fix.structure import (
 )
 from ebook_fix.split_fragments import merge_leading_fragments
 from ebook_fix.splitter import apply_split, SplitMarker, SplitError, marker_number
-from ebook_fix.crossref import find_links_into, rewrite_links, find_ncx_links_into, rewrite_ncx_links, generate_missing_ncx_entries
+from ebook_fix.crossref import find_links_into, rewrite_links, find_ncx_links_into, rewrite_ncx_links, generate_missing_ncx_entries, add_absorbed_chapter_entries, ANCHOR_TAG
 from ebook_fix.case3_map import write_case3_boundaries_file, load_case3_boundaries_file, Case3MappingError
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
@@ -1772,6 +1772,13 @@ class Engine:
         href_by_id_by_origin = {}
         new_hrefs_by_origin = {}
         leading_fragment_hrefs = []
+        for number, marker in enumerate(
+            (m for markers in markers_by_href.values() for m in markers
+             if getattr(m, "anchor_element", None) is not None and hasattr(m.anchor_element, "set")),
+            start=1,
+        ):
+            marker.anchor_tag = str(number)
+            marker.anchor_element.set(ANCHOR_TAG, marker.anchor_tag)
         for href, markers in markers_by_href.items():
             chapter = next((c for c in book.chapters if c.href == href), None)
             if chapter is None:
@@ -1809,6 +1816,7 @@ class Engine:
         ncx_report = rewrite_ncx_links(book, ncx_refs, href_by_id_by_origin)
 
         entry_report = generate_missing_ncx_entries(book, split_hrefs, new_hrefs_by_origin)
+        add_absorbed_chapter_entries(book, markers_by_href, entry_report)
 
         # Last step: a file that was originally cut by size rather than
         # by chapter leaves the tail of the previous file's last chapter

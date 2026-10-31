@@ -919,7 +919,7 @@ _FRONT_GROUP = [
     MatterLabel.FICTION_DISCLAIMER, MatterLabel.FRONT_MATTER, MatterLabel.PROLOGUE,
 ]
 _BACK_GROUP = [
-    MatterLabel.EPILOGUE, MatterLabel.TEASER_CHAPTER, MatterLabel.ACKNOWLEDGMENTS,
+    MatterLabel.EPILOGUE, MatterLabel.TEASER_CHAPTER, MatterLabel.BONUS_STORY, MatterLabel.ACKNOWLEDGMENTS,
     MatterLabel.AFTERWORD, MatterLabel.ABOUT_AUTHOR, MatterLabel.COLOPHON, MatterLabel.BACK_MATTER,
 ]
 _MAIN_GROUP = [MatterLabel.MAIN_CONTENT]
@@ -2170,7 +2170,7 @@ def fix_book(session_id):
             if len(accepted_items) < group.get("min_accept", 2):
                 continue
             markers_by_href[group["href"]] = [
-                SplitMarker(element=item["split_element"], title=item["node"].title, number=marker_number(item["node"].evidence.candidate))
+                SplitMarker(element=item["split_element"], title=item["node"].title, number=marker_number(item["node"].evidence.candidate), anchor_element=(item["node"].evidence.candidate.element if item["node"].evidence.candidate.element is not item["split_element"] else None))
                 for item in accepted_items
             ]
         if markers_by_href:

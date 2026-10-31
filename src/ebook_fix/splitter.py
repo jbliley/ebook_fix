@@ -72,6 +72,12 @@ class SplitMarker:
     element: object
     title: str = ""
     number: int | None = None
+    # Set only when the cut is made above a heading that belongs to the
+    # chapter's page but is not the chapter's own heading (a Part heading
+    # sitting straight above chapter 1). The chapter's own heading then
+    # gets a contents entry of its own, since no new file starts there.
+    anchor_element: object = None
+    anchor_tag: str = ""  # temporary attribute value stamped on anchor_element for the split
 
 
 # ---------------------------------------------------------------------

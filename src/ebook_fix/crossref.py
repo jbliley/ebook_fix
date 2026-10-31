@@ -31,8 +31,12 @@ places would need updating together.
 
 from __future__ import annotations
 
+import posixpath
+import re
+
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from urllib.parse import unquote
 from typing import Any
 
 from lxml import etree
@@ -107,7 +111,18 @@ def find_links_into(book: Any, split_hrefs: set, current_href_origin: dict) -> l
                 continue
 
             path, _, fragment = href.partition("#")
-            origin_href = path if path else origin_of_home
+            if path:
+                # A link is written relative to the file it sits in, while
+                # split_hrefs holds full paths inside the book. Resolve it
+                # (a link "part0002.xhtml" in text/part0002.xhtml means
+                # text/part0002.xhtml); a path already in full form still works.
+                origin_href = path
+                if origin_href not in split_hrefs:
+                    origin_href = posixpath.normpath(
+                        posixpath.join(posixpath.dirname(home_href), unquote(path))
+                    )
+            else:
+                origin_href = origin_of_home
             if origin_href not in split_hrefs:
                 continue
 
@@ -180,7 +195,13 @@ def rewrite_links(refs: list, href_by_id_by_origin: dict) -> Report:
             continue
 
         old_href = ref.element.get("href")
-        new_href = f"#{ref.fragment}" if target_href == ref.home_href else f"{target_href}#{ref.fragment}"
+        if target_href == ref.home_href:
+            new_href = f"#{ref.fragment}"
+        else:
+            # Written relative to the file the link sits in, like the link was.
+            home_dir = posixpath.dirname(ref.home_href)
+            rel = posixpath.relpath(target_href, home_dir) if home_dir else target_href
+            new_href = f"{rel}#{ref.fragment}"
         if new_href == old_href:
             continue
 
@@ -498,7 +519,7 @@ def generate_missing_ncx_entries(book: Any, split_hrefs: set, new_hrefs_by_origi
 
             label_el = etree.SubElement(point, f"{{{NCX_NS_URI}}}navLabel")
             text_el = etree.SubElement(label_el, f"{{{NCX_NS_URI}}}text")
-            text_el.text = title
+            text_el.text = _entry_label(title)
             content_el = etree.SubElement(point, f"{{{NCX_NS_URI}}}content")
             content_el.set("src", href)
 
@@ -509,12 +530,102 @@ def generate_missing_ncx_entries(book: Any, split_hrefs: set, new_hrefs_by_origi
             anchor = point
 
             book.ncx_modified = True
-            report.add(location, "Entry generated", f"{href!r} labeled {title!r}")
+            report.add(location, "Entry generated", f"{href!r} labeled {_entry_label(title)!r}")
 
     if report.count:
         _renumber_play_order(nav_map)
 
     return report
+
+
+ANCHOR_TAG = "data-ebookfix-toc-anchor"
+
+_BARE_NUMBER = re.compile(r"^(?:\d+|[IVXLCDM]+)\.?$", re.IGNORECASE)
+
+
+def _entry_label(title: str) -> str:
+    """A chapter whose heading is only a number ("2", "XIV") would show up
+    in a reading app's contents list as a bare "2". Say what it is."""
+    clean = (title or "").strip()
+    if clean and _BARE_NUMBER.match(clean):
+        return f"Chapter {clean.rstrip('.')}"
+    return clean
+
+
+def add_absorbed_chapter_entries(book: Any, markers_by_href: dict, report: Report) -> int:
+    """A split made above a Part heading keeps the chapter under it on the
+    Part's page, so that chapter has no file of its own and no entry. Adds
+    one (a link to the chapter's own heading) right after the file's entry,
+    for each marker that carries an anchor_element. Returns how many."""
+    from ebook_fix.toc_generate import _ensure_anchor_id
+
+    ncx = getattr(book, "ncx_document", None)
+    nav_map = ncx.find(f"{{{NCX_NS_URI}}}navMap") if ncx is not None else None
+    if nav_map is None:
+        return 0
+    wanted = [m for markers in markers_by_href.values() for m in markers
+              if getattr(m, "anchor_tag", "")]
+    if not wanted:
+        return 0
+    location = getattr(book, "ncx_href", "") or "toc.ncx"
+    # The split copies elements into new documents, so the markers' own
+    # element objects are stale by now. Each anchor heading was tagged with
+    # a temporary attribute before the split (see Engine._split_and_rewire);
+    # find the live copy by that tag, and take the tag off again.
+    live = {}
+    for chapter in getattr(book, "chapters", []) or []:
+        doc = getattr(chapter, "document", None)
+        if doc is None:
+            continue
+        for el in doc.iter():
+            tag = el.get(ANCHOR_TAG) if isinstance(el.tag, str) else None
+            if tag:
+                live[tag] = (chapter, el)
+                del el.attrib[ANCHOR_TAG]
+                chapter.modified = True
+    existing = nav_map.findall(f"{{{NCX_NS_URI}}}navPoint")
+    existing_ids = {p.get("id") for p in existing if p.get("id")}
+    used_ids = set()
+    for chapter in getattr(book, "chapters", []) or []:
+        doc = getattr(chapter, "document", None)
+        if doc is not None:
+            used_ids.update(i for i in doc.xpath("//@id"))
+    added = 0
+    for marker in wanted:
+        found = live.get(getattr(marker, "anchor_tag", ""))
+        if found is None:
+            continue
+        chapter, anchor_el = found
+        points = [p for p in nav_map.findall(f"{{{NCX_NS_URI}}}navPoint")
+                  if (p.find(f"{{{NCX_NS_URI}}}content") is not None
+                      and p.find(f"{{{NCX_NS_URI}}}content").get("src", "").partition("#")[0] == chapter.href)]
+        if not points:
+            continue
+        label = _entry_label(marker.title)
+        labels = {" ".join("".join(p.find(f"{{{NCX_NS_URI}}}navLabel").itertext()).split()) for p in points
+                  if p.find(f"{{{NCX_NS_URI}}}navLabel") is not None}
+        if not label or label in labels:
+            continue
+        anchor_id = _ensure_anchor_id(chapter, anchor_el, used_ids, "toc-chapter-" + re.sub(r"\W+", "-", marker.title.strip().lower()))
+        if not anchor_id:
+            continue
+        point = etree.Element(f"{{{NCX_NS_URI}}}navPoint")
+        template = points[-1].get("class")
+        if template:
+            point.set("class", template)
+        new_id = _unique_id(existing_ids, "navpoint-" + anchor_id)
+        existing_ids.add(new_id)
+        point.set("id", new_id)
+        label_el = etree.SubElement(point, f"{{{NCX_NS_URI}}}navLabel")
+        etree.SubElement(label_el, f"{{{NCX_NS_URI}}}text").text = label
+        etree.SubElement(point, f"{{{NCX_NS_URI}}}content").set("src", f"{chapter.href}#{anchor_id}")
+        points[-1].addnext(point)
+        added += 1
+        report.add(location, "Entry generated", f"{chapter.href}#{anchor_id} labeled {label!r}")
+    if added:
+        book.ncx_modified = True
+        _renumber_play_order(nav_map)
+    return added
 
 
 def _unique_id(existing: set, candidate: str) -> str:

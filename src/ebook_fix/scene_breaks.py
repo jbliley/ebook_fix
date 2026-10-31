@@ -108,9 +108,15 @@ def _document_order(root, elements_of_interest: set) -> dict:
     return order
 
 
-def analyze_chapter_scene_breaks(href: str, tree, local_markers: list) -> ChapterSceneBreakSummary:
+def analyze_chapter_scene_breaks(href: str, tree, local_markers: list,
+                                 opening_file: bool = False) -> ChapterSceneBreakSummary:
     """`local_markers` should already be filtered to markers that share
-    this document -- see analyze_book_scene_breaks."""
+    this document -- see analyze_book_scene_breaks.
+
+    `opening_file` is True for the file that holds the book's first
+    chapter marker. A rule above that first marker belongs to the opening
+    material (a title page's decorative line above a "Contents" heading),
+    not to any chapter's prose, so it is left alone."""
     summary = ChapterSceneBreakSummary(href=href)
     if tree is None:
         return summary
@@ -155,6 +161,8 @@ def analyze_chapter_scene_breaks(href: str, tree, local_markers: list) -> Chapte
         # its tail (the text right after it in the markup) would
         # legitimately count as "after" content, which is correct.
 
+        if opening_file and prev_marker is None and next_marker is not None:
+            continue
         has_content_before = bool(before_text.strip())
         has_content_after = bool(after_text.strip())
 
@@ -223,6 +231,11 @@ def analyze_book_scene_breaks(book, chapter_summary: BookChapterSummary | None =
         if c.element is not None:
             markers_by_href.setdefault(c.href, []).append(c.element)
 
+    first_marker_href = next(
+        (getattr(c, "href", "") for c in getattr(book, "chapters", []) or []
+         if markers_by_href.get(getattr(c, "href", ""))),
+        None,
+    )
     summary = BookSceneBreakSummary()
     for chapter in getattr(book, "chapters", []) or []:
         href = getattr(chapter, "href", "")
@@ -230,6 +243,7 @@ def analyze_book_scene_breaks(book, chapter_summary: BookChapterSummary | None =
             continue
         tree = getattr(chapter, "document", None)
         summary.chapters.append(
-            analyze_chapter_scene_breaks(href, tree, markers_by_href.get(href, []))
+            analyze_chapter_scene_breaks(href, tree, markers_by_href.get(href, []),
+                                         opening_file=(href == first_marker_href))
         )
     return summary

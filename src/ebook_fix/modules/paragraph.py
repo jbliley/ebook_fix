@@ -92,6 +92,8 @@ def _is_chapter_header_shape(el) -> bool:
         return False
     if _local(el) in _HEADING_TAGS or el.get(_MARKER_ATTR):
         return True
+    if "ebookfix-chapter-wrapper" in (el.get("class") or ""):
+        return True                  # the <div> Chapter Markup puts around a heading
     text = _text(el)
     return bool(text) and len(text) <= 40 and _classify_chapter_label(text) is not None
 
@@ -123,6 +125,10 @@ def _spacer_runs(chapter_summary):
             continue
         before_run = _sibling_elements(run[0], -1)
         if _is_chapter_header_shape(before_run):
+            continue
+        # Space above a chapter title (a Part's subtitle, then "1") is a
+        # page layout gap, not a change of scene.
+        if _is_chapter_header_shape(node):
             continue
         if _is_story_text(before_run, junk) and _is_story_text(node, junk):
             runs.append(run)

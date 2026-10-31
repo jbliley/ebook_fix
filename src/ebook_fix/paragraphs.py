@@ -44,6 +44,10 @@ from dataclasses import dataclass, field
 from ebook_fix.headings import is_chapter_header
 from ebook_fix.chapters import _classify as _classify_chapter_label
 
+# Front and back matter is short. A page with this many words or more is
+# treated as story text even when it sits in a front or back zone.
+LAYOUT_PAGE_MAX_WORDS = 600
+
 SENTENCE_ENDINGS = ('.', '!', '?', '"', "'", ')', '\u201d', '\u2019')
 MIN_WORDS_FOR_MERGE = 4
 
@@ -535,7 +539,14 @@ def analyze_book_paragraphs(book, frontmatter_summary=None, chapter_markers=None
         # blank paragraph at the top of such a page is its top spacing (found
         # on The Mist: dedication, epigraph, newsletter). Only story pages get
         # blank-paragraph removal, scene-break conversion and paragraph merges.
-        layout_page = main_hrefs is not None and chapter.href not in main_hrefs
+        # A page long enough to be a chapter is story text whatever the zone
+        # analysis called it (a letter at the start of Frankenstein reads as a
+        # "dedication" by its wording), so it is tidied like any story page.
+        layout_page = (
+            main_hrefs is not None
+            and chapter.href not in main_hrefs
+            and len(_text(chapter.document).split()) < LAYOUT_PAGE_MAX_WORDS
+        )
 
         meaningful = []
         for p in chapter.document.findall(".//{*}p"):

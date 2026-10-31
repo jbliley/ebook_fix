@@ -25,7 +25,12 @@ all of these hold:
     them, not in a table or a list).
 
 Nothing is invented: each boundary is a heading the author's own contents
-page already points at. The detector is a fallback. It only runs when
+page already points at. One extension: a heading that looks exactly like the
+confirmed ones (same tag, same class and style, short, in capitals when the
+confirmed ones are, outside any list) and sits between the first and last
+confirmed heading is a story the contents page left out (the four Legends of
+the Province-House in Twice-Told Tales, or a title followed by a footnote
+mark), and is added too. The detector is a fallback. It only runs when
 chapters.py found no numbered chapter run, so a book that detects cleanly
 the normal way is never changed.
 """
@@ -41,6 +46,8 @@ MIN_TITLES = 5
 MIN_MATCH_SHARE = 0.8
 MIN_SAME_TAG_SHARE = 0.8
 MAX_TITLE_WORDS = 14
+MAX_EXTRA_SHARE = 0.25      # added headings may be at most this share of the confirmed ones
+UPPER_SHARE = 0.9
 
 _SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
@@ -101,6 +108,67 @@ def _inside_list_like(el) -> bool:
             return True
         node = node.getparent()
     return False
+
+
+_FOOTNOTE_MARK = re.compile(r"\s*\[\w{1,3}\]\s*$")
+
+
+def _is_upper(text: str) -> bool:
+    letters = [ch for ch in _FOOTNOTE_MARK.sub("", text) if ch.isalpha()]
+    return bool(letters) and all(ch.isupper() for ch in letters)
+
+
+def _look(el) -> tuple:
+    return (_local(el), el.get("class") or "", el.get("style") or "")
+
+
+def _with_look_alikes(chapters, matched, position) -> list:
+    """`matched` ([(block, label)] from the contents page) plus the headings
+    that look exactly like them and sit between the first and the last one
+    but are missing from the contents list. Adds nothing when the look is
+    not shared by every confirmed heading, or when there would be more than
+    MAX_EXTRA_SHARE of extras (then the look is probably used for something
+    else as well)."""
+    if not matched:
+        return matched
+    counts = {}
+    for b, _ in matched:
+        counts[_look(b)] = counts.get(_look(b), 0) + 1
+    look, share = max(counts.items(), key=lambda kv: kv[1])
+    if share < UPPER_SHARE * len(matched):
+        return matched
+    upper = sum(1 for b, _ in matched if _is_upper(_text(b))) >= UPPER_SHARE * len(matched)
+    first = position.get(matched[0][0])
+    last = position.get(matched[-1][0])
+    if first is None or last is None:
+        return matched
+    have = {b for b, _ in matched}
+    extras = []
+    for chapter in chapters:
+        for el in chapter.document.iter():
+            if not isinstance(el.tag, str) or el in have or _look(el) != look:
+                continue
+            at = position.get(el)
+            if at is None or not (first < at < last):
+                continue
+            text = _text(el)
+            if not text or len(text.split()) > MAX_TITLE_WORDS:
+                continue
+            if upper and not _is_upper(text):
+                continue
+            if _inside_list_like(el):
+                continue
+            # A footnote mark after the title ("THE GREAT CARBUNCLE.[4]") is a
+            # link too; any other link makes this a contents line, not a title.
+            if any(isinstance(d.tag, str) and _local(d) == "a" and d.get("href")
+                   and not _FOOTNOTE_MARK.fullmatch(_text(d) or "") for d in el.iter()):
+                continue
+            extras.append((el, text))
+    if not extras or len(extras) > MAX_EXTRA_SHARE * len(matched):
+        return matched
+    merged = matched + extras
+    merged.sort(key=lambda item: position[item[0]])
+    return merged
 
 
 def find_titled_sections(book) -> list:
@@ -175,6 +243,9 @@ def find_titled_sections(book) -> list:
     if best is None:
         return []
 
+    matched_blocks = _with_look_alikes(chapters, best[1], position)
+    best = (len(matched_blocks), matched_blocks)
+
     href_of = {}
     for chapter in chapters:
         for el in chapter.document.iter():
@@ -187,7 +258,7 @@ def find_titled_sections(book) -> list:
         candidate = ChapterCandidate(
             href=href,
             tag=tag,
-            text=_text(block),
+            text=_FOOTNOTE_MARK.sub("", _text(block)),
             element_index=position[block][1],
             style=None,
             number=None,

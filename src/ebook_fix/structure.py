@@ -1292,6 +1292,7 @@ MIN_COMPLETE_RUN = 10
 # A shorter run (down to this many) also counts, but only when every section
 # is at least SHORT_RUN_MIN_WORDS long (named sections such as "First
 # Machination ... Seventh Machination").
+SHORT_CHAPTER_MIN_WORDS = 3
 MIN_SHORT_RUN = 5
 SHORT_RUN_MIN_WORDS = 300
 # Share of sections that must hold at least COMPLETE_RUN_MIN_WORDS words. This
@@ -1359,6 +1360,25 @@ def apply_sequence_completeness(tree: BookStructure) -> BookStructure:
         words = a.evidence.section_words
         if (order < first_order or order > last_order) and words is not None and words >= COMPLETE_RUN_MIN_WORDS:
             framing.append(a)
+    # A real chapter can be very short (Bradbury's chapter 31 is one line).
+    # Inside a counting run it is vouched for by its neighbours: the number
+    # sits exactly between the one before and the one after, and both of
+    # those are full chapters. The first and last markers are never trusted
+    # this way, since a stray heading at either end would look the same.
+    for i in range(1, len(nodes) - 1):
+        ev = nodes[i].evidence
+        if ev.content_length_ok or ev.section_words is None or ev.section_words < SHORT_CHAPTER_MIN_WORDS:
+            continue
+        if numbers[i] - numbers[i - 1] != 1 or numbers[i + 1] - numbers[i] != 1:
+            continue
+        if not (nodes[i - 1].evidence.content_length_ok and nodes[i + 1].evidence.content_length_ok):
+            continue
+        ev.content_length_ok = True
+        ev.notes = [note for note in ev.notes if "stray heading" not in note]
+        ev.notes.append(
+            f"Short chapter (~{ev.section_words} words), accepted because its number falls exactly between "
+            "two full chapters in the count."
+        )
     for n in nodes + framing:
         n.evidence.sequence_complete = True
         n.evidence.notes.append(
