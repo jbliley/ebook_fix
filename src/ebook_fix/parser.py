@@ -6,7 +6,9 @@ Reads an EPUB into memory. This module DOES NOT modify anything; It simply loads
 
 from __future__ import annotations
 import posixpath
+import re
 import zipfile
+from html.entities import name2codepoint
 from pathlib import PurePosixPath
 from lxml import etree
 from ebook_fix.models import (
@@ -24,6 +26,33 @@ XHTML_NS = "http://www.w3.org/1999/xhtml"
 EPUB_OPS_NS = "http://www.idpf.org/2007/ops"
 NCX_NS = {"ncx": "http://www.daisy.org/z3986/2005/ncx/"}
 NAV_NS = {"x": XHTML_NS, "epub": EPUB_OPS_NS}
+
+# Named HTML entities (&nbsp;, &mdash;, &hellip; ...) are only defined by
+# the DOCTYPE's external DTD, which is never loaded. In recover mode lxml
+# silently DELETES any entity it cannot resolve, so every non-breaking
+# space and dash in such a book vanished the moment a chapter was
+# rewritten. They are turned into numeric references before parsing; the
+# five entities XML defines itself are left alone.
+_NAMED_ENTITY_RE = re.compile(rb"&([A-Za-z][A-Za-z0-9]*);")
+_XML_ENTITIES = {"amp", "lt", "gt", "quot", "apos"}
+
+
+def resolve_named_entities(xml_bytes: bytes) -> bytes:
+    """Replace named HTML entities with numeric character references."""
+    if b"&" not in xml_bytes:
+        return xml_bytes
+
+    def _sub(match: re.Match) -> bytes:
+        name = match.group(1).decode("ascii")
+        if name in _XML_ENTITIES:
+            return match.group(0)
+        codepoint = name2codepoint.get(name)
+        if codepoint is None:
+            return match.group(0)
+        return b"&#%d;" % codepoint
+
+    return _NAMED_ENTITY_RE.sub(_sub, xml_bytes)
+
 
 class EPUBParser:
 
@@ -300,7 +329,7 @@ class EPUBParser:
             href=item.href,
             media_type=item.media_type,
             document=etree.fromstring(
-                xml,
+                resolve_named_entities(xml),
                 xml_parser
             ),
         )
@@ -554,7 +583,7 @@ class EPUBParser:
     def _parse_xml(xml_bytes):
         try:
             return etree.fromstring(
-                xml_bytes,
+                resolve_named_entities(xml_bytes),
                 etree.XMLParser(recover=True, encoding="utf-8"),
             )
         except etree.XMLSyntaxError:

@@ -4043,3 +4043,12 @@ Three open items from the entry above, plus four problems found while fixing the
 Checks: all 32 example books repaired before and after this round. Text is identical everywhere except the three title page rules above (the "* * *" no longer added), all with a second run changing nothing. Every example split with its default choices: text identical to the unsplit repair, no broken internal links. Something Wicked, The Mist and Twice-Told Tales verified by hand.
 
 Still open: the Legends divider page (15 words) stays on Dr. Heidegger's page since it is too short to split on its own.
+
+### Fixed: named entities were deleted when a book was loaded (2026-11-01)
+
+Found by the content loss audit on Omnibus-Tarzan, one of the two books left out of the earlier audit (War and Peace came out clean).
+
+- Cause (`parser.py`): the book declares an XHTML DOCTYPE but its DTD is never loaded, so named entities such as `&nbsp;`, `&mdash;` and `&hellip;` count as undefined. The loader runs in recover mode, which silently deletes anything it cannot resolve. Every non-breaking space and named dash in such a book was gone from the loaded copy, so as soon as any repair rewrote a chapter the words around it ran together ("the menzil of" became "themenzilof"). Tarzan lost 761 words' worth of spacing this way under Paragraph Repair and Whitespace Normalizer alone, and "Beyt" and "Shiftas" appeared as the most affected words.
+- Fix: `resolve_named_entities()` turns every named HTML entity into its numeric reference before a chapter or a navigation document is parsed. The five entities XML defines itself (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`) and any name that is not an HTML entity are left alone.
+
+Checks: audit rerun on Tarzan, per repair module run alone, plus a full auto-fix. Paragraph Repair and Whitespace Normalizer lose nothing now. The only differences left are intended ones (Gutenberg-style boilerplate, hyphen leftovers such as "zig-zag", "* * *" scene breaks). A second auto-fix run gives identical words. All 21 other example books give the same word counts before and after the fix.
