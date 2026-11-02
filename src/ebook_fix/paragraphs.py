@@ -288,6 +288,23 @@ def _junk_candidates(chapter):
     ]
 
 
+# A paragraph that opens with a firearm caliber such as ".44" or ".38-40"
+# can't open a sentence (nobody starts a sentence with a bare decimal point
+# and two digits), so it continues the sentence above it, the same as a
+# lowercase start does. Found in Pursuit of the Mountain Man, where
+# "...the butt of a" / ".44 against Gunter's head" was split in two.
+_CALIBER_START = re.compile(r"^\.\d{2,3}(?!\d)")
+
+
+def starts_mid_sentence(text: str) -> bool:
+    """True if `text` opens in a way that shows it continues a sentence
+    started above it: a lowercase letter or a caliber like ".44"."""
+    text = text.lstrip()
+    if not text:
+        return False
+    return text[0].islower() or bool(_CALIBER_START.match(text))
+
+
 def looks_mid_sentence(first, second) -> bool:
     first_text = _text(first)
     second_text = _text(second)
@@ -301,7 +318,7 @@ def looks_mid_sentence(first, second) -> bool:
     if first_text.endswith(SENTENCE_ENDINGS):
         return False
 
-    return second_text[0].islower()
+    return starts_mid_sentence(second_text)
 
 
 # ---------------------------------------------------------------------
@@ -451,7 +468,7 @@ def looks_like_dangling_ending(text: str, next_text: str = "") -> bool:
     if not _DANGLING_WORD_PATTERN.search(text):
         return False
     next_text = next_text.strip()
-    if next_text and next_text[0].islower():
+    if next_text and starts_mid_sentence(next_text):
         return False
     return True
 

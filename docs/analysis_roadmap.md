@@ -4091,3 +4091,9 @@ Checks: every `url()` in the converted stylesheet resolves to a real file, every
 With its fonts present, the converted book put 7 font usages in Review ("selector too complex to measure what text it reaches"): chains such as `.element-container-group .heading .title`. `ColorReach.matched_group` (`color.py`, shared by Color Strip and Font Strip) now understands descendant (`.a .b`) and child (`.a > .b`) chains of tag, class and id selectors. Sibling combinators, `:not()`, `::first-letter` and similar are still left for review.
 
 Checks: all 575 measurable selectors in the example books' stylesheets (181 of them chains) were compared with an independent CSS matcher (cssselect); every chain selects exactly the same elements. Font Review items across the examples go from 8 to 1 (the intentional FontEmbed-Synthetic one), color from 6 to 5; the converted sample goes from 7 font and 1 color item to none. Auto-fix on all example books gives the same words and stylesheets as before, and a second run changes nothing.
+
+### Fixed: sentences split before a firearm caliber such as ".44" (2026-11-02)
+
+In Pursuit of the Mountain Man the source had two sentences cut in two right before a caliber ("...the butt of a" / ".44 against Gunter's head"). Paragraph Repair only joined a split when the next paragraph began with a lowercase letter, so these stayed broken. A paragraph that opens with a decimal point and two or three digits (".44", ".38", ".44-.40") now counts as a continuation, in both the join check and the dangling-ending check (`starts_mid_sentence` in paragraphs.py). The same split was also sitting in the BrokenSentences example (".38 in a shoulder holster").
+
+Checks: both splits in the Mountain Man book now join into one paragraph, no other split sentences remain in it, and no other text changed.
