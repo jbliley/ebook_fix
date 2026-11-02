@@ -1,4 +1,4 @@
-"""
+r"""
 ebook_fix.modules.unused_css_repair
 
 Removes style rules for classes that no page uses. Calibre conversions ship
@@ -34,6 +34,17 @@ Three follow-ups (2026-10-25), found by measuring what auto-fix left behind:
   together with the <link> to it in every page and its manifest entry, unless
   another stylesheet imports it or a page outside the reading order mentions it.
 
+Safety checks (2026-11-01), found by testing the module against an independent
+CSS matcher:
+- A selector list is split only at the commas between selectors, never inside
+  `:not(...)`, `:is(...)`, `:where(...)`, `[...]` or a quoted string. Splitting
+  inside the brackets used to leave a broken rule such as `.a:not(.b {`.
+- A selector with an escaped character (`.foo\:bar`, `.\31 0pt`) is never
+  judged: the simple class reader saw `.foo` and called a class that pages do
+  use "unused".
+- A page that fails to load is read from its raw file when collecting the used
+  classes instead of being skipped.
+
 Skipped on fixed-layout books. A second run finds nothing to remove.
 """
 from __future__ import annotations
@@ -67,10 +78,15 @@ def _used_classes(book):
     has_script = False
     base = PurePosixPath(getattr(book, "package_path", "") or "").parent
     chapter_paths = set()
+    unloaded = set()
     for chapter in book.chapters:
         chapter_paths.add(str(base / chapter.href))
         doc = chapter.document
         if doc is None:
+            # A page that could not be loaded still uses classes. Its raw file
+            # is read below instead of being skipped (skipping it made every
+            # class only that page uses look unused).
+            unloaded.add(str(base / chapter.href))
             continue
         for el in _root(doc).iter():
             if not isinstance(el.tag, str):
@@ -91,7 +107,7 @@ def _used_classes(book):
 
     new_files = getattr(book, "new_files", None) or {}
     for path, data in new_files.items():
-        if path.lower().endswith(_HTML_EXT) and path not in chapter_paths:
+        if path.lower().endswith(_HTML_EXT) and (path not in chapter_paths or path in unloaded):
             scan_bytes(data)
     removed = set(getattr(book, "removed_files", set()) or set())
     source = getattr(book, "source", None)
@@ -99,7 +115,8 @@ def _used_classes(book):
         try:
             with zipfile.ZipFile(source, "r") as archive:
                 for name in archive.namelist():
-                    if (name.lower().endswith(_HTML_EXT) and name not in chapter_paths
+                    if (name.lower().endswith(_HTML_EXT)
+                            and (name not in chapter_paths or name in unloaded)
                             and name not in new_files and name not in removed):
                         scan_bytes(archive.read(name))
         except (OSError, zipfile.BadZipFile):
@@ -117,9 +134,45 @@ def _empty_css(text: str) -> bool:
     return not _EMPTY_NOISE.sub("", COMMENT_RE.sub("", text or "")).strip()
 
 
+def _split_selector_list(text: str) -> list:
+    """Split a selector list at the commas that separate selectors, never at a
+    comma inside (...), [...] or a quoted string (`.a:not(.b, .c)` is ONE
+    selector; splitting it inside the brackets left broken CSS behind)."""
+    parts, depth, quote, cur, i = [], 0, "", [], 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and i + 1 < len(text):
+            cur.append(text[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        elif ch == "," and depth == 0:
+            parts.append("".join(cur).strip())
+            cur = []
+            i += 1
+            continue
+        cur.append(ch)
+        i += 1
+    parts.append("".join(cur).strip())
+    return [p for p in parts if p]
+
+
 def _dead_selector(selector: str, used: set) -> bool:
     selector = _OWN_ATTR_TEST.sub("", selector)
     if "(" in selector or "[" in selector:
+        return False
+    # An escaped character (`.foo\:bar`, `.\31 0pt`) makes the class name
+    # unreadable to the simple matcher below, which would see `.foo` and call
+    # a class that pages DO use unused. Never judged, always kept.
+    if "\\" in selector:
         return False
     classes = CLASS_SELECTOR_RE.findall(selector)
     if not classes:
@@ -145,7 +198,7 @@ def _rewrite(css_text: str, used: set):
         if not sel_text or sel_text.startswith("@"):
             return match.group(0)
         comments = "".join(re.findall(r"/\*.*?\*/", raw_sel, re.DOTALL))
-        selectors = [s.strip() for s in sel_text.split(",") if s.strip()]
+        selectors = _split_selector_list(sel_text)
         keep = [s for s in selectors if not _dead_selector(s, used)]
         if len(keep) == len(selectors):
             return match.group(0)

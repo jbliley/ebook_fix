@@ -4052,3 +4052,17 @@ Found by the content loss audit on Omnibus-Tarzan, one of the two books left out
 - Fix: `resolve_named_entities()` turns every named HTML entity into its numeric reference before a chapter or a navigation document is parsed. The five entities XML defines itself (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`) and any name that is not an HTML entity are left alone.
 
 Checks: audit rerun on Tarzan, per repair module run alone, plus a full auto-fix. Paragraph Repair and Whitespace Normalizer lose nothing now. The only differences left are intended ones (Gutenberg-style boilerplate, hyphen leftovers such as "zig-zag", "* * *" scene breaks). A second auto-fix run gives identical words. All 21 other example books give the same word counts before and after the fix.
+
+### Fixed: Unused CSS removed a style a page uses and could leave broken rules (2026-11-01)
+
+Before building the unused-class survey on top of Unused CSS, the module was tested to make sure it never removes a style that is in use. Two checks, both with an independent CSS matcher (cssselect) that knows nothing about the module's own "used class" list:
+
+- Every selector the module removed, on all 24 example books, evaluated at the moment of removal inside a full auto-fix (all passes): none matched an element in any page, including pages outside the reading order. 8 of the books had removals (up to 301 selectors in OmnibusExample); the rest had nothing to remove.
+- A stress test of tricky selectors found three problems in `modules/unused_css_repair.py`, all fixed:
+  1. A class name with an escaped character (`.foo\:bar`, `.\31 0pt`) was read as `.foo`. When a page used `foo:bar`, the rule was deleted anyway. Selectors with a backslash are now never judged.
+  2. A selector list was split at every comma, including the commas inside `:not(.b, .c)`, `:is(.a, .b)` and `:where(...)`. When the second half named an unused class it was dropped and the rule was left as broken CSS (`.a:not(.b { ... }`). Lists are now split only at top-level commas, outside brackets and quotes.
+  3. A page that could not be loaded was skipped when collecting used classes, so every class only that page uses counted as unused. Such a page is now read from its raw file.
+
+New fixture `examples/UnusedCss-Synthetic.epub` holds one of each tricky selector. The old module deletes the used escaped-class rule and corrupts two rules on it; the new one keeps all three. Real example books are unaffected: the stylesheets from the old and the new module are byte-identical on all 21 books compared.
+
+Note for later: in auto-fix, a class can disappear from the pages after Unused CSS because Reader Settings removes the declarations the tool strips on purpose (justify, fonts), leaving an empty rule that Class Cleanup then drops with its class (OmnibusExample's `part` and `chapter` wrapper classes). That is intended behavior, not an Unused CSS removal.
