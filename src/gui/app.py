@@ -631,6 +631,24 @@ def _drop_unactionable_nodes(nodes):
     return [n for i, n in enumerate(nodes) if i not in drop]
 
 
+# A group title with no "Part" or number in it ("Legends of the Province-House."
+# above four stories, in Twice-Told Tales) is found as a plain chapter heading
+# nothing else confirms. Sitting straight above a confirmed chapter it is the
+# same thing as a Part heading, so it is treated like one; any other review
+# level heading is left for a person to decide on.
+DIVIDER_MAX_TITLE_WORDS = 12
+
+
+def _is_group_divider(node, nxt) -> bool:
+    ev, nev = node.evidence, nxt.evidence
+    return (
+        node.kind == NodeKind.CHAPTER
+        and ev.confidence == SplitConfidence.NEEDS_REVIEW
+        and nev.confidence == SplitConfidence.CORROBORATED
+        and len((node.title or "").split()) <= DIVIDER_MAX_TITLE_WORDS
+    )
+
+
 def _absorb_heading_only_parts(nodes):
     """Returns (kept_nodes, split_elements). A Part node directly followed
     by a chapter node in the same file, with only a heading's worth of text
@@ -645,11 +663,11 @@ def _absorb_heading_only_parts(nodes):
         node = nodes[i]
         nxt = nodes[i + 1] if i + 1 < len(nodes) else None
         if (
-            node.kind == NodeKind.PART
-            and nxt is not None
+            nxt is not None
             and nxt.kind == NodeKind.CHAPTER
             and node.evidence is not None and nxt.evidence is not None
             and node.evidence.candidate is not None and nxt.evidence.candidate is not None
+            and (node.kind == NodeKind.PART or _is_group_divider(node, nxt))
         ):
             part_el = node.evidence.candidate.element
             chap_el = nxt.evidence.candidate.element
@@ -659,8 +677,9 @@ def _absorb_heading_only_parts(nodes):
                 between = None
             if between is not None and between <= PART_HEADING_MAX_WORDS:
                 split_elements[id(nxt)] = part_el
+                kind_word = "Part" if node.kind == NodeKind.PART else "group"
                 nxt.evidence.notes.append(
-                    f"Starts at the Part heading \"{node.title}\", which sits straight above it, so the heading stays with this chapter."
+                    f"Starts at the {kind_word} heading \"{node.title}\", which sits straight above it, so the heading stays with this chapter."
                 )
                 kept.append(nxt)
                 i += 2

@@ -4066,3 +4066,12 @@ Before building the unused-class survey on top of Unused CSS, the module was tes
 New fixture `examples/UnusedCss-Synthetic.epub` holds one of each tricky selector. The old module deletes the used escaped-class rule and corrupts two rules on it; the new one keeps all three. Real example books are unaffected: the stylesheets from the old and the new module are byte-identical on all 21 books compared.
 
 Note for later: in auto-fix, a class can disappear from the pages after Unused CSS because Reader Settings removes the declarations the tool strips on purpose (justify, fonts), leaving an empty rule that Class Cleanup then drops with its class (OmnibusExample's `part` and `chapter` wrapper classes). That is intended behavior, not an Unused CSS removal.
+
+### Fixed: a group title above its first story stayed on the previous story's page (2026-11-02)
+
+The last open item from the Twice-Told Tales round. "Legends of the Province-House." (15 words, with the list of its four stories) sits between Dr. Heidegger's Experiment and "I. Howe's Masquerade". It has no "Part" or number, so it was found as a plain chapter heading that nothing confirms, held for review, and left at the end of Dr. Heidegger's page.
+
+- Rule (`gui/app.py`, `_is_group_divider`, used by `_absorb_heading_only_parts`): a review-level chapter heading of 12 words or fewer, directly above a confirmed chapter in the same file with no more than 40 words between them (the heading included), is treated like a Part heading. It leaves the Review list and the chapter below is cut at the heading, so the heading rides with its first story. Any other review-level heading is untouched.
+- Result on Twice-Told Tales: the Legends heading and the list of four stories now open the "Howe's Masquerade" page, and Dr. Heidegger's page ends with its own story. The Review list goes from 40 to 39 items, the contents list stays at 95 entries, and the whole book keeps exactly the same words (152,480). After the split the old code still offered 2 stale candidates; the new code offers none.
+
+Checks: the Review candidates and cut points of all 32 example books (EPUB, MOBI, AZW3 and FB2, the last three converted first) are identical before and after the change except for that one item.
