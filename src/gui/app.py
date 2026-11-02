@@ -79,6 +79,9 @@ from ebook_fix.mobi.reader import MobiError
 from ebook_fix.fb2.analyzer import FB2_EXTENSIONS
 from ebook_fix.fb2.convert import convert_fb2_to_epub
 from ebook_fix.fb2.reader import Fb2Error
+from ebook_fix.html import HTML_EXTENSIONS
+from ebook_fix.html.convert import convert_html_to_epub
+from ebook_fix.html.reader import HtmlError
 from ebook_fix.modules.epub3_upgrade import EPUB3UpgradeRepair
 from ebook_fix.modules.paragraph import ParagraphRepair
 from ebook_fix.modules.linebreak_repair import LineBreakRepair
@@ -1046,7 +1049,7 @@ def browse():
         "path = tkinter.filedialog.askopenfilename(\n"
         "    title='Choose a book',\n"
         "    filetypes=[\n"
-        "        ('Books', ('*.epub', '*.mobi', '*.azw', '*.azw3', '*.prc', '*.pdb', '*.fb2')),\n"
+        "        ('Books', ('*.epub', '*.mobi', '*.azw', '*.azw3', '*.prc', '*.pdb', '*.fb2', '*.html', '*.htm')),\n"
         "        ('EPUB files', '*.epub'),\n"
         "        ('All files', '*.*'),\n"
         "    ],\n"
@@ -1100,7 +1103,7 @@ def upload():
         return render_template("index.html", error=f"Can't find that file: {typed_path}")
     suffix = path_obj.suffix.lower()
     converted_here = False
-    if suffix in MOBI_EXTENSIONS or suffix in FB2_EXTENSIONS:
+    if suffix in MOBI_EXTENSIONS or suffix in FB2_EXTENSIONS or suffix in HTML_EXTENSIONS:
         # A MOBI/AZW/AZW3/PRC/PDB or FB2 book is converted to an EPUB first (see
         # ebook_fix.mobi.convert / ebook_fix.fb2.convert; an AZW3 is routed
         # to ebook_fix.mobi.kf8_convert by convert_mobi_to_epub), and that EPUB
@@ -1108,11 +1111,13 @@ def upload():
         # how to work on an EPUB.
         target = _converted_epub_path(path_obj)
         try:
-            if suffix in FB2_EXTENSIONS:
+            if suffix in HTML_EXTENSIONS:
+                convert_html_to_epub(path_obj, target)
+            elif suffix in FB2_EXTENSIONS:
                 convert_fb2_to_epub(path_obj, target)
             else:
                 convert_mobi_to_epub(path_obj, target)
-        except (MobiError, Fb2Error) as exc:
+        except (MobiError, Fb2Error, HtmlError) as exc:
             return render_template("index.html", error=f"Couldn't convert that book to EPUB: {exc}")
         except Exception as exc:
             traceback.print_exc()
@@ -1122,7 +1127,7 @@ def upload():
     elif suffix != ".epub":
         return render_template(
             "index.html",
-            error="That doesn't look like a supported book file (expected a .epub, or a MOBI/AZW/AZW3/PRC/PDB/FB2 to convert to EPUB).",
+            error="That doesn't look like a supported book file (expected a .epub, or a MOBI/AZW/AZW3/PRC/PDB/FB2/HTML to convert to EPUB).",
         )
 
     session_id = str(uuid.uuid4())

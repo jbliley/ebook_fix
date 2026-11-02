@@ -17,6 +17,10 @@ from ebook_fix.fb2 import FB2_EXTENSIONS, analyze_fb2, print_fb2_report
 from ebook_fix.fb2.convert import convert_fb2_to_epub
 from ebook_fix.fb2.convert import print_convert_report as print_fb2_convert_report
 from ebook_fix.fb2.reader import Fb2Error
+from ebook_fix.html import HTML_EXTENSIONS
+from ebook_fix.html.convert import convert_html_to_epub
+from ebook_fix.html.convert import print_convert_report as print_html_convert_report
+from ebook_fix.html.reader import HtmlError
 
 def build_parser():
 
@@ -353,11 +357,11 @@ def build_parser():
     # Convert
     convert = sub.add_parser(
         "convert",
-        help="Convert a MOBI/AZW/AZW3/PRC or FB2 book to EPUB. Built in, so Calibre isn't needed."
+        help="Convert a MOBI/AZW/AZW3/PRC, FB2 or HTML book to EPUB. Built in, so Calibre isn't needed."
     )
     convert.add_argument(
         "input",
-        help="Input MOBI/AZW/AZW3/PRC or FB2 file"
+        help="Input MOBI/AZW/AZW3/PRC, FB2 or HTML file"
     )
     convert.add_argument(
         "-o",
@@ -525,6 +529,14 @@ def main():
         return
 
     if args.command == "convert":
+        if epub.suffix.lower() in HTML_EXTENSIONS:
+            try:
+                result = convert_html_to_epub(epub, args.output, overwrite=args.overwrite)
+            except HtmlError as e:
+                print(f"ERROR: {e}")
+                sys.exit(1)
+            print_html_convert_report(result)
+            return
         if epub.suffix.lower() in FB2_EXTENSIONS:
             try:
                 result = convert_fb2_to_epub(epub, args.output, overwrite=args.overwrite)

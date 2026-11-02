@@ -4097,3 +4097,19 @@ Checks: all 575 measurable selectors in the example books' stylesheets (181 of t
 In Pursuit of the Mountain Man the source had two sentences cut in two right before a caliber ("...the butt of a" / ".44 against Gunter's head"). Paragraph Repair only joined a split when the next paragraph began with a lowercase letter, so these stayed broken. A paragraph that opens with a decimal point and two or three digits (".44", ".38", ".44-.40") now counts as a continuation, in both the join check and the dangling-ending check (`starts_mid_sentence` in paragraphs.py). The same split was also sitting in the BrokenSentences example (".38 in a shoulder holster").
 
 Checks: both splits in the Mountain Man book now join into one paragraph, no other split sentences remain in it, and no other text changed.
+
+### Added: HTML to EPUB conversion (2026-11-02)
+
+Two HTML books ("Monster" by Naomi Kritzer, a short story, and "Glenraven" by Marion Zimmer Bradley and Holly Lisle, a 76-chapter novel) were the first HTML files to arrive. HTML is now a fourth input format next to MOBI/AZW3, FB2 and PDB. It uses the same shared EPUB builder, so the whole analysis and repair pipeline works on the result.
+
+- New package `ebook_fix/html/`: `reader.py` decodes the file and cleans it, `convert.py` splits it into pages and assembles the EPUB. `convert_html_to_epub` is wired into the `convert` command and into the GUI's file picker and open step (`.html` and `.htm`), the same way FB2 is.
+- Decoding: real UTF-8 is used when the bytes are UTF-8, otherwise the declared character set, and a declared "us-ascii" or "iso-8859-1" is read as Windows-1252, because such files nearly always hold curly quotes and dashes that ISO-8859-1 has no place for (both samples declare a wrong character set).
+- Cleanup: styles, scripts and layout wrappers (`div`, `span`, `font`, `center`) are dropped and their text kept; bold/italic spans and `text-align: center` become `strong`, `em` and a `center` class; a `div` of plain lines separated by `<br>` becomes paragraphs (two breaks in a row start a new one); runs of whitespace collapse as a browser would show them; stray `<br>` between blocks are removed. Scene-break rules (`<hr>`) are kept, and Scene Break Normalizer turns them into `* * *`.
+- Chapters: the shallowest heading level (h1, then h2, ...) with at least three headings that each start a real run of text is used. A heading with no text before the next heading (a title page's author line) stays with the page before it. Each chapter becomes a page with a contents entry. A book with no such headings stays one page with no contents list, which is the state Table of Contents Generation looks for.
+- Metadata: `<meta>` tags first, then a file name shaped like "Author - [Series 01] - Title (v1.5) (html)", then the page's `<title>`. Series name and number come from the bracket part of the file name. Local pictures next to the file are carried in; online-only or missing ones are left out with a note. Links between chapters are rewritten to the new pages.
+
+Checks: Monster converts to one page (word count identical to the source, 17 rules become 17 scene breaks). Glenraven converts to a title page plus 76 chapters (all 76 have contents entries, word count identical). The converted EPUBs pass the file-integrity check, a full repair on each runs cleanly, and a second repair changes nothing. The FB2 and MOBI example conversions are unchanged.
+
+Known limits: tables, lists and block quotes are carried over as they are but not restyled. Nothing in an HTML file says what language it is in unless it declares one, so the language stays "und" until set with the default-language button.
+
+Open item: in Glenraven, Paragraph Repair merges 8 deliberately broken lines in two stream-of-consciousness passages (pages `part0061` and `part0068`) because the lines have no ending punctuation. This is the existing module's behavior, not part of the HTML converter.
