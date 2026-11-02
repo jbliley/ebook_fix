@@ -4075,3 +4075,19 @@ The last open item from the Twice-Told Tales round. "Legends of the Province-Hou
 - Result on Twice-Told Tales: the Legends heading and the list of four stories now open the "Howe's Masquerade" page, and Dr. Heidegger's page ends with its own story. The Review list goes from 40 to 39 items, the contents list stays at 95 entries, and the whole book keeps exactly the same words (152,480). After the split the old code still offered 2 stale candidates; the new code offers none.
 
 Checks: the Review candidates and cut points of all 32 example books (EPUB, MOBI, AZW3 and FB2, the last three converted first) are identical before and after the change except for that one item.
+
+### Added: embedded fonts and SVG in AZW3 conversion (Phase 8, 2026-11-02)
+
+Three new AZW3 samples arrived. One of them, "With This Kiss" (a 10-author romance collection), was the first book to carry what Phase 8 was waiting for: it converted with the note "2 image references pointed at a missing or unsupported image" and "38 references to embedded content this converter doesn't handle yet (such as embedded SVG)". The other two ("The Height of Happiness", with HUFF/CDIC compressed text, and L. M. Montgomery's 4,457-record Complete Works) already converted cleanly and come out identical.
+
+- Fonts (`mobi/reader.py`, `decode_font_record`, `_read_fonts`): the book's two `FONT` records are decoded (the first 1,040 bytes are XORed with a short key, then zlib-compressed) and written to `OEBPS/fonts/` as real `.ttf`/`.otf` files with manifest entries. Both decoded fonts match the sizes their record headers promise (142,392 and 155,392 bytes) and open as valid fonts ("IM FELL Double Pica PRO" and "IM FELL DW Pica PRO", 483 glyphs each). `kindle:embed` references in the `@font-face` rules now point at them.
+- SVG (`mobi/kf8.py`, `rewrite_svg_flow_refs`; `kf8_convert.py`): `kindle:flow:...?mime=image/svg+xml` references are rewritten and each SVG flow is written to `OEBPS/images/flowNNNNN.svg`. The sample has 9: a decorative title-page background in the stylesheet and 8 social-media icons used as `<img>` in the author pages. Pictures an SVG itself points at are carried along. The leftover-reference note now only mentions audio, video or other flows, and the sample reports none.
+- `epub_builder.py`: new `fonts` list on the EPUB spec (written to `fonts/`), SVG files are compressed in the zip.
+
+Checks: every `url()` in the converted stylesheet resolves to a real file, every SVG parses, no `kindle:` reference is left in any page or stylesheet. All other example conversions (AZW3, MOBI, FB2) are byte-identical to before.
+
+### Improved: descendant and child selectors can now be measured (2026-11-02)
+
+With its fonts present, the converted book put 7 font usages in Review ("selector too complex to measure what text it reaches"): chains such as `.element-container-group .heading .title`. `ColorReach.matched_group` (`color.py`, shared by Color Strip and Font Strip) now understands descendant (`.a .b`) and child (`.a > .b`) chains of tag, class and id selectors. Sibling combinators, `:not()`, `::first-letter` and similar are still left for review.
+
+Checks: all 575 measurable selectors in the example books' stylesheets (181 of them chains) were compared with an independent CSS matcher (cssselect); every chain selects exactly the same elements. Font Review items across the examples go from 8 to 1 (the intentional FontEmbed-Synthetic one), color from 6 to 5; the converted sample goes from 7 font and 1 color item to none. Auto-fix on all example books gives the same words and stylesheets as before, and a second run changes nothing.

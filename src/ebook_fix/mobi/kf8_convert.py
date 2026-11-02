@@ -16,7 +16,12 @@ cover, metadata, links and table of contents come across as they were,
 and repairing the result is what the normal `repair` command is for.
 
 See docs/azw3_kf8_conversion_plan.md for the phases this builds on and
-what's not covered yet (embedded fonts and SVG).
+what's not covered yet (audio, video and other rarely used flows).
+
+Embedded fonts (decoded from the book's FONT records) and SVG flows (a
+decorative background in the stylesheet, say) are written out as real files
+in the EPUB's fonts/ and images/ folders, and the references to them are
+rewritten to match.
 """
 from __future__ import annotations
 
@@ -51,6 +56,7 @@ from ebook_fix.mobi.kf8 import (
     rewrite_css_flow_refs,
     rewrite_image_refs,
     rewrite_internal_links,
+    rewrite_svg_flow_refs,
 )
 from ebook_fix.mobi.reader import MobiError
 
@@ -81,6 +87,10 @@ def _fold_body_classes_into_css(css: str, classes: list[str]) -> str:
     return css
 
 
+def _svg_filename(flow_index: int) -> str:
+    return f"flow{flow_index:05d}.svg"
+
+
 def convert_kf8_to_epub(source: Path, output: Path | None = None, overwrite: bool = False) -> ConvertResult:
     """Converts one AZW3/KF8 file to an EPUB. Raises MobiError (with a
     message meant for a person) if the book can't be converted."""
@@ -104,16 +114,27 @@ def convert_kf8_to_epub(source: Path, output: Path | None = None, overwrite: boo
     # -- images: every reference to one is resolved through here, which
     # is also how the set actually used (plus the cover) gets known ------
     used_images: set[int] = set()
+    used_fonts: set[int] = set()
+    used_svg: set[int] = set()
     dropped_images = 0
 
     def image_href(recindex: int):
         nonlocal dropped_images
         image = book.images.get(recindex)
         if image is None:
+            # kindle:embed also points at embedded fonts (from @font-face rules)
+            font = book.fonts.get(recindex)
+            if font is not None:
+                used_fonts.add(recindex)
+                return "../fonts/" + font.filename
             dropped_images += 1
             return None
         used_images.add(recindex)
         return "../images/" + _image_filename(image, book.cover_recindex)
+
+    def svg_href(flow_index: int):
+        used_svg.add(flow_index)
+        return f"../images/{_svg_filename(flow_index)}"
 
     # -- which page anchors need to become real ids: anything the table of
     # contents, the guide, or another page's own links point at ----------
@@ -149,6 +170,7 @@ def convert_kf8_to_epub(source: Path, output: Path | None = None, overwrite: boo
         body = finish_page_anchors(body, linked_aids)
         body = rewrite_image_refs(body, image_href)
         body = rewrite_css_flow_refs(body, book.flows, lambda _index: _STYLESHEET_HREF)
+        body = rewrite_svg_flow_refs(body, book.flows, svg_href)
         unsupported_refs += body.count("kindle:")
         bodies.append(body)
 
@@ -159,7 +181,24 @@ def convert_kf8_to_epub(source: Path, output: Path | None = None, overwrite: boo
         if 0 < flow_index < len(book.flows):
             css += "\n" + book.flows[flow_index].decode(book.encoding, errors="replace")
     css = rewrite_image_refs(css, image_href)
+    css = rewrite_svg_flow_refs(css, book.flows, svg_href)
     css = _fold_body_classes_into_css(css, body_classes(book.pages))
+    unsupported_refs += css.count("kindle:")
+
+    # -- SVG flows actually referenced become real files. An SVG can itself
+    # point at pictures (kindle:embed), which sit in the same folder ---------
+    svg_files: list = []
+    for flow_index in sorted(used_svg):
+        def sibling_image(recindex: int):
+            image = book.images.get(recindex)
+            if image is None:
+                return None
+            used_images.add(recindex)
+            return _image_filename(image, book.cover_recindex)
+
+        text = book.flows[flow_index].decode("utf-8", errors="replace")
+        text = rewrite_image_refs(text, sibling_image)
+        svg_files.append(EpubImage(_svg_filename(flow_index), "image/svg+xml", text.encode("utf-8")))
 
     result.dropped_images = dropped_images
 
@@ -178,7 +217,7 @@ def convert_kf8_to_epub(source: Path, output: Path | None = None, overwrite: boo
     if unsupported_refs:
         result.warnings.append(
             f"{unsupported_refs} reference(s) to embedded content this converter doesn't handle yet "
-            "(such as embedded SVG) were left as they were and will not display."
+            "(audio, video or another kind of embedded flow) were left as they were and will not display."
         )
 
     # -- table of contents, landmarks, page titles -----------------------
@@ -223,6 +262,11 @@ def convert_kf8_to_epub(source: Path, output: Path | None = None, overwrite: boo
         for n in sorted(wanted)
         if n in book.images
     ]
+    images += svg_files
+    fonts = [
+        EpubImage(book.fonts[n].filename, book.fonts[n].media_type, book.fonts[n].data)
+        for n in sorted(used_fonts)
+    ]
     cover_filename = (
         _image_filename(book.images[book.cover_recindex], book.cover_recindex)
         if book.cover_recindex in book.images else ""
@@ -250,6 +294,7 @@ def convert_kf8_to_epub(source: Path, output: Path | None = None, overwrite: boo
         pages=[(page_titles.get(i, title), body) for i, body in enumerate(bodies)],
         css=css,
         images=images,
+        fonts=fonts,
         cover_filename=cover_filename,
         toc=toc,
         landmarks=landmarks,

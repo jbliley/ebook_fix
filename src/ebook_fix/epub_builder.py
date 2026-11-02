@@ -78,6 +78,7 @@ class EpubSpec:
     pages: list = field(default_factory=list)        # [(title, body_html)] in reading order
     css: str = ""
     images: list = field(default_factory=list)       # list[EpubImage]
+    fonts: list = field(default_factory=list)        # list[EpubImage] (filename, media_type, data), written to fonts/
     cover_filename: str = ""
     toc: list = field(default_factory=list)          # list[TocItem]
     landmarks: list = field(default_factory=list)    # [(epub_type, href, label)]
@@ -251,6 +252,11 @@ def _opf(spec: EpubSpec, has_toc: bool, modified: str) -> str:
             f'    <item id="{item_id}" href="images/{image.filename}" media-type="{image.media_type}"{props}/>'
         )
 
+    for font in spec.fonts:
+        manifest.append(
+            f'    <item id="font-{font.filename.rsplit(".", 1)[0]}" href="fonts/{font.filename}" media-type="{font.media_type}"/>'
+        )
+
     spine_attr = ' toc="ncx"' if has_toc else ""
     spine = [f'    <itemref idref="part{i + 1:04d}"/>' for i in range(len(spec.pages))]
 
@@ -313,7 +319,9 @@ def write_epub(path: Path, spec: EpubSpec) -> None:
             for i, (title, body) in enumerate(spec.pages):
                 add(f"OEBPS/text/{page_filename(i)}", _page_xhtml(title, body, spec.language))
             for image in spec.images:
-                add(f"OEBPS/images/{image.filename}", image.data, compress=False)
+                add(f"OEBPS/images/{image.filename}", image.data, compress=image.media_type == "image/svg+xml")
+            for font in spec.fonts:
+                add(f"OEBPS/fonts/{font.filename}", font.data, compress=False)
         os.replace(temp, path)
     finally:
         if temp.exists():

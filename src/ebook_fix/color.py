@@ -142,9 +142,11 @@ NO_BACKGROUND_VALUES = frozenset({"none", "transparent", "inherit", "initial", "
 
 # One simple selector the reach measurement can resolve without a full
 # CSS engine: optional tag, any number of .class/#id parts, and the
-# link states/[href] a link rule carries. Anything else (descendant or
-# child combinators, ::first-letter, :first-child, other attribute
-# selectors) is "too complex to measure" and stays in review.
+# link states/[href] a link rule carries. Such selectors can be chained
+# with descendant (space) and child (>) combinators (`.a .b`, `.a > p.b`;
+# only the last one may carry link states). Anything else (sibling
+# combinators, ::first-letter, :first-child, other attribute selectors,
+# :not()) is "too complex to measure" and stays in review.
 MEASURABLE_SELECTOR_RE = re.compile(
     r'^(\*|[a-zA-Z][a-zA-Z0-9]*)?((?:[.#][a-zA-Z_-][\w-]*)*)'
     r'(?:\[href\]|:(?:link|visited|hover|active|focus))*$'
@@ -237,6 +239,73 @@ class ColorReach:
             total += _words(el)
         return total
 
+    @staticmethod
+    def _parse_chain(part: str):
+        """(combinators, specs) for a chain of simple selectors joined by
+        descendant/child combinators, or None if any piece is beyond what
+        can be measured. specs[i] is (tag, classes, ids); combinators[i] is
+        the combinator written just before specs[i] (" " or ">")."""
+        tokens = part.replace(">", " > ").split()
+        combinators, specs = [" "], []
+        expect_compound = True
+        for position, tok in enumerate(tokens):
+            if tok == ">":
+                if expect_compound:
+                    return None
+                combinators.append(">")
+                expect_compound = True
+                continue
+            if not expect_compound:
+                combinators.append(" ")
+            m = MEASURABLE_SELECTOR_RE.match(tok)
+            if not m:
+                return None
+            # link states / [href] are only understood on the element a
+            # rule finally styles, never on an ancestor in the chain
+            if (":" in tok or "[" in tok) and position != len(tokens) - 1:
+                return None
+            specs.append(((m.group(1) or "").lower(), *ColorReach._classes_and_ids(m.group(2))))
+            expect_compound = False
+        if expect_compound or not specs:
+            return None
+        return combinators, specs
+
+    @staticmethod
+    def _classes_and_ids(text):
+        classes, ids = [], []
+        for kind, name in CLASS_OR_ID_PART_RE.findall(text or ""):
+            (classes if kind == "." else ids).append(name)
+        return classes, ids
+
+    @staticmethod
+    def _compound_matches(el, spec) -> bool:
+        tag, classes, ids = spec
+        if tag and tag != "*" and _local(el) != tag:
+            return False
+        if classes:
+            el_classes = (el.get("class") or "").split()
+            if any(c not in el_classes for c in classes):
+                return False
+        if any(i != el.get("id") for i in ids):
+            return False
+        return True
+
+    def _chain_ok(self, el, combinators, specs, index) -> bool:
+        """el already matches specs[index]; check the part of the chain
+        written to its left."""
+        if index == 0:
+            return True
+        if combinators[index] == ">":
+            parent = el.getparent()
+            return (parent is not None and isinstance(parent.tag, str)
+                    and self._compound_matches(parent, specs[index - 1])
+                    and self._chain_ok(parent, combinators, specs, index - 1))
+        for anc in el.iterancestors():
+            if (isinstance(anc.tag, str) and self._compound_matches(anc, specs[index - 1])
+                    and self._chain_ok(anc, combinators, specs, index - 1)):
+                return True
+        return False
+
     def matched_group(self, selector_group: str):
         """Elements a comma-separated selector group matches, or None if
         any part is too complex to measure."""
@@ -245,14 +314,12 @@ class ColorReach:
             return self._cache[key]
         matched: list = []
         for part in [p.strip() for p in selector_group.split(",") if p.strip()]:
-            m = MEASURABLE_SELECTOR_RE.match(part)
-            if not m:
+            chain = self._parse_chain(part)
+            if chain is None:
                 self._cache[key] = None
                 return None
-            tag = (m.group(1) or "").lower()
-            classes, ids = [], []
-            for kind, name in CLASS_OR_ID_PART_RE.findall(m.group(2) or ""):
-                (classes if kind == "." else ids).append(name)
+            combinators, specs = chain
+            tag, classes, ids = specs[-1]
             if ids:
                 candidates = self._by_id.get(ids[0], [])
             elif classes:
@@ -262,14 +329,8 @@ class ColorReach:
             else:
                 candidates = self._all
             for el in candidates:
-                if tag and tag != "*" and _local(el) != tag:
-                    continue
-                el_classes = (el.get("class") or "").split()
-                if any(c not in el_classes for c in classes):
-                    continue
-                if any(i != el.get("id") for i in ids):
-                    continue
-                matched.append(el)
+                if self._compound_matches(el, specs[-1]) and self._chain_ok(el, combinators, specs, len(specs) - 1):
+                    matched.append(el)
         self._cache[key] = matched
         return matched
 

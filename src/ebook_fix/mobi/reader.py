@@ -19,6 +19,7 @@ DRM-protected books are refused, not attempted.
 from __future__ import annotations
 
 import struct
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -59,6 +60,19 @@ class MobiImage:
 
 
 @dataclass
+class MobiFont:
+    recindex: int = 0          # same 1-based numbering as images (kindle:embed:XXXX)
+    record_index: int = 0
+    media_type: str = ""       # font/ttf, font/otf, ...
+    extension: str = ""        # ttf, otf, ...
+    data: bytes = b""
+
+    @property
+    def filename(self) -> str:
+        return f"font{self.recindex:05d}.{self.extension}"
+
+
+@dataclass
 class MobiBook:
     path: Path = None
     generation: str = "MOBI7"
@@ -68,6 +82,7 @@ class MobiBook:
     encoding: str = "cp1252"       # "utf-8" or "cp1252"
     text: bytes = b""              # the decompressed book markup
     images: dict = field(default_factory=dict)   # recindex -> MobiImage
+    fonts: dict = field(default_factory=dict)    # recindex -> MobiFont (KF8 only)
     cover_recindex: int | None = None
     ncx: list = field(default_factory=list)      # list[NcxEntry]
     start_offset: int | None = None              # EXTH 116: where reading should begin
@@ -144,6 +159,67 @@ def read_text_records(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> 
             raise MobiError(f"Couldn't decompress text record {i}: {exc}")
         parts.append(record)
     return b"".join(parts)
+
+
+_FONT_TYPES = (
+    (b"\x00\x01\x00\x00", "ttf", "font/ttf"),
+    (b"true", "ttf", "font/ttf"),
+    (b"OTTO", "otf", "font/otf"),
+    (b"ttcf", "ttc", "font/collection"),
+    (b"wOFF", "woff", "font/woff"),
+    (b"wOF2", "woff2", "font/woff2"),
+)
+
+
+def decode_font_record(blob: bytes):
+    """Decodes one KF8 FONT record into (data, extension, media_type), or
+    None if it isn't a font this can read. Layout (confirmed against the two
+    fonts in a real sample, both flags=3): "FONT", uncompressed size, flags,
+    offset of the font data, length of the XOR key, offset of the XOR key.
+    Flag 2 = the first 1040 bytes of the data are XORed with the repeating
+    key; flag 1 = the data is zlib-compressed. The XOR comes off first, then
+    the decompression."""
+    if blob[:4] != b"FONT" or len(blob) < 24:
+        return None
+    try:
+        usize, flags, dstart, xor_len, xor_off = struct.unpack_from(">LLLLL", blob, 4)
+        payload = bytearray(blob[dstart:])
+        if flags & 2 and xor_len and xor_off + xor_len <= len(blob):
+            key = blob[xor_off:xor_off + xor_len]
+            for i in range(min(1040, len(payload))):
+                payload[i] ^= key[i % xor_len]
+        data = bytes(payload)
+        if flags & 1:
+            data = zlib.decompress(data)
+    except (struct.error, zlib.error, IndexError):
+        return None
+    for magic, extension, media_type in _FONT_TYPES:
+        if data[:4] == magic:
+            return data, extension, media_type
+    return None
+
+
+def _read_fonts(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> tuple[dict, int]:
+    """Returns ({recindex: MobiFont}, number of FONT records that could not
+    be decoded). Fonts sit in the same record range as the images and are
+    numbered the same way."""
+    fonts: dict = {}
+    failed = 0
+    first = header.first_image_record
+    if first == NO_RECORD or first <= 0 or first >= len(palmdb.records):
+        return fonts, failed
+    for record_index in range(first, len(palmdb.records)):
+        blob = record_bytes(data, palmdb, record_index)
+        if blob[:4] != b"FONT":
+            continue
+        decoded = decode_font_record(blob)
+        if decoded is None:
+            failed += 1
+            continue
+        font_data, extension, media_type = decoded
+        recindex = record_index - first + 1
+        fonts[recindex] = MobiFont(recindex, record_index, media_type, extension, font_data)
+    return fonts, failed
 
 
 def _read_images(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> tuple[dict, int]:

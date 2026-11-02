@@ -94,6 +94,7 @@ from ebook_fix.mobi.reader import (
     MobiError,
     MobiImage,
     _find_valid_kf8_boundary,
+    _read_fonts,
     _read_images,
     fill_metadata,
     read_text_records,
@@ -177,6 +178,7 @@ class Kf8Book:
     guide_table: list = field(default_factory=list)      # list[GuideEntry]; empty if the book has none
     toc: list = field(default_factory=list)              # list[TocEntry], already resolved; empty if the book has none
     images: dict = field(default_factory=dict)            # recindex -> MobiImage; same shape as MobiBook.images
+    fonts: dict = field(default_factory=dict)             # recindex -> MobiFont
     cover_recindex: int | None = None
     # Descriptive metadata, filled by ebook_fix.mobi.reader.fill_metadata()
     # -- the same function MobiBook uses, so the two generations can't drift.
@@ -706,6 +708,25 @@ def rewrite_image_refs(body: str, image_href) -> str:
     return _EMBED_RE.sub(replace, body)
 
 
+_FLOW_SVG_RE = re.compile(r"""kindle:flow:([0-9A-Va-v]+)\?mime=image/svg\+xml[^'"\)]*""")
+
+
+def rewrite_svg_flow_refs(body: str, flows: list[bytes], svg_href) -> str:
+    """Rewrites every kindle:flow:XXXX?mime=image/svg+xml reference (a
+    decorative background in the stylesheet, or an <img>) to a real href via
+    `svg_href`, a callable, flow_index -> str | None. Confirmed against a real
+    sample, where the references are `background-image: url(...)` in the
+    book's CSS. A flow index this book doesn't have is left alone (and so is
+    counted as unsupported by the caller)."""
+
+    def replace(match: re.Match) -> str:
+        flow_index = int(match.group(1), 32)
+        href = svg_href(flow_index) if 0 < flow_index < len(flows) else None
+        return href if href is not None else match.group(0)
+
+    return _FLOW_SVG_RE.sub(replace, body)
+
+
 def rewrite_css_flow_refs(body: str, flows: list[bytes], flow_href) -> str:
     """Rewrites every kindle:flow:XXXX?mime=text/css reference in a
     page's body to a real stylesheet href, via `flow_href`, a
@@ -874,6 +895,9 @@ def read_kf8(path: Path) -> Kf8Book:
     book.images, skipped = _read_images(data, palmdb, header)
     if skipped:
         book.warnings.append(f"{skipped} BMP image(s) were skipped (BMP isn't an EPUB image format).")
+    book.fonts, undecodable_fonts = _read_fonts(data, palmdb, header)
+    if undecodable_fonts:
+        book.warnings.append(f"{undecodable_fonts} embedded font(s) couldn't be decoded and were left out.")
     cover_offset = exth_int(exth, 201)
     if cover_offset is not None and cover_offset + 1 in book.images:
         book.cover_recindex = cover_offset + 1
