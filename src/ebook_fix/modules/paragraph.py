@@ -24,7 +24,7 @@ import re
 
 from ebook_fix.config import ParagraphRepairConfig
 from ebook_fix.report import Report
-from ebook_fix.paragraphs import analyze_book_paragraphs, looks_mid_sentence
+from ebook_fix.paragraphs import analyze_book_paragraphs, looks_mid_sentence, starts_fragment_run
 from ebook_fix.chapters import _classify as _classify_chapter_label
 from ebook_fix.headings import HEADING_TAGS as _HEADING_TAGS, MARKER_ATTR as _MARKER_ATTR
 from ebook_fix.modules.scene_break_repair import SCENE_BREAK_TEXT
@@ -230,7 +230,7 @@ class ParagraphRepair:
                     first = meaningful[i]
                     second = meaningful[i + 1]
 
-                    if looks_mid_sentence(first, second):
+                    if looks_mid_sentence(first, second) and not starts_fragment_run(meaningful, i):
                         first_text = self._preview_text(first)
                         second_text = self._preview_text(second)
                         self._merge(first, second)

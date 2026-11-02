@@ -321,6 +321,41 @@ def looks_mid_sentence(first, second) -> bool:
     return starts_mid_sentence(second_text)
 
 
+def starts_fragment_run(paragraphs: list, index: int) -> bool:
+    """True if the paragraph pair (index, index + 1) belongs to a run of
+    linked "mid-sentence" pairs that reads as deliberate fragments, not
+    as one sentence cut into pieces. Both must hold:
+
+    - the run's first paragraph itself opens mid-sentence (lowercase). A
+      real cut sentence starts with a capital at the head of the run.
+    - the run's last paragraph ends with no sentence-ending mark and not
+      on a word like "and" or "was". A real cut sentence is finished by
+      its last piece, or is cut again on a function word.
+
+    That is stream of consciousness or a list of thoughts: "free I am
+    free" / "lighter than air, floating" / "no one can make me go back"
+    (Glenraven, where 8 such lines were glued together). Such a run is
+    left alone. A run that ends with a full stop or a closing quote is
+    still merged even when it starts lowercase, which is what a line cut
+    after an abbreviation looks like ("...the U.S." / "helicopter strayed
+    over ...", Sidewinders, BrokenSentences). Only pairs that pass
+    looks_mid_sentence are followed, so a real split elsewhere in the
+    chapter is never affected."""
+    head = index
+    while head > 0 and looks_mid_sentence(paragraphs[head - 1], paragraphs[head]):
+        head -= 1
+    if not starts_mid_sentence(_text(paragraphs[head])):
+        return False
+    tail = index + 1
+    while tail + 1 < len(paragraphs) and looks_mid_sentence(paragraphs[tail], paragraphs[tail + 1]):
+        tail += 1
+    tail_text = _text(paragraphs[tail]).rstrip()
+    if tail_text.endswith(SENTENCE_ENDINGS):
+        return False
+    # Ending on "he was" or "and" means the sentence was cut, not finished.
+    return not _DANGLING_WORD_PATTERN.search(tail_text)
+
+
 # ---------------------------------------------------------------------
 # Dangling paragraph endings (flag-only, NEVER auto-repaired)
 # ---------------------------------------------------------------------
@@ -591,8 +626,8 @@ def analyze_book_paragraphs(book, frontmatter_summary=None, chapter_markers=None
         # Nothing is merged on a layout page (see above).
         chapter_summary.meaningful_paragraphs = [] if layout_page else meaningful
 
-        for first, second in ([] if layout_page else zip(meaningful, meaningful[1:])):
-            if looks_mid_sentence(first, second):
+        for i, (first, second) in enumerate([] if layout_page else zip(meaningful, meaningful[1:])):
+            if looks_mid_sentence(first, second) and not starts_fragment_run(meaningful, i):
                 chapter_summary.mid_sentence_splits.append(
                     MidSentenceSplit(
                         href=chapter.href,

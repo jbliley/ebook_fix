@@ -4113,3 +4113,14 @@ Checks: Monster converts to one page (word count identical to the source, 17 rul
 Known limits: tables, lists and block quotes are carried over as they are but not restyled. Nothing in an HTML file says what language it is in unless it declares one, so the language stays "und" until set with the default-language button.
 
 Open item: in Glenraven, Paragraph Repair merges 8 deliberately broken lines in two stream-of-consciousness passages (pages `part0061` and `part0068`) because the lines have no ending punctuation. This is the existing module's behavior, not part of the HTML converter.
+
+### Fixed: Paragraph Repair glued together deliberate fragment lines (2026-11-02)
+
+The open item from the HTML round. Glenraven has two stream-of-consciousness passages written as one short line per paragraph ("free I am free I am free" / "lighter than air, floating" / "no one can make me go back there"). Paragraph Repair saw lines with no ending mark followed by lines that start lowercase and merged 8 of them into run-on paragraphs.
+
+- Rule (`paragraphs.py`, `starts_fragment_run`, used by both the analysis and `modules/paragraph.py`): a run of linked mid-sentence pairs is left alone when its first paragraph itself starts lowercase AND its last paragraph ends with no sentence-ending mark and not on a word such as "and" or "was". A real cut sentence starts with a capital at the head of the run and is finished (or cut again on a function word) at the end, so it merges exactly as before. A run that starts lowercase but ends with a full stop or closing quote still merges: that is a line cut after an abbreviation ("...the U.S." / "helicopter strayed over...").
+- Result on Glenraven: 0 merges (was 8); a second repair changes nothing.
+
+Checks: the first version of the rule (lowercase head only) wrongly skipped a real split in Sidewinders and AdParts, 13 in BrokenSentences, and 2 poem lines in AZW3-FontsSvg, which is why the end-of-run test was added. With the final rule, every one of the 35 example books (EPUB, MOBI, AZW3, FB2 and HTML, the last four converted first) merges exactly the same paragraphs as before; the only change anywhere is Glenraven. New fixture `examples/StreamFragments-Synthetic.html` holds a stream-of-consciousness passage next to a real split: the old code makes 4 merges on it, the new code makes 1 (the real one).
+
+Known limit: a poem whose last line ends with a full stop and whose lines start lowercase (the AZW3-FontsSvg poem) is still joined into prose, as before.
