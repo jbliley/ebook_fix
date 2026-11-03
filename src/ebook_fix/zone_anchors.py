@@ -3,7 +3,7 @@
 frontmatter.py normally anchors the front, main and back zones on the
 first and last confirmed chapter. Two kinds of book leave it without an
 anchor, and this module gives each an honest answer (Phase 4 of
-docs/detection_confidence_plan.md):
+the old detection confidence plan in git history):
 
 1. Chapters that share a file. When every confirmed chapter marker
    lands in one big file (Watermarks-SmallChapterNumbers: 24 chapters in

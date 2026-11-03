@@ -8,7 +8,7 @@ format -- this isn't a real disagreement, just two standards' native
 shapes for the same language -- so metadata.merge needs a way to
 recognize "eng" and "en" (and every other such pair) as equivalent
 instead of flagging every Calibre-managed book's language as a
-MISMATCH. See docs/metadata_plan.md, "Open questions".
+MISMATCH. See the old metadata plan in git history, "Open questions".
 
 This table only needs to cover the two-letter <-> three-letter
 mapping; it isn't a language-detection or validation tool, so an
@@ -82,7 +82,7 @@ def _normalize(code: str) -> str:
 
 
 # A short, well-known subset of ISO 639-1 for the GUI's Language
-# dropdown (Phase 5, docs/gui_plan.md) -- not meant to cover every
+# dropdown (Phase 5, the old GUI plan in git history) -- not meant to cover every
 # code in ALPHA2_TO_ALPHA3 above, just what's actually likely to turn
 # up in a personal library. Sorted by name at the point of use, not
 # here, so this list can stay in whatever order is easiest to skim.

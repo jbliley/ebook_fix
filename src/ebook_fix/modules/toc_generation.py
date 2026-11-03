@@ -5,7 +5,7 @@ Generates a table of contents from nothing, for a book that has
 neither an NCX nor an EPUB3 nav document with any TOC entries at all
 (book.toc_source == "" -- see docs/analysis_roadmap.md, "Next: TOC
 generation when missing", and case 2 of Jacob's three-case framework
-in docs/xhtml_recoder_plan.md: chapter markers exist, no TOC).
+in the old XHTML recoder plan in git history: chapter markers exist, no TOC).
 
 Every existing TOC-related module before this one only ever worked
 with navigation that already existed: toc.py validates one,
@@ -36,7 +36,7 @@ own detected chapter/Part structure rather than inventing anything;
 see that module's docstring for how fragment anchors get assigned. A
 book with nothing confirmed the normal (non-case3) way gets neither
 addition, even if it's otherwise missing both documents -- see
-Jacob's three-case framework in docs/xhtml_recoder_plan.md: case 3
+Jacob's three-case framework in the old XHTML recoder plan in git history: case 3
 books are always routed to manual review, never handed an
 authoritative-looking generated TOC.
 

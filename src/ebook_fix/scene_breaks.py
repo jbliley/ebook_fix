@@ -195,7 +195,7 @@ def analyze_book_scene_breaks(book, chapter_summary: BookChapterSummary | None =
 
     Falls back to case 3 detection (see chapters.py's
     analyze_case3_book_chapters, and Jacob's three-case framework in
-    xhtml_recoder_plan.md) when the normal analysis confirmed no
+    the old XHTML recoder plan in git history) when the normal analysis confirmed no
     chapters at all -- confirmed necessary by testing against a real
     book: The Call of Cthulhu marks its own three internal sections
     ("1. The Horror in Clay.", etc.) as plain styled paragraphs the
@@ -207,7 +207,7 @@ def analyze_book_scene_breaks(book, chapter_summary: BookChapterSummary | None =
     actually are. Using case 3's candidates here is a much lower-
     stakes use of that signal than trusting it enough to physically
     split a file (which case 3 candidates are never allowed to do,
-    see split_safety_bar.md) -- getting a scene-break classification
+    see the old split safety bar notes in git history) -- getting a scene-break classification
     slightly wrong is a soft, easily-noticed cosmetic miss, not a
     file cut in the wrong place.
     """

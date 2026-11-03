@@ -4,7 +4,7 @@ ebook_fix.mobi.analyzer
 Ties palmdb.py and mobi_header.py together into one report, the same
 role ebook_fix.analyzer plays for EPUB -- open the file, read it
 once, hand back a structured result. Analysis only: nothing here
-modifies or writes a MOBI file. See docs/format_support_plan.md for
+modifies or writes a MOBI file. See the old format support plan in git history for
 the phased plan this is Phase 0/1 of.
 
 Generation detection is confirmed against real samples for both
@@ -61,7 +61,7 @@ def _detect_generation(file_version: int, exth_records) -> tuple[str, bool]:
     EXTH 121 boundary tag, meaning a MOBI7 part and a KF8 part are
     both present in the same file) is still written from documented
     field layouts only -- flagged unconfirmed until a real hybrid
-    sample exists (see docs/format_support_plan.md)."""
+    sample exists (see the old format support plan in git history)."""
     if file_version < 8:
         return "MOBI7 (classic Mobipocket)", True
 

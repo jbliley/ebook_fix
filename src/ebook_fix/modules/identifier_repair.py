@@ -3,7 +3,7 @@ ebook_fix.modules.identifier_repair
 
 Writes back the clean, correctly-scoped <dc:identifier> form
 metadata.identifiers.rewrite_identifiers() already knows how to
-produce -- see docs/metadata_plan.md's "Processing logic
+produce -- see the old metadata plan's "Processing logic
 (identifiers)" for the exact rules (opf:scheme attribute match first,
 then an embedded text prefix like "ISBN: ", then the value's own
 shape; no match at all leaves an honest, unscoped bare-DC entry).

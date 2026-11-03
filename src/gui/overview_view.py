@@ -2,7 +2,7 @@
 gui.overview_view
 
 Builds the data the Overview tab renders (Phase 1 of
-docs/gui_redesign_plan.md): a short summary of what the book contains
+the old GUI redesign plan in git history): a short summary of what the book contains
 with anything bad marked red, then six categorized boxes that hold the
 detail. Read-only. Nothing here changes a book.
 

@@ -10,7 +10,7 @@ what this returns into an EPUB.
 Only the classic MOBI7 generation is supported here. A pure AZW3/KF8
 file is recognized and refused with a clear message (its internals are
 organized very differently -- separate skeleton, fragment and flow
-indexes -- and are the next planned step; see docs/mobi_conversion_plan.md).
+indexes -- and are the next planned step; see the old MOBI conversion plan in git history).
 A hybrid file (a MOBI7 book and a KF8 book packed into one) is read
 through its MOBI7 half, which is how the file itself is laid out.
 
@@ -125,7 +125,7 @@ def read_text_records(data: bytes, palmdb: PalmDBHeader, header: MobiHeader) -> 
     """Decompresses every text record and joins them. Shared with
     ebook_fix.mobi.kf8: for a KF8 book this is the input flow-
     separation splits into flow 0 (the main text) and whatever flows
-    follow it (CSS, SVG) -- see docs/azw3_kf8_conversion_plan.md,
+    follow it (CSS, SVG) -- see the old AZW3/KF8 conversion plan in git history,
     Phase 2. For a MOBI7 book the whole return value already is the
     book's text, no further splitting needed."""
     if header.compression not in (COMPRESSION_NONE, COMPRESSION_PALMDOC, COMPRESSION_HUFFCDIC):
@@ -259,7 +259,7 @@ def _find_valid_kf8_boundary(data: bytes, palmdb: PalmDBHeader, exth: list) -> i
     it, confirmed by scanning every record). Trusting EXTH 121's mere
     presence would have misclassified that file as a hybrid and tried
     to read a MOBI7 half that isn't really there. See
-    docs/azw3_kf8_conversion_plan.md, Phase 1."""
+    the old AZW3/KF8 conversion plan in git history, Phase 1."""
     for record in exth:
         if record.record_type != 121:
             continue
@@ -381,7 +381,7 @@ def read_mobi(path: Path) -> MobiBook:
             # byte-for-byte, and the visible text up to text_length
             # matched a reference tool's independently-decoded output
             # exactly. Splitting flow 0 out from what follows it is
-            # Phase 2 (see docs/azw3_kf8_conversion_plan.md); nothing
+            # Phase 2 (see the old AZW3/KF8 conversion plan in git history); nothing
             # to warn about here, since this is the expected shape, not
             # a symptom of anything wrong.
             pass

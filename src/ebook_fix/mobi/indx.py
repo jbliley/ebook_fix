@@ -28,7 +28,7 @@ it is nested.
 TAGX, then one or more data records, then optional CTOC label records)
 with none of the NCX-specific interpretation -- `read_ncx_entries()` is
 now just one consumer of it. A KF8 book's skeleton, fragment, guide and
-chapter-TOC indices (docs/azw3_kf8_conversion_plan.md, Phase 3) are laid
+chapter-TOC indices (the old AZW3/KF8 conversion plan in git history, Phase 3) are laid
 out exactly the same way and read through the same function, in
 ebook_fix.mobi.kf8; only the tag numbers' meanings differ table to
 table, which is why those readers live there instead of here.

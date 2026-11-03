@@ -4,7 +4,7 @@ metadata.core_fields
 Reads a book's core bibliographic fields -- title, author, language,
 publisher, date, rights, description, subjects, and series -- as a
 single grouped result for the analysis pass, and writes confidently-
-resolved values back out. See docs/metadata_plan.md for the overall
+resolved values back out. See the old metadata plan in git history for the overall
 design.
 
 Reading is a plain pass-through over what ebook_fix.parser and
@@ -48,7 +48,7 @@ DC_NS = "http://purl.org/dc/elements/1.1/"
 # Metadata tab, where a person is deliberately overriding the book's
 # own dc:language because it's wrong outright, not through
 # MergedCoreFields.epub_updates()/.calibre_updates(), which still
-# exclude it entirely -- see docs/gui_plan.md, Phase 5.
+# exclude it entirely -- see the old GUI plan in git history, Phase 5.
 _DC_FIELD_MAP = {
     "title": "title",
     "author": "creator",

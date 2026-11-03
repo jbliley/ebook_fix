@@ -134,7 +134,7 @@ class Book:
 #     read-only, already-parsed TocEntry list for anything that just
 #     wants to read the table of contents. ncx_document is the live
 #     tree underneath it, for anything that needs to actually edit the
-#     NCX (see docs/xhtml_recoder_plan.md, Phase 3a). The EPUB3 nav
+#     NCX (see the old XHTML recoder plan in git history, Phase 3a). The EPUB3 nav
 #     document doesn't get its own field here -- its media_type
 #     already puts it through the normal chapter-loading path, so it's
 #     already a live tree sitting in book.chapters (see Book.nav_chapter

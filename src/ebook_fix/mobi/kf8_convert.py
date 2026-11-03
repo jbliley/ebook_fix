@@ -15,7 +15,7 @@ faithful conversion, not a cleanup: the book's own text, styling, images,
 cover, metadata, links and table of contents come across as they were,
 and repairing the result is what the normal `repair` command is for.
 
-See docs/azw3_kf8_conversion_plan.md for the phases this builds on and
+See the old AZW3/KF8 conversion plan in git history for the phases this builds on and
 what's not covered yet (audio, video and other rarely used flows).
 
 Embedded fonts (decoded from the book's FONT records) and SVG flows (a

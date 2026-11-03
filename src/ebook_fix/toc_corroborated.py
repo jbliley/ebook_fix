@@ -6,7 +6,7 @@ numbered title ("1. OUT TO SEA") and nothing else, when the book's own
 contents page confirms those chapters.
 
 Why this exists: a numbered title with no "Chapter" label is a case 3
-marker (see docs/xhtml_recoder_plan.md), which is always routed to manual
+marker (see the old XHTML recoder plan in git history), which is always routed to manual
 review because on its own it is weak evidence. It stops being weak when
 the book's own contents page links straight to those headings: the author
 already told us where each chapter starts. This was found on the books

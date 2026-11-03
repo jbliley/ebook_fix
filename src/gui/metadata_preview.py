@@ -3,7 +3,7 @@ gui.metadata_preview
 
 What Fix This Book is going to do to each metadata field, worked out
 ahead of time so the Metadata tab can say so next to the field itself
-(see docs/gui_redesign_plan.md, Phase 3). Without this, someone could
+(see the old GUI redesign plan in git history, Phase 3). Without this, someone could
 retype a title that Title Cleanup was about to fix anyway.
 
 The four repairs that touch metadata (Title Cleanup, Metadata Sync,

@@ -30,7 +30,7 @@ The low-level OPF-editing operations both actions need
 rewrite_chapter_image_references) live in ebook_fix.cover itself,
 shared with Engine.replace_cover -- see that module for why.
 
-What this deliberately does NOT do, per docs/cover_repair_replace_plan.md's
+What this deliberately does NOT do, per the old cover repair plan's
 core principle (repair should only act with reasonable confidence):
 
 - No cover declared at all -- nothing to resolve from, no filename

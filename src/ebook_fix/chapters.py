@@ -592,7 +592,7 @@ def extract_candidates(href: str, tree, classify_fn=None, score_fn=None) -> list
 # ---------------------------------------------------------------------
 # Only meant to run when analyze_book_chapters above already came back
 # with no confirmed chapters at all -- see Jacob's three-case framework
-# in docs/xhtml_recoder_plan.md. Case 3 books have no label word
+# in the old XHTML recoder plan in git history. Case 3 books have no label word
 # ("Chapter", "Part") and no TOC to corroborate against, so this is a
 # meaningfully weaker signal than the rest of this module and is kept
 # entirely separate rather than folded into _classify/_score_candidate:

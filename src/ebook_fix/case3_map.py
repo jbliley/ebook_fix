@@ -17,7 +17,7 @@ matching an existing TOC entry or in-body anchor (see structure.py);
 a Case 3 boundary never can, by definition -- there's no chapter-
 heading word and no TOC to check against in the first place (see
 chapters.analyze_case3_book_chapters). Per Jacob's three-case
-framework (docs/xhtml_recoder_plan.md), that gap is never closed by a
+framework (the old XHTML recoder plan in git history), that gap is never closed by a
 stronger automated signal -- it's closed by a person reviewing every
 boundary here instead.
 

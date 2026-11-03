@@ -278,7 +278,7 @@ class EPUBAnalyzer:
 
         # Core fields (title/author/etc.) and identifiers (ISBN/ASIN/etc.)
         # are read and classified by the metadata package now, not
-        # inline here -- see docs/metadata_plan.md. r.summary keeps the
+        # inline here -- see the old metadata plan in git history. r.summary keeps the
         # same flat fields other code already reads; r.core_fields and
         # r.identifiers hold the full detail for anything that needs it
         # (e.g. a future repair module writing normalized identifiers
@@ -304,7 +304,7 @@ class EPUBAnalyzer:
         # If this book lives inside a Calibre library, metadata.opf is
         # a second, independent source of truth that can genuinely
         # disagree with what's baked into the EPUB itself -- see
-        # docs/metadata_plan.md. Both sides are recorded rather than
+        # the old metadata plan in git history. Both sides are recorded rather than
         # one silently overriding the other; when there's no Calibre
         # context (or metadata.opf can't be read), merging against an
         # empty snapshot just reduces to the EPUB-only values with

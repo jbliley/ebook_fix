@@ -631,7 +631,7 @@ class Engine:
             if merged_ids.identifiers:
                 # One flat "Identifiers:" section rather than a single
                 # "Identifier:" headline plus a separate "Other
-                # identifiers found:" list -- see docs/metadata_plan.md,
+                # identifiers found:" list -- see the old metadata plan in git history,
                 # "Identifiers display". UUID-scheme entries never get
                 # grouped as conflicts (see merge.py's
                 # _NEVER_CONFLICTING_SCHEMES) and print without a label,
@@ -1422,7 +1422,7 @@ class Engine:
         always runs from an explicit name/index rather than reading
         the analysis cache. See ebook_fix.series for how both the
         calibre and EPUB3 conventions get written, and
-        docs/series_metadata_plan.md for the background.
+        the old series metadata plan in git history for the background.
         """
         source, temp_path = self._resolve_source(epub)
         if source is None:
@@ -1686,7 +1686,7 @@ class Engine:
 
     def map_structure(self, epub):
         """Phase 0h of the XHTML Recoder plan (see
-        docs/xhtml_recoder_plan.md): a dry-run view of the detected
+        the old XHTML recoder plan in git history): a dry-run view of the detected
         chapter structure and each boundary's split-confidence, for
         review ahead of any future splitting -- nothing here writes or
         modifies the book. Same manual-review posture as map_css
@@ -1715,7 +1715,7 @@ class Engine:
                 # (no label word, no TOC) turns up anything weaker.
                 # Always shown as its own clearly-separate section, on
                 # its own review-only footing; see
-                # docs/xhtml_recoder_plan.md, Jacob's three-case
+                # the old XHTML recoder plan in git history, Jacob's three-case
                 # framework.
                 case3_tree = analyze_case3_structure(book)
                 if case3_tree.nodes:
@@ -1761,7 +1761,7 @@ class Engine:
         produced) is returned even when split_count is 0 (empty dict
         in that case) so every caller can unpack the same 3-tuple
         unconditionally -- added for the GUI's Before/After tab (Phase
-        7b, docs/gui_plan.md), which needs this exact mapping to know
+        7b, the old GUI plan in git history), which needs this exact mapping to know
         which post-repair file(s) a given original chapter became; no
         other caller had a use for it before, so it was never returned
         until now.
@@ -1867,7 +1867,7 @@ class Engine:
 
     def split_chapters(self, epub, output, overwrite=False, details=False):
         """Phase 1 of the XHTML Recoder plan (see
-        docs/xhtml_recoder_plan.md): a hands-on way to try the
+        the old XHTML recoder plan in git history): a hands-on way to try the
         splitter mechanics (ebook_fix.splitter) against a real book.
         Also runs Phase 2's in-body cross-reference rewriting,
         Phase 3b's NCX entry rewriting, and Phase 3c's NCX entry
@@ -1877,7 +1877,7 @@ class Engine:
         --case3-boundaries path.
 
         NOT gated by the full split-safety-bar corroboration
-        requirement yet (see docs/split_safety_bar.md) -- proper
+        requirement yet (see the old split safety bar notes in git history) -- proper
         gating is Phase 5's job. This only requires a boundary to be
         at least SEQUENCE_ONLY confidence (SEQUENCE_ONLY or
         CORROBORATED, explicitly excluding NEEDS_REVIEW), so it can
@@ -1899,7 +1899,7 @@ class Engine:
         covers a split with *no* existing NCX coverage to extend too,
         anchored by the book's own reading order instead of a
         neighboring entry (see Jacob's three-case framework in
-        docs/xhtml_recoder_plan.md) -- a book with no NCX document at
+        the old XHTML recoder plan in git history) -- a book with no NCX document at
         all (EPUB3-only, no TOC in its nav.xhtml either) is still out
         of scope, since that's generating a nav.xhtml TOC from
         nothing rather than extending an NCX that already exists.
@@ -1923,9 +1923,9 @@ class Engine:
                 "the split, generating a new NCX entry for any resulting chapter\n"
                 "that doesn't already have one -- even when the whole split had no\n"
                 "existing NCX coverage to extend. This tests the splitting\n"
-                "mechanics themselves, not a finished conversion -- see\n"
-                "docs/xhtml_recoder_plan.md for the review gate Phase 5 will add\n"
-                "(requiring a corroborated boundary before splitting anything).\n"
+                "mechanics themselves, not a finished conversion. The Review tab\n"
+                "is the gated way to split (a corroborated boundary is required\n"
+                "before anything is split).\n"
             )
 
             tree = analyze_structure(book)
@@ -2107,7 +2107,7 @@ class Engine:
         if metadata_config is None or not metadata_config.enabled:
             return {"attempted": False, "changed_fields": [], "message": "metadata_repair is disabled in config."}
         if not metadata_config.sync_calibre_db:
-            return {"attempted": False, "changed_fields": [], "message": "sync_calibre_db is turned off in config (off by default -- see docs/metadata_plan.md)."}
+            return {"attempted": False, "changed_fields": [], "message": "sync_calibre_db is turned off in config (off by default)."}
 
         merged = analysis_report.merged_core_fields
         result = calibredb_write.sync_metadata_db(

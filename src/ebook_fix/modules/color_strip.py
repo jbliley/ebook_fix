@@ -22,7 +22,7 @@ never touched by the normal repair() below -- see engine.py's
 gui/analysis_view.py's manual-review list, the same pattern already
 used for dangling paragraph endings and possessive candidates.
 apply_review_removals() (below) is the one exception: it's how the
-GUI Review tab (docs/gui_plan.md, 2026-09-11 planned batch) lets a
+GUI Review tab (the old GUI plan in git history, 2026-09-11 planned batch) lets a
 person selectively remove one specific review-bucket finding anyway,
 by id, without upgrading that class/selector to `confident` for every
 book that happens to share it.

@@ -9,7 +9,7 @@ project's existing EPUB parsing applies underneath it.
 
 Field layout confirmed against a real MOBI7 sample
 (examples/MOBI-Example.mobi) rather than written from spec alone --
-see docs/format_support_plan.md for what's confirmed and what's
+see the old format support plan in git history for what's confirmed and what's
 still open (no AZW3/KF8 sample exists yet, so the hybrid case below
 `mobi_header.py` handles is unconfirmed).
 """

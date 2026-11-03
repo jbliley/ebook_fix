@@ -1,148 +1,34 @@
-# Analysis Roadmap -- Planning Doc
+# Analysis Roadmap
 
-**Status:** Active. Front/back matter classification, NCX/nav label
-parsing + reuse + link validation, split-title TOC entry merging,
-cover image detection, span soup detection, Project Gutenberg
-boilerplate detection + removal, orphaned zip files, font
-embedding gaps, font stripping repair module, contents page false-positive filtering, and part node (prologue/epilogue) splitting are done (see below). ISBN-based metadata lookup is next -- planning phase complete, awaiting Jacob's UX decisions on auto-fill vs. review-first and offline handling.
+The dated record of what was built or fixed, newest at the bottom, with
+what was checked and what the results were. What is still open lives in
+`docs/future_plans.md`.
 
-**Most recently completed (2026-09-18 session):**
-- GUI refactor: Metadata tab merged into Repair tab (single-pass workflow)
-- URL cover art input: validates URL reachability, fetches on "Apply Everything"
-- Part nodes (prologues/epilogues): now appear in Review tab as splittable boundaries, marked with "PART" tag, split to separate XHTML files alongside chapters
-- Font strip wiring: verified complete (config, analyzer, engine pipeline, GUI review, app routes all working)
-- Critical bug fixes: 4 redirect route bugs + 3 KeyError bugs in app.py
-- Contents page false-positive filtering: integrated into chapter detection, tested with MM21.epub
+## Where things stand
 
-## The idea
+- **Chapter detection and splitting.** Follows three cases: a book with a
+  contents list and chapter markers is left alone, a book with markers
+  but no contents list gets a generated one and is split, and a book with
+  neither gets best-effort candidates that go to the Review tab. A split
+  needs a corroborated boundary. Omnibus books split into separate books.
+- **Interface.** The browser tool has Overview, Metadata, Review (shown only
+  when something needs a choice) and Before / After tabs, plus Browse,
+  Fix This Book and the split page. Every repair is also available on the command line.
+- **Conversions.** MOBI, AZW3/KF8, FB2 and HTML all become EPUB through
+  one shared builder.
 
-The analysis-first migration (now mostly finished, see
-`analysis_first_migration_plan.md` before it's deleted) fixed *how*
-analysis and repair talk to each other -- one pass, one shared report,
-repair reads instead of re-scanning. This doc is the opposite kind of
-list: *what else* is worth having the analyzer notice in that one
-pass, so a future repair module never has to scan for it itself.
+## Removed planning docs
 
-Each item below is a candidate for a new (or extended) analyzer
-module, in the same spirit as `images.py`/`paragraphs.py`/
-`whitespace.py` -- record the facts once, let repair (whenever it
-gets written) just read them. Nothing here is scoped or ordered yet;
-this is a holding pen, not a commitment.
+The plan docs for finished work were removed once the work was done. The
+full text stays in git history:
 
-## Candidates
+- Removed 2026-10-26 (see "Plan docs closed out"): `git show ba860ba:docs/<file name>`.
+- Removed 2026-11-03: `gui_plan.md`, `xhtml_recoder_plan.md`,
+  `CSS_ANALYZER.md` and `CSS_WORKFLOW.md`, via `git show 874c5c2:docs/<file name>`.
+  The splitting design record is the most worth rereading in
+  `xhtml_recoder_plan.md`.
 
-### Structure & navigation
-- **NCX/nav label parsing, reuse, and link validation -- done, see
-  below.** Generating a TOC from scratch when a book has none is the
-  remaining piece -- see "Next" below.
-- Front/back matter classification -- identify title page, copyright,
-  dedication, TOC page, etc. by pattern, so "thin chapter" doesn't
-  lump them in with actually broken content. **Done, see below.**
-- **Cover image detection -- done, see below.**
-
-### Conversion artifacts
-- Stray page-number remnants -- leftover PDF page numbers sitting
-  mid-paragraph or between blocks.
-- Hyphenation break artifacts -- words split by a line-break hyphen
-  that were never rejoined ("con-\ntinue").
-- Footnote/endnote link integrity -- reference markers that don't
-  resolve to a matching note, or notes nothing points to.
-- **Span soup -- done, see below.**
-- **Running title removal -- done, see below** (a book-title heading
-  repeated at the top of every chapter, a shared-template leftover).
-- Fake page-bookmark headings -- found while looking into
-  `ChaptersMisaligned.epub` (a `pdftohtml` conversion, one file per
-  original PDF page). Chapter detection itself is fine on this book;
-  it correctly finds all 24 real "-N-" markers via sequence
-  validation and ignores everything else. The actual defect is that
-  `pdftohtml` stamps the first sentence of *every* page into an
-  `<h2 class="calibre4" id="calibre_pb_N">` as a page-bookmark label,
-  and that class happens to render oversized/bold, so random
-  mid-chapter sentences look like headings. Not a chapter-detection
-  problem, a leftover-heading-markup problem. Likely candidate: flag
-  any heading element that isn't part of `chapters.py`'s confirmed
-  sequence and doesn't look like a real title (ordinary sentence-case
-  prose rather than a short label), then a small repair module to
-  unwrap it back to a `<p>`. The `calibre_pb_` id is a reliable
-  fingerprint for this specific converter, but the general check
-  (unconfirmed heading + prose-shaped text) should catch other
-  converters too -- this is expected to recur, not a one-off (worth
-  keeping in mind for scoping: it should be pattern-based rather than
-  id-based, so it isn't Calibre/pdftohtml-specific).
-- Doubled-letter-collapsed-to-space -- found while building the
-  Possessive Candidates flagging pass (docs/apostrophe_repair_plan.md
-  Phase 2). `BrokenSentences.epub` has a corruption pattern where a
-  doubled letter loses one copy and gets a space in its place instead
-  -- "walls" -> "wal s", "ball bearings" -> "bal  bearings" (the
-  double space there is the tell: TWO l's collapsed to nothing plus a
-  space). This shares the exact same "word + space + s" shape the
-  possessive detector looks for, so it currently shows up as noise in
-  that review list rather than getting its own detection. A real fix
-  would need a dictionary or wordlist to recognize "wal" + "s" isn't
-  a real word pair but "wall" + "s" is -- out of scope for a
-  regex-only pass, and this project has no dictionary dependency yet
-  (see Tools & resources: lxml, rich, tomllib only). Worth its own
-  investigation later rather than folding into apostrophe/possessive
-  work, since it's a different corruption mechanism entirely (a
-  dropped duplicate letter, not a dropped apostrophe).
-
-### Files & packaging
-- **Orphaned zip files -- done, see below.**
-- Manifest media-type mismatches -- declared media-type doesn't match
-  what the file actually is.
-- **Font embedding gaps -- done, see below** (both directions: a
-  `@font-face` rule pointing at a font that isn't embedded, and a font
-  that's embedded but no `@font-face` rule ever uses it).
-- Strip an embedded body-text font, let the e-reader's own choice
-  apply -- raised by Jacob (2026-09-12), same motivation and same
-  confident/review split as hardcoded text-color stripping below:
-  confidently strip a font used for the whole book's body text,
-  route anything narrower/decorative (chapter-opener display fonts,
-  a monospace font for code, an in-story "different language" font)
-  to the Review tab rather than guessing. Genuinely new complexity
-  beyond color-strip: removing an embedded font file means also
-  cleaning up its manifest entry and any `encryption.xml` reference
-  for an IDPF-obfuscated font, not just a CSS property value. See
-  "Done: hardcoded text-color detection" below for the full writeup --
-  not yet scoped into concrete steps.
-- Encoding declaration mismatches -- declared XML/HTML encoding
-  doesn't match the file's actual bytes.
-
-### Content quality
-- Duplicate/near-duplicate content -- repeated boilerplate pages or
-  accidentally duplicated chapters.
-- **Silent mid-paragraph content loss (missing words/sentences with
-  no structural trace) -- done, flag-only, see below.**
-- Metadata completeness -- missing or malformed title, author,
-  language code, identifier.
-- Accessibility gaps -- missing `alt` text, missing `lang`
-  attributes, images with no text alternative.
-
-## Carried over from the analysis-first migration doc
-
-These were on that doc's radar but never got their own phase before
-the migration was declared essentially done. Keeping them here so
-they aren't lost when that file goes away:
-
-- `--log "location.txt"` flag to optionally write full CLI output to
-  a file (Option B: capturing everything including `rich` console
-  output; ANSI color codes to be handled intentionally). Discussed,
-  not yet implemented.
-- Per-category config toggles were the open question for Phase 5 and
-  did get resolved (see the migration doc's Phase 5 writeup) -- listed
-  here only as a pointer in case that doc is gone by the time this is
-  read.
-- Class Standardize was ruled out of scope for the migration itself
-  (works off a hand-reviewed mapping file, not analyzer findings) --
-  not a candidate for this list either, for the same reason.
-- Image-based chapter markers deferred to a future OCR phase.
-- TOC-dependent structural checks deferred until chapter detection is
-  more reliable (TOC data expected to be wrong in many target books)
-  -- revisit for "Generate when missing" below, since a generated TOC
-  is only as good as chapter detection is.
-- Physical chapter splitting assessed as substantially harder than
-  anything on this list -- see `xhtml_recoder_plan.md` for that one;
-  it has its own planning doc since it's a bigger, riskier effort.
+Open ideas from those docs were moved to `docs/future_plans.md`.
 
 ## Done: Contents page detection and filtering (2026-09-15)
 
@@ -1194,22 +1080,6 @@ embedded but that no `@font-face` rule anywhere ever references.
   for real. Both directions came back exactly as expected. Ran a full
   `repair` across all seven sample books afterward with no failures.
 
-## Noted for the master plan, not scoped yet: other major ebook formats
-
-Jacob asked to keep this in mind for whenever it's picked up: analysis
-support for the other major ebook formats besides EPUB, starting with
-MOBI and AZW3. Every module in this project currently assumes an
-EPUB's zip-of-XHTML-plus-OPF shape, so this is a new parser/format
-layer, not an extension of the existing one -- same situation the
-XHTML Recoder was in, so it gets its own planning doc for the same
-reason: **see `docs/format_support_plan.md`**. That doc now carries
-the actual planning (background on the MOBI format, a rough phased
-sketch starting with analysis-only support, open questions); this
-entry stays here only as a pointer so it isn't lost. (Update
-2026-09-20: that doc has since been removed from the repo; MOBI/AZW3
-planning now lives in `docs/mobi_conversion_plan.md` -- see the
-"Done: MOBI to EPUB conversion" entry at the end of this file.)
-
 ## Done: TOC generation when missing (2026-08-30)
 
 The one goal from the original three-part plan that stayed unscoped
@@ -1552,55 +1422,6 @@ detection reuses `class_map.py`'s existing selector/zone machinery
 directly or needs its own) before any code, same as font stripping's
 own place in the candidate list above.
 
-
-
-## Next: Case 3 -- anthology/omnibus support, or in-body Contents-page linking
-
-Three independent, unscoped items, neither currently a priority:
-- Anthology/omnibus EPUBs bundling multiple separate works into one
-  file, each restarting its own numbering -- Case 3 has no label word
-  to anchor a restart on the way the normal pipeline's Part-sequence
-  handling already does for case 1/2, so this would need its own
-  detection strategy. Superseded by "book splitter," below, which is
-  the actual feature Jacob wants here (detecting the restart alone
-  wouldn't accomplish much on its own -- splitting into separate files
-  is the point). See `docs/xhtml_recoder_plan.md`'s 2026-09-13 entry
-  for the full scoping writeup and a real example.
-- Linking an in-body Contents page's chapter names to the chapters
-  they name -- also found against MM21: `part1.xhtml` is a real
-  "CONTENTS" page listing every chapter name (`One`, `Two`, `Three`,
-  ...) as plain `<p>` text, no `<a href>` at all (this is why
-  `analyze` shows "Total Links: 0" on that book). This is a different
-  thing than `toc_generation.py`, which builds/repairs the
-  machine-readable NCX/nav.xhtml TOC the reading system's own menu
-  uses -- MM21 already has a working one of those (41 real entries).
-  This would need matching each listed name against a detected
-  chapter (in order) and wrapping it in a link to that chapter's file
-  -- unscoped so far, including what to do about a listed name that
-  doesn't cleanly match anything (typo, extra entry, etc.).
-- **False-positive chapter-split candidates on an in-body Contents
-  page itself (raised by Jacob, 2026-09-11).** Confirmed happening
-  more than once, via the GUI Review tab: a plain-text Contents page
-  like the MM21 case just above -- a list of chapter titles/numbers
-  with no links -- gets read by the Case 3 candidate detector as a
-  sequence of real chapter headers, and it proposes splitting that one
-  Contents page into several separate files, one per listed title.
-  The underlying recognition problem is the same one the item above
-  needs anyway ("is this whole page an in-body Contents/TOC listing,
-  not narrative content") -- worth solving once and using in both
-  places rather than twice. Once a page is recognized as a Contents
-  listing, Case 3's own candidate detector should skip it entirely
-  rather than proposing splits inside it, the same way it already
-  needs to skip real front/back matter. Not yet scoped: what
-  "recognized as a Contents page" should actually key off -- Jacob
-  mentioned a page at a path like `xhtml/contents.html` as one signal
-  (filename/href), but that alone isn't reliable (plenty of real
-  chapter files could sit under a similarly-named folder, and a
-  Contents page won't always be named that predictably) -- likely
-  needs to combine filename/id hints with the same "short repeated
-  plain-text lines, no links, matches chapter-name-like patterns in
-  sequence" shape the linking item above would also need to detect a
-  Contents page in the first place.
 
 
 ## Done: dangling paragraph endings (possible silent content loss), flag-only (2026-09-09)
@@ -2160,30 +1981,6 @@ every MOBI generation; for KF8 it only describes the main text (flow
 Net effect: HUFF/CDIC decompression is now confirmed correct against a
 real sample, which also resolves a MOBI7-side gap noted since that
 converter shipped (see `mobi_conversion_plan.md`'s "Not covered yet").
-
-
-## Planning: AZW3/KF8 conversion, phased (2026-09-24)
-
-Continuing straight on from MOBI7 conversion, per Jacob's priority
-call. First pass at scoping this (in `mobi_conversion_plan.md`'s
-"Next: AZW3/KF8" section) assumed KF8 was basically MOBI7 with a
-different link scheme. Spending real time with Jacob's three AZW3
-samples (`AZW3-Example.azw3`, `AZW3-Newer.azw3`, `AZW3-Older.azw3`,
-added to `examples/` 2026-09-24) showed that's wrong: a KF8 book's
-text isn't one continuous stream, it's broken into small interleaved
-"skeleton" and "fragment" pieces reassembled through custom, sparsely-
-documented index tables. Genuinely a second file format bolted onto
-the same container, not a MOBI7 variant.
-
-Full write-up and phase breakdown in the new `docs/azw3_kf8_conversion_plan.md`.
-Jacob's call: keep going, but broken into small, independently-
-checkable phases rather than one long push. Phase 1 (fixing two real
-bugs the sample files exposed in already-shipped MOBI7 code -- HUFF/CDIC
-decompression, previously unverified against any real file, is close
-but measurably wrong on a real sample; the "KF8 boundary" EXTH check
-has a false-positive on a file that isn't actually a two-header
-hybrid) is in progress. See the plan doc for the full phase list and
-everything confirmed empirically against the real samples so far.
 
 
 ## Fixed: Whitespace Normalizer deleting a real space next to italics (2026-09-22)
@@ -4137,3 +3934,7 @@ HTML books, and many converted MOBI and FB2 books, carry no language, so they we
 Checks: on the 36 example books (the 35 files in `examples/` plus HTML-Synthetic, converted first where needed) the detected language equals the declared one on all 29 books that declare one and are large enough to judge (28 English, 1 Russian; en-GB counts as English), the 2 books with no language (MOBI-TitledStories and GutenbergText-ChapterSplit) are read as English, and the 5 small synthetic test books correctly give no answer. The two HTML books (Monster, Glenraven) now come out as English, MOBI-TitledStories as English, and the Russian FB2 stays Russian. Ten Latin-script languages were also tried on passages written for the test (Spanish, French, German, Italian, Portuguese, Dutch, Swedish, Danish and Polish correct; the Norwegian passage gave no answer rather than a wrong one). The Metadata tab shows the hint for a book set to "und" and for an English book wrongly set to French, and shows nothing for a correctly set English book.
 
 Known limits: only Russian was tried on a real book in a language other than English; the other languages were tried on short passages. A Norwegian book may get no answer. A book with two languages in roughly equal amounts gets none.
+
+### Changed: planning docs consolidated (2026-11-03)
+
+The four remaining plan docs (`gui_plan.md`, `xhtml_recoder_plan.md`, `CSS_ANALYZER.md`, `CSS_WORKFLOW.md`) were retired. Everything still open from them, plus the old candidate lists at the top of this file, is now in `docs/future_plans.md`, organized by area. Comments, messages and help text that pointed at the retired docs no longer do. Behavior is unchanged: 13 test books converted and repaired with the old and the new code came out the same, apart from the file's own modified time.

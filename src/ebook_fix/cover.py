@@ -142,7 +142,7 @@ def analyze_book_cover(book) -> BookCoverSummary:
 #
 # Used by both modules/cover_repair.py (renaming an existing verified
 # cover) and Engine.replace_cover (naming a newly supplied one) --
-# Jacob's call (docs/cover_repair_replace_plan.md): a cover's filename
+# Jacob's call (the old cover repair plan in git history): a cover's filename
 # should always be "cover.<ext>", the same across every book, rather
 # than left as whatever it happened to be named. Only the name is
 # standardized, never the image's actual format/bytes -- a supplied

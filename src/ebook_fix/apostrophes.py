@@ -7,7 +7,7 @@ two separate "words" -- "don t" instead of "don't", "it s" instead
 of "it's", "dog s" instead of "dog's".
 
 Two phases, two very different risk levels (see
-docs/apostrophe_repair_plan.md):
+the old apostrophe repair plan in git history):
 
 - Phase 1, CONTRACTIONS (below): matched against a closed whitelist
   of known word pairs, so this is safe to auto-repair. See
@@ -276,7 +276,7 @@ def analyze_book_apostrophes(book) -> BookApostropheSummary:
 # is right.
 #
 # So this section only ever produces PossessiveCandidate entries for
-# a person to review -- see docs/apostrophe_repair_plan.md, Phase 2.
+# a person to review -- see the old apostrophe repair plan in git history, Phase 2.
 # Nothing here is wired into ApostropheRepair or any other repair
 # module, and that's deliberate: PossessiveCandidate lives on its own
 # BookPossessiveSummary, entirely separate from ApostropheIssue and
@@ -398,7 +398,7 @@ def analyze_book_possessives(book) -> BookPossessiveSummary:
 
 def apply_possessive_resolutions(book, resolutions: dict) -> int:
     """Applies a person's chosen reading for specific possessive
-    candidates from the GUI Review tab (docs/gui_plan.md, 2026-09-11
+    candidates from the GUI Review tab (the old GUI plan in git history, 2026-09-11
     planned batch) -- `resolutions` maps a candidate `id` to either
     "possessive" (-> "dog's") or "plural" (-> "dogs"); any candidate
     id not present is left exactly as-is, same as today's default

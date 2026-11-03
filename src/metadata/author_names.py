@@ -6,7 +6,7 @@ a Calibre metadata.opf sidecar is name order: one side has "Smith,
 John" and the other has "John Smith" -- the same name, just rendered
 the two conventional ways. Per Jacob's preference this should always
 resolve to "First Last" rather than being logged as a field mismatch
-needing a person's judgment call. See docs/metadata_plan.md, "Open
+needing a person's judgment call. See the old metadata plan in git history, "Open
 questions".
 
 detect_reversed_author() only recognizes the mechanical reversal case

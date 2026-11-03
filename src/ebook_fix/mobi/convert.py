@@ -13,7 +13,7 @@ repairing the result (chapter detection, typography, TOC generation for
 a book that never had one, and so on) is what the normal `repair`
 command is for.
 
-See docs/mobi_conversion_plan.md for scope and what's not covered yet.
+See the old MOBI conversion plan in git history for scope and what's not covered yet.
 """
 from __future__ import annotations
 

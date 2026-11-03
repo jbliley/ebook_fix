@@ -2,7 +2,7 @@
 gui.app
 
 Phases 1-3 of the GUI (Analysis, Metadata, Review tabs) -- see
-docs/gui_plan.md. A local Flask app that runs entirely on your own
+the old GUI plan in git history. A local Flask app that runs entirely on your own
 machine (localhost); nothing here is sent over the internet. Launch
 it via run_gui.bat / run_gui.py at the repo root, or `python -m
 gui.app` once the package is installed.
@@ -12,7 +12,7 @@ dialog (see browse() below), never by browser upload. This isn't just
 a UI preference: a browser's own <input type="file"> can only ever
 hand the server raw bytes, never a real location, and Calibre
 detection needs that real location to walk up looking for
-metadata.db. See docs/gui_plan.md, "Bug fix -- Calibre detection and
+metadata.db. See the old GUI plan in git history, "Bug fix -- Calibre detection and
 save location," for the full story of why this app doesn't support
 upload-by-bytes at all.
 
@@ -23,7 +23,7 @@ Before/After tabs can all work against the same book across several
 requests. There's no login and no cleanup job yet -- this is a
 single-user local tool, and an old session folder left in the temp
 directory is harmless clutter, not a real problem, but it's a known
-gap worth fixing before this goes much further (see docs/gui_plan.md).
+gap worth fixing before this goes much further (see the old GUI plan in git history).
 
 This calls the same building blocks the CLI already uses --
 ebook_fix.parser.EPUBParser, ebook_fix.analyzer.EPUBAnalyzer,
@@ -299,7 +299,7 @@ def _source_path(session_dir: Path) -> Path:
     walks up from the book's own path looking for metadata.db and
     Calibre's folder-naming convention, and a copy sitting in a temp
     folder can never be recognized as Calibre-managed no matter what
-    it contains. See docs/gui_plan.md, "Bug fix -- Calibre detection
+    it contains. See the old GUI plan in git history, "Bug fix -- Calibre detection
     and save location"."""
     real = Path((session_dir / "real_path.txt").read_text(encoding="utf-8"))
     copy = session_dir / "converted_before.epub"
@@ -380,7 +380,7 @@ def _handle_missing_source(view_func):
     book" page a person would see at / , with a plain message, rather
     than fixing this up separately in every route that loads a book --
     same posture as the locked-file handling in replace_original()
-    below, just for "gone" instead of "locked." See docs/gui_plan.md,
+    below, just for "gone" instead of "locked." See the old GUI plan in git history,
     "Bug fix -- GUI errors if the original file is removed mid-
     session."""
     @wraps(view_func)
@@ -505,7 +505,7 @@ def _removed_reasons_path(session_dir: Path) -> Path:
 def _split_mapping_path(session_dir: Path) -> Path:
     """Original href -> list of resulting hrefs, written by
     apply_repair() whenever a staged split actually runs -- see the
-    Phase 7a scoping note in docs/gui_plan.md for why this can't be
+    Phase 7a scoping note in the old GUI plan in git history for why this can't be
     reconstructed after the fact from the fixed EPUB alone. GUI-only
     bookkeeping, same as staged_metadata.json/staged_review.json;
     the CLI's own split commands never touch this file."""
@@ -759,7 +759,7 @@ def _split_candidate_groups(book):
                 "confidence": confidence.value,
                 # CORROBORATED is the only level the project's own
                 # split-safety-bar considers safe to apply without a
-                # person looking (see docs/split_safety_bar.md) -- so
+                # person looking (see the old split safety bar notes in git history) -- so
                 # it's the only one pre-checked. SEQUENCE_ONLY and
                 # NEEDS_REVIEW still show up, but require an active
                 # choice.
@@ -1025,7 +1025,7 @@ def browse():
     <input type="file"> can never hand back a real path (a deliberate
     browser security restriction), which is exactly why Calibre
     detection couldn't work before this existed; see the "Bug fix --
-    Calibre detection and save location" entry in docs/gui_plan.md.
+    Calibre detection and save location" entry in the old GUI plan in git history.
 
     Runs the dialog in a short-lived subprocess (a plain `python -c`
     call with tkinter, which ships with a standard Python install)
@@ -1942,7 +1942,7 @@ def book_details(session_id):
 
     # A book's own analysis, so each module's checkbox can show how
     # many issues it actually found in THIS book (not just whether
-    # it's enabled in ebook_fix.toml) -- see docs/gui_plan.md, Phase 6
+    # it's enabled in ebook_fix.toml) -- see the old GUI plan in git history, Phase 6
     # follow-up. Reusing the module classes here rather than
     # Engine.modules, since that only ever builds the ones already
     # enabled; a disabled module's count still needs to show up if a
@@ -2318,7 +2318,7 @@ def fix_book(session_id):
     db_sync_status = engine._sync_metadata_db(analysis_report)
 
     # Persisted purely for the Before/After tab (Phase 7b,
-    # docs/gui_plan.md) -- a new chapter_004.xhtml's own filename never
+    # the old GUI plan in git history) -- a new chapter_004.xhtml's own filename never
     # reveals which original chapter it came from (see the Phase 7a
     # scoping note), so this is the one place that mapping actually
     # exists and the only chance to save it. Written even when empty,
@@ -2616,7 +2616,7 @@ def delete_original_backup(session_id):
 @_handle_missing_source
 def book_before_after(session_id):
     """Compares the original book against the most recent
-    "<n>_fixed.epub", chapter by chapter -- see docs/gui_plan.md,
+    "<n>_fixed.epub", chapter by chapter -- see the old GUI plan in git history,
     Phase 7a, for the three-case scoping this route implements:
     unchanged (same href both sides), split (one original href, one or
     more resulting hrefs -- see split_mapping.json), and removed

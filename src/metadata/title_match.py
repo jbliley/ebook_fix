@@ -19,7 +19,7 @@ be kept? is baking the series into the title even wanted, given series
 is already its own tracked field? -- not a formatting cleanup, so
 detect_subtitle_relationship() below only *flags* the relationship
 with an explanatory note for a person to weigh in on quickly; it never
-resolves it. See docs/metadata_plan.md.
+resolves it. See the old metadata plan in git history.
 """
 from __future__ import annotations
 

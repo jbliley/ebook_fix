@@ -5,7 +5,7 @@ DOM-aware whitespace analysis, replacing the old flat regex pass in
 ebook_fix.modules.whitespace. Analyzes the whole book in the same
 single pass the rest of the analyzer runs, so ebook_fix.modules.whitespace
 doesn't have to scan the book itself -- same pattern as images.py and
-paragraphs.py (see docs/analysis_first_migration_plan.md, Phase 5).
+paragraphs.py (see the old analysis-first migration plan in git history, Phase 5).
 
 Why this needed a real rewrite instead of a quick swap-in
 -----------------------------------------------------------

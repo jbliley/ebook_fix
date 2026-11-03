@@ -2,7 +2,7 @@
 ebook_fix.crossref
 
 Phase 2 and Phase 3b of the XHTML Recoder plan (see
-docs/xhtml_recoder_plan.md): cross-reference rewriting after a split.
+the old XHTML recoder plan in git history): cross-reference rewriting after a split.
 Phase 1 (splitter.py) cuts a file into several standalone files but
 leaves every link that used to point at the original file exactly as
 it was -- this module finds those links and rewrites the ones it
@@ -385,7 +385,7 @@ def _spine_position_anchor(target_hrefs: dict, href_to_position: dict, position:
     """Finds the existing navPoint whose target sits closest before
     `position` in the book's reading order, for anchoring a new entry
     when there's no direct href match to extend (see the "rest of case
-    2" priority note in docs/xhtml_recoder_plan.md). Returns None if
+    2" priority note in the old XHTML recoder plan in git history). Returns None if
     nothing in the NCX sits before that position at all -- the caller
     should insert at the very start of the navMap in that case."""
     best_position = None
@@ -402,14 +402,14 @@ def _spine_position_anchor(target_hrefs: dict, href_to_position: dict, position:
 
 def generate_missing_ncx_entries(book: Any, split_hrefs: set, new_hrefs_by_origin: dict) -> Report:
     """
-    Phase 3c of the XHTML Recoder plan (see docs/xhtml_recoder_plan.md):
+    Phase 3c of the XHTML Recoder plan (see the old XHTML recoder plan in git history):
     when a file with an existing NCX entry splits into several chapter
     files, only whichever file kept that entry's target (after Phase
     3b's rewriting) ends up listed -- every other new file is a real,
     distinct chapter with no entry of its own. This adds one.
 
     Also covers the "rest of case 2" from Jacob's three-case framework
-    (the priority note in docs/xhtml_recoder_plan.md): a split whose
+    (the priority note in the old XHTML recoder plan in git history): a split whose
     resulting files have no existing NCX entry to extend at all still
     gets entries generated here, anchored by the book's own reading
     order (book.chapters, which loads in spine order) rather than by

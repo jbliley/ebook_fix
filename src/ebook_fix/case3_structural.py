@@ -2,7 +2,7 @@
 ebook_fix.case3_structural
 
 Second Case 3 chapter-boundary detection path (see Jacob's three-case
-framework in docs/xhtml_recoder_plan.md, and the case3 section of
+framework in the old XHTML recoder plan in git history, and the case3 section of
 chapters.py just above analyze_case3_book_chapters). That function
 looks for an unlabeled numbered title ("1. The Horror in Clay."); this
 module is the fallback for books with neither a label word ("Chapter",

@@ -15,7 +15,7 @@ values into Calibre's database, and for failing clearly and safely
 when it can't.
 
 Genuinely unverified against a real Calibre library as of this
-writing -- see docs/metadata_plan.md's calibredb write-back section.
+writing -- see the old metadata plan's calibredb write-back section.
 Every design choice below (the field-name mapping, the executable
 search, the error handling) is a best-effort reading of `calibredb`'s
 documented behavior, not something confirmed against a live `calibredb

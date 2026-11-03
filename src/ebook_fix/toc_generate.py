@@ -16,7 +16,7 @@ navPoints into. Neither helps a book that has no navigation at all.
 Only ever built from chapters.py's normal (case 1/2) confirmed
 sequence -- structure.build_structure fed by analyze_book_chapters,
 never analyze_case3_book_chapters. Per Jacob's three-case framework
-(see docs/xhtml_recoder_plan.md), case 3 detection is deliberately
+(see the old XHTML recoder plan in git history), case 3 detection is deliberately
 weak and always routed to manual review; generating an authoritative-
 looking TOC from it would overstate how sure this actually is. A book
 with nothing confirmed the normal way gets an empty TocEntry list

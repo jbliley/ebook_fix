@@ -8,7 +8,7 @@ than folded into reader.py because a KF8 book's actual shape -- several
 flows, and (from Phase 3 onward) skeleton/fragment reassembly -- is
 different enough from MOBI7's flat "one text blob, split at page
 breaks" that growing MobiBook/read_mobi() to cover both would make
-both harder to follow. See docs/azw3_kf8_conversion_plan.md for the
+both harder to follow. See the old AZW3/KF8 conversion plan in git history for the
 phase this belongs to and everything confirmed against the three real
 AZW3 samples in examples/ along the way.
 
@@ -30,7 +30,7 @@ reading a hybrid file's MOBI7 half), this one refuses anything that
 ISN'T file_version >= 8, so the two are complementary gatekeepers
 rather than overlapping ones.
 
-Phase 3 (docs/azw3_kf8_conversion_plan.md): flow 0 (Phase 2's output) is
+Phase 3 (the old AZW3/KF8 conversion plan in git history): flow 0 (Phase 2's output) is
 not one continuous document -- it's skeleton template pieces and
 fragment content pieces interleaved, each skeleton immediately followed
 by the fragment(s) that belong inside it. read_skeleton_table(),
@@ -43,7 +43,7 @@ confirming the tables are being read correctly (Phase 3's own stated
 goal) even though turning that into well-formed, individually-named
 XHTML files wired into the rest of the converter is Phase 4's job.
 
-Phase 4 (docs/azw3_kf8_conversion_plan.md): every reassemble_flow0() page
+Phase 4 (the old AZW3/KF8 conversion plan in git history): every reassemble_flow0() page
 turned out to already be a complete, well-formed standalone document on
 its own -- its own `<?xml?>` declaration, its own `<html><head>...
 </head><body>...</body></html>`, confirmed identical (structurally) on
@@ -69,7 +69,7 @@ ebook_fix.epub_builder.page_filename() directly against that order,
 exactly like ebook_fix.mobi.convert.py already does for MOBI7.
 
 The Sept 24 exploration notes guessed the labels backwards (see
-azw3_kf8_conversion_plan.md's Phase 3 section) -- the 127-entry table in
+the old AZW3/KF8 conversion plan's Phase 3 section) -- the 127-entry table in
 AZW3-Example.azw3 is FRAGMENT, not skeleton, and the 70-entry
 SKELnnnnnnnnnn-keyed one is SKELETON, not fragment. Confirmed multiple
 ways: by literally reconstructing pages from all three real samples and
@@ -105,7 +105,7 @@ NO_RECORD = 0xFFFFFFFF
 # Tag numbers, confirmed against the skeleton/fragment/guide indices of
 # all three real AZW3 samples in examples/ and cross-checked against a
 # reference tool -- see the module docstring above and
-# docs/azw3_kf8_conversion_plan.md, Phase 3.
+# the old AZW3/KF8 conversion plan in git history, Phase 3.
 _SKEL_TAG_FRAGMENT_COUNT = 1
 _SKEL_TAG_GEOMETRY = 6           # 2 values: (start, length) of this skeleton's own template within flow 0
 
@@ -756,7 +756,7 @@ def reassemble_flow0(
     finish the job Phase 4 was expecting to still have to do: every
     resulting page is already a complete, well-formed standalone
     document (see extract_page_body() below and Phase 4's notes in
-    docs/azw3_kf8_conversion_plan.md).
+    the old AZW3/KF8 conversion plan in git history).
 
     A fragment's own content is the `length` bytes immediately
     following its skeleton's template range in flow 0 -- confirmed

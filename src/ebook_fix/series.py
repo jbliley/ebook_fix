@@ -3,7 +3,7 @@ ebook_fix.series
 
 Reads and writes series metadata on a book: which series it belongs
 to, and its position within that series. See
-docs/series_metadata_plan.md for the background and open questions
+the old series metadata plan in git history for the background and open questions
 this resolves.
 
 Two independent real-world conventions exist, and this module

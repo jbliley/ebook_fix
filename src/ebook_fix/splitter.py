@@ -1,7 +1,7 @@
 """
 ebook_fix.splitter
 
-Phase 1 of the XHTML Recoder plan (see docs/xhtml_recoder_plan.md):
+Phase 1 of the XHTML Recoder plan (see the old XHTML recoder plan in git history):
 single-file splitting mechanics. Given one already-parsed XHTML
 Chapter and a set of confirmed split points inside it, physically cuts
 that one file into several standalone chapter files, wires them into
@@ -17,7 +17,7 @@ Deliberately out of scope for this phase (see the plan doc):
 - No NCX/nav regeneration. A book's existing TOC is left exactly as it
   was found.
 - No judgment about which boundaries are safe to split on. That's
-  structure.py's job (see split_safety_bar.md) -- this module trusts
+  structure.py's job (see the old split safety bar notes in git history) -- this module trusts
   whatever markers it's handed and only refuses when the *mechanics*
   can't be done safely (an ambiguous or structurally tangled split
   point), not when the underlying content looks risky. Only a caller
@@ -111,7 +111,7 @@ class SplitResult:
     href_by_id: dict = field(default_factory=dict)  # every id that existed in the
     # original file, mapped to whichever href now holds it -- original_href for
     # anything that stayed in segment 0, one of new_hrefs for anything that moved.
-    # This is Phase 2a of the XHTML Recoder plan (see docs/xhtml_recoder_plan.md):
+    # This is Phase 2a of the XHTML Recoder plan (see the old XHTML recoder plan in git history):
     # the foundation cross-reference rewriting needs, before any link is actually
     # touched. Doesn't include ids that were never used as a link target -- it's
     # every id regardless, since there's no way to know in advance which ones a

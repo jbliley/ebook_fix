@@ -4,7 +4,7 @@ metadata.calibre_detect
 Detects whether a book lives inside a Calibre-managed library, so the
 rest of the metadata package knows whether to read/write through a
 Calibre backend (metadata.opf + metadata.db) or treat the file as a
-lone EPUB. See docs/metadata_plan.md, "Where books are found / dual-
+lone EPUB. See the old metadata plan in git history, "Where books are found / dual-
 mode operation".
 
 Detection walks up from the book's own folder looking for the two

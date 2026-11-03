@@ -54,7 +54,7 @@ Extra pages (added 2026-10-18)
 Three more labels name pages that are not part of the book itself:
 advertisement, newsletter sign-up and "books by the author". They are
 descriptive only (nothing removes a page on the strength of them yet;
-see docs/backmatter_cleanup_plan.md). They are looked for only on pages
+see the old back matter cleanup plan in git history). They are looked for only on pages
 in the front or back zone, never in the main story, and only after every
 older label has had its chance: a page that already reads as About the
 Author or Copyright keeps that label even if it also mentions a
@@ -647,7 +647,7 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
     # separate, richer detection this book's own chapter *splitting*
     # already goes through instead of this older sequence.
     #
-    # Phase 4 of docs/detection_confidence_plan.md narrowed this guard.
+    # Phase 4 of the old detection confidence plan in git history narrowed this guard.
     # A contents page is short (a dozen words per marker at most), while
     # a file that really holds the chapters is long: when the one shared
     # file has plenty of words for every marker (Watermarks-
@@ -771,7 +771,7 @@ def analyze_book_frontmatter(book, chapter_summary=None, overrides=None) -> Book
             word_count >= LONG_STORY_PAGE_WORDS
             or (word_count >= CHAPTER_HEADED_PAGE_WORDS and chapter.href in candidate_hrefs)
         ):
-            # Phase 5 of docs/detection_confidence_plan.md. Real front and
+            # Phase 5 of the old detection confidence plan in git history. Real front and
             # back matter is short. A long page with none of the wording
             # any front or back matter label looks for is story text the
             # confirmed chapter run did not reach (the run restarts in an

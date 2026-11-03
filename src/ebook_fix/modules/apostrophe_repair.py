@@ -6,7 +6,7 @@ Uses the missing-apostrophe findings the analyzer already collected
 
 Phase 1 only: known contractions from a closed whitelist. Possessives
 are intentionally out of scope -- see ebook_fix.apostrophes and
-docs/apostrophe_repair_plan.md.
+the old apostrophe repair plan in git history.
 """
 
 from __future__ import annotations

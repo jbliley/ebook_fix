@@ -12,7 +12,7 @@ Field offsets confirmed against a real MOBI7 sample
 publisher, ISBN, ASIN, description, and a cover image reference).
 The generation-detection logic for AZW3/KF8 hybrid files below is
 written from documented field layouts but NOT yet confirmed against a
-real AZW3 sample -- see docs/mobi_conversion_plan.md.
+real AZW3 sample -- see the old MOBI conversion plan in git history.
 """
 from __future__ import annotations
 import struct
@@ -104,12 +104,12 @@ class MobiHeader:
     huff_record_count: int = 0      # HUFF + CDIC records (HUFF/CDIC books only)
     mobi_offset: int = 0            # absolute file offset of the "MOBI" tag itself
     # KF8-only field, confirmed against all three real AZW3 samples in
-    # examples/ (see docs/azw3_kf8_conversion_plan.md, Phase 2). Present
+    # examples/ (see the old AZW3/KF8 conversion plan in git history, Phase 2). Present
     # in the header regardless of generation once header_length allows,
     # same as the other extended fields above, but only meaningful for
     # a KF8-generation (file_version >= 8) book -- ignore it otherwise.
     fdst_record: int = 0xFFFFFFFF   # the FDST record (flow byte ranges), or 0xFFFFFFFF
-    # KF8-only, Phase 3 (see docs/azw3_kf8_conversion_plan.md). Found by
+    # KF8-only, Phase 3 (see the old AZW3/KF8 conversion plan in git history). Found by
     # brute-force scanning every 4-byte field in the header for the
     # record numbers already confirmed by tag-sniffing the palmdb, not
     # trusted from a third-party tool's own offset table (which uses a
@@ -127,7 +127,7 @@ class MobiHeader:
     # read for MOBI7's NCX above) holds the record number of the
     # book's real, structurally-grounded chapter table of contents --
     # confirmed identical across all three samples. See
-    # docs/azw3_kf8_conversion_plan.md Phase 5.
+    # the old AZW3/KF8 conversion plan in git history Phase 5.
 
 
 @dataclass

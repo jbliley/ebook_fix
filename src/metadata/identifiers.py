@@ -3,10 +3,10 @@ metadata.identifiers
 
 Reads every <dc:identifier> found on a book and classifies each one
 against the scheme definitions in schemes/identifier_schemes.json --
-see docs/metadata_plan.md for the overall design this implements.
+see the old metadata plan in git history for the overall design this implements.
 
 Reading (analyze_book_identifiers, extract_identifiers_from_opf) is a
-pure classification pass -- see docs/metadata_plan.md's "Processing
+pure classification pass -- see the old metadata plan's "Processing
 logic (identifiers)" for the exact rules. rewrite_identifiers() below
 is the write side of the same logic: given the classification a
 scheme rule already confidently produced, it rewrites the element in
@@ -217,7 +217,7 @@ def _classify(raw_value: str, raw_scheme: str, rules: list[SchemeRule]) -> Ident
     # a bare identifier with no scheme attribute and no "uuid:" prefix
     # text still gets recognized if it's an unmistakable UUID shape,
     # rather than falling all the way through to an "unrecognized"
-    # bare-DC entry -- see docs/metadata_plan.md, "Identifiers
+    # bare-DC entry -- see the old metadata plan in git history, "Identifiers
     # display". Tried dead last, after every other, more specific
     # scheme has already had its chance.
     for rule in rules:
@@ -232,7 +232,7 @@ def _classify(raw_value: str, raw_scheme: str, rules: list[SchemeRule]) -> Ident
             result.match_method = "shape_fallback"
             return result
 
-    # No confident match -- bare-DC fallback (see docs/metadata_plan.md,
+    # No confident match -- bare-DC fallback (see the old metadata plan in git history,
     # "Processing logic (identifiers)" step 4). Value is still cleaned
     # up, but no scheme is claimed.
     result.normalized_value = raw_value.strip()
@@ -295,7 +295,7 @@ class IdentifierRewrite:
 
 def rewrite_identifiers(target) -> list[IdentifierRewrite]:
     """Rewrites every <dc:identifier> on target's OPF into a clean,
-    correctly-scoped form, per docs/metadata_plan.md's "Processing
+    correctly-scoped form, per the old metadata plan's "Processing
     logic (identifiers)": normalize the value, set opf:scheme to the
     matched scheme's canonical output_scheme, or drop opf:scheme
     entirely for an honest bare-DC fallback -- then drop an exact

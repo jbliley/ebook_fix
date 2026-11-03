@@ -2,13 +2,13 @@
 gui.analysis_view
 
 Builds the structured data the rebuilt Analysis tab renders (Phase 6,
-docs/gui_plan.md) -- reads `analysis_report` directly, the same object
+the old GUI plan in git history) -- reads `analysis_report` directly, the same object
 _load_analysis() already hands every other tab, rather than capturing
 Engine.analyze()'s printed CLI text the way Phase 1's version of this
 tab did.
 
 Every section below is sorted into one of three buckets, following the
-Phase 6 audit and Jacob's decisions on it (see gui_plan.md):
+Phase 6 audit and Jacob's decisions on it (see the old GUI plan in git history):
 
 - Overview: FYI, context, not a problem.
 - Issues: worth a person's attention.

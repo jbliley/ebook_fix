@@ -90,7 +90,7 @@ def build_parser():
     repair.add_argument(
         "--case3-boundaries",
         metavar="FILE",
-        help="Review and apply Case 3 chapter boundaries (books with no chapter-heading words and no existing TOC -- see docs/xhtml_recoder_plan.md). If FILE doesn't exist yet, detects and writes every candidate boundary to it for review and stops without touching the book. Re-run with the same FILE, after editing it, to physically split on whatever boundaries are still listed."
+        help="Review and apply Case 3 chapter boundaries (books with no chapter-heading words and no existing TOC). If FILE doesn't exist yet, detects and writes every candidate boundary to it for review and stops without touching the book. Re-run with the same FILE, after editing it, to physically split on whatever boundaries are still listed."
     )
     repair.add_argument(
         "--treat-as-fixed-layout",
@@ -249,7 +249,7 @@ def build_parser():
     # Map chapter structure
     map_structure = sub.add_parser(
         "map-structure",
-        help="Show the detected chapter structure and each boundary's split-confidence, for review before any physical splitting (see docs/xhtml_recoder_plan.md)."
+        help="Show the detected chapter structure and each boundary's split-confidence, for review before any physical splitting."
     )
     map_structure.add_argument(
         "input",
@@ -264,7 +264,7 @@ def build_parser():
     # Split chapters (Phase 1 proof of concept)
     split_structure = sub.add_parser(
         "split-structure",
-        help="Proof of concept: physically splits any file with 2+ detected chapter boundaries into standalone chapter files and rewrites any affected in-body cross-reference links (see docs/xhtml_recoder_plan.md Phases 1-2). A mechanics test, not a finished conversion -- the TOC/nav documents aren't updated yet."
+        help="Proof of concept: physically splits any file with 2+ detected chapter boundaries into standalone chapter files and rewrites any affected in-body cross-reference links. A mechanics test, not a finished conversion -- the TOC/nav documents aren't updated yet."
     )
     split_structure.add_argument(
         "input",

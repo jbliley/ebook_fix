@@ -4,7 +4,7 @@ ebook_fix.omnibus_split
 Splits an omnibus EPUB (two or more complete books bound into one file)
 into one finished EPUB per book. Built on ebook_fix.omnibus.detect(),
 which finds where each book starts and ends; this module does the
-writing. See docs/omnibus_splitter_plan.md for the decisions behind it.
+writing. See the old omnibus splitter plan in git history for the decisions behind it.
 
 Unlike every other repair, this produces several files from one input,
 so it is not a pipeline module. It is a standalone operation (like

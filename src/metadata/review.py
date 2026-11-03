@@ -5,7 +5,7 @@ Appends a row to a running CSV log for anything metadata.identifiers
 or metadata.merge couldn't confidently resolve on its own: an
 unmatched identifier that fell back to bare DC, or a field where the
 EPUB and a Calibre metadata.opf sidecar genuinely disagree. See
-docs/metadata_plan.md, "Review log".
+the old metadata plan in git history, "Review log".
 
 The point of this file isn't any single entry -- it's the pattern
 across many books. A handful of books all hitting the same unmatched

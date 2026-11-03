@@ -14,7 +14,7 @@ indirection without a real seam to split along.
 
 Confirmed against a real sample (examples/FB2-Example.fb2, Harper
 Lee's "To Kill a Mockingbird") rather than written from spec alone.
-See docs/format_support_plan.md for what's confirmed and what's
+See the old format support plan in git history for what's confirmed and what's
 still open (only FictionBook 2.0's namespace has been tested; a
 2.1-namespaced or zipped .fb2.zip file hasn't been).
 """

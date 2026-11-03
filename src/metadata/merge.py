@@ -2,7 +2,7 @@
 metadata.merge
 
 Reconciles a book's own internal metadata against a Calibre
-metadata.opf sidecar, when both exist. Per docs/metadata_plan.md,
+metadata.opf sidecar, when both exist. Per the old metadata plan in git history,
 neither source is treated as automatically correct -- a real book
 (Fellowship of the Ring) showed the two genuinely disagreeing on ISBN
 and publisher, with series info that existed only in metadata.opf. So

@@ -7,7 +7,7 @@ back at 1 -- and where each one begins and ends. Descriptive only, same
 as css.py/fonts.py/frontmatter.py: this module finds the boundaries and
 reports a confidence level; splitting the file into separate EPUBs is a
 repair module's job, built on top of this analysis (see
-docs/omnibus_splitter_plan.md).
+the old omnibus splitter plan in git history).
 
 Built and verified against five real omnibus files: three Jacob
 uploaded for this (not included in examples/ -- see the plan doc for

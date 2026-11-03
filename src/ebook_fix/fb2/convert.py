@@ -13,7 +13,7 @@ already carries a real table of contents and real section structure,
 so nothing here is left for TOC Generation to build from scratch the
 way an unstructured MOBI is.
 
-See docs/fb2_conversion_plan.md for scope and what's not covered yet.
+See the old FB2 conversion plan in git history for scope and what's not covered yet.
 """
 from __future__ import annotations
 

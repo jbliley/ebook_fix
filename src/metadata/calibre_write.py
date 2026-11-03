@@ -4,7 +4,7 @@ metadata.calibre_write
 Writes confidently-resolved core-field values back into a Calibre
 library's metadata.opf sidecar, so a correction doesn't just live in
 memory for one run -- it persists on disk, and shows up in Calibre and
-Calibre-Web too. See docs/metadata_plan.md.
+Calibre-Web too. See the old metadata plan in git history.
 
 Only ever called with values metadata.merge has already decided are
 safe to write -- see MergedCoreFields.epub_updates()/.calibre_updates()
@@ -14,7 +14,7 @@ identifier_review.csv for a person (or eventually the GUI) to resolve.
 
 metadata.opf is a small, unlocked sidecar file, so it's edited and
 written back directly here -- unlike metadata.db, which is Calibre's
-live database and (per the original plan in docs/metadata_plan.md)
+live database and (per the original plan in the old metadata plan in git history)
 should only ever be touched through the `calibredb` command-line tool,
 not raw sqlite writes. Syncing metadata.db is still future work, not
 attempted by this module.
@@ -110,7 +110,7 @@ def clean_metadata_opf_identifiers(opf_path) -> list[IdentifierRewrite]:
 
 def _atomic_write(path: Path, data: bytes) -> None:
     """Write-to-temp-then-replace, the same convention every other
-    on-disk write in this project follows (see docs/metadata_plan.md's
+    on-disk write in this project follows (see the old metadata plan's
     lxml gotchas) -- avoids leaving a half-written metadata.opf behind
     if something interrupts the write partway through.
 

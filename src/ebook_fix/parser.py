@@ -434,7 +434,7 @@ class EPUBParser:
         book.original_toc_count = _count(book.toc)
 
         # Phase 3a of the XHTML Recoder plan (see
-        # docs/xhtml_recoder_plan.md): keep the NCX around as a live,
+        # the old XHTML recoder plan in git history): keep the NCX around as a live,
         # editable tree on the Book model -- the same idiom as
         # chapter.document / book.opf_document -- rather than only
         # ever reading it once into the read-only book.toc list above.

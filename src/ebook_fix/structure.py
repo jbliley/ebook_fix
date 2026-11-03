@@ -8,13 +8,13 @@ eventual splitter is allowed to trust a boundary enough to physically
 cut a file there.
 
 This file is Phase 0c of the XHTML Recoder plan (see
-docs/xhtml_recoder_plan.md): blueprint only. Nothing in here detects
+the old XHTML recoder plan in git history): blueprint only. Nothing in here detects
 anything yet -- that's Phase 0d onward, which will assemble a
 BookStructure by reading chapters.py's output (see chapters.py /
 BookChapterSummary) and filling in BoundaryEvidence from there.
 
 The confidence requirements these shapes exist to hold are proposed in
-docs/split_safety_bar.md: a boundary needs to be part of the winning
+the old split safety bar notes in git history: a boundary needs to be part of the winning
 sequence *and* corroborated by something outside the marker text
 itself (an existing TOC entry or internal bookmark) *and* clear a
 minimum-content and structural-cleanliness check before it's ever
@@ -36,7 +36,7 @@ from .text_range import text_from, text_range, text_to_end_of_doc, text_before
 # ---------------------------------------------------------------------
 # Thresholds used by the confidence scoring in Phase 0g (see the
 # bottom of this file). Both are explicitly placeholders -- as
-# docs/split_safety_bar.md says for requirement 3, "exact number TBD
+# the old split safety bar notes in git history says for requirement 3, "exact number TBD
 # once we have more sample books to test against". Pick these back up
 # once the splitter (Phase 1+) has run against more real books.
 # ---------------------------------------------------------------------
@@ -68,7 +68,7 @@ class NodeKind(Enum):
 
 # ---------------------------------------------------------------------
 # Confidence, as a single readable label rather than a raw number.
-# See docs/split_safety_bar.md for what each level is meant to mean.
+# See the old split safety bar notes in git history for what each level is meant to mean.
 # ---------------------------------------------------------------------
 
 
@@ -198,7 +198,7 @@ class BoundaryEvidence:
         if self.case3:
             # Never CORROBORATED, no matter what else is true -- see
             # the case3 field's docstring above and the "Decided" note
-            # in docs/split_safety_bar.md (a book with no
+            # in the old split safety bar notes in git history (a book with no
             # corroborating signal at all always stops at "reviewed,
             # not split").
             return SplitConfidence.NEEDS_REVIEW
@@ -297,7 +297,7 @@ class BookStructure:
     # chapters.py's BookChapterSummary.other_sequences. None if there
     # was no sequence at all. A small margin is exactly the "book
     # itself is ambiguous" signal described in
-    # docs/split_safety_bar.md, requirement 3.
+    # the old split safety bar notes in git history, requirement 3.
     sequence_margin: float | None = None
 
     # Kept for traceability back to the raw analysis this tree was
@@ -370,8 +370,8 @@ def _evidence_for_case3_chapter(candidate: Any, margin: float | None) -> Boundar
         notes=[
             "Case 3 detection: no label word (\"Chapter\", \"Part\") and no "
             "TOC exists in this book to corroborate against, so this can "
-            "never be more than \"needs review\" -- see Jacob's three-case "
-            "framework in docs/xhtml_recoder_plan.md."
+            "never be more than \"needs review\" (case 3 of Jacob's three-case "
+            "framework: no chapter markers and no TOC)."
         ],
     )
 
@@ -413,7 +413,7 @@ def build_structure(summary: BookChapterSummary, case3: bool = False) -> BookStr
     collapsed into a single placeholder FRONT_MATTER node with no
     evidence -- this is *not* real front-matter detection (that's
     frontmatter.py's job, and wiring the two together is still an open
-    question, see xhtml_recoder_plan.md); it's just a placeholder so
+    question, see the old XHTML recoder plan in git history); it's just a placeholder so
     the tree doesn't silently start mid-book. There is deliberately no
     equivalent trailing back-matter placeholder yet either.
 
@@ -489,7 +489,7 @@ def build_structure(summary: BookChapterSummary, case3: bool = False) -> BookStr
 #
 # Fills in BoundaryEvidence.matched_toc_entry for chapters already in
 # a BookStructure (see build_structure above). This is the first of
-# the two corroborating signals required by docs/split_safety_bar.md,
+# the two corroborating signals required by the old split safety bar notes in git history,
 # requirement 2 -- a chapter with a matched TOC entry (or, later, a
 # matched anchor from 0f) can reach CORROBORATED confidence; one with
 # neither stays at SEQUENCE_ONLY no matter how well it scored.
@@ -890,7 +890,7 @@ def apply_heading_hierarchy_consistency(book: Any, tree: BookStructure) -> BookS
 # content per piece, and a structurally-clean cut point -- which is
 # what the two functions below fill in. Once both have run,
 # `confidence` on every node is a complete, live combination of every
-# signal split_safety_bar.md asked for; nothing downstream (Phase 0h's
+# signal the old split safety bar notes in git history asked for; nothing downstream (Phase 0h's
 # review command, the eventual splitter) should need to re-derive
 # anything from chapters.py's raw candidates itself.
 
@@ -985,7 +985,7 @@ def _content_word_count(book: Any, start_href: str, start_element,
 def apply_content_length_check(book: Any, tree: BookStructure,
                                 min_words: int = MIN_CHAPTER_WORDS) -> BookStructure:
     """Fills in BoundaryEvidence.content_length_ok for every confirmed
-    chapter (split_safety_bar.md requirement 4): a boundary whose
+    chapter (the old split safety bar notes in git history requirement 4): a boundary whose
     resulting slice comes in under `min_words` reads as a stray
     heading or scene-divider rather than a chapter's worth of content.
     Mutates the tree's nodes in place and also returns it, for
@@ -1009,7 +1009,7 @@ def apply_content_length_check(book: Any, tree: BookStructure,
     follows later in the spine. Whether trailing files are more of
     that same chapter or back matter is exactly the front/back-matter
     boundary question already flagged as open in
-    xhtml_recoder_plan.md -- this doesn't try to resolve it. An
+    the old XHTML recoder plan in git history -- this doesn't try to resolve it. An
     under-count here can only make a fine last chapter look short,
     never the reverse, which is the safe direction for this check to
     err in.
@@ -1114,7 +1114,7 @@ def _note_container_keyword(el) -> str | None:
 
 def apply_structural_cleanliness_check(tree: BookStructure) -> BookStructure:
     """Fills in BoundaryEvidence.structurally_clean for every
-    confirmed chapter (split_safety_bar.md requirement 5), by walking
+    confirmed chapter (the old split safety bar notes in git history requirement 5), by walking
     up from the marker element through its ancestors and checking for
     a table/list container or a footnote-shaped block along the way.
     Mutates the tree's nodes in place and also returns it, for
@@ -1236,7 +1236,7 @@ def _back_matter_word_count(book: Any, last_chapter_href: str) -> int:
 
 def apply_coverage_check(book: Any, tree: BookStructure) -> BookStructure:
     """Fills in BookStructure.coverage_ok/coverage_gap_words/coverage_notes
-    (split_safety_bar.md requirement 6). Sums front matter + every
+    (the old split safety bar notes in git history requirement 6). Sums front matter + every
     confirmed chapter's span (the same spans apply_content_length_check
     already computes, reused rather than re-derived) + back matter, and
     compares that against _book_total_word_count. No-op (coverage_ok
@@ -1281,7 +1281,7 @@ def apply_coverage_check(book: Any, tree: BookStructure) -> BookStructure:
             f"{accounted} word(s) accounted for across front matter, confirmed chapters, "
             f"and back matter ({'missing' if gap > 0 else 'double-counted'} {abs(gap)} "
             f"word(s)). Every boundary in this book is being treated as not split-eligible "
-            f"until this is investigated -- see docs/split_safety_bar.md, requirement 6."
+            f"until this is investigated (whole-book coverage requirement)."
         )
     return tree
 
@@ -1431,7 +1431,7 @@ def analyze_structure(book: Any) -> BookStructure:
 def analyze_case3_structure(book: Any) -> BookStructure:
     """Case 3 counterpart to analyze_structure above -- for a book
     where the normal pipeline found no confirmed chapters at all (see
-    Jacob's three-case framework, case 3, in xhtml_recoder_plan.md).
+    Jacob's three-case framework, case 3, in the old XHTML recoder plan in git history).
 
     Callers should check analyze_structure's result first and only
     call this when it came back empty; running this on a book that
@@ -1481,7 +1481,7 @@ def analyze_case3_structure(book: Any) -> BookStructure:
 # off on it before Phase 1 ever exists to act on it. The underlying
 # BookStructure this reads stays the structured object -- this
 # function is just one way of presenting it, so a later GUI (see
-# xhtml_recoder_plan.md) can render the same tree differently without
+# the old XHTML recoder plan in git history) can render the same tree differently without
 # this module needing to change.
 
 

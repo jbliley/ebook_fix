@@ -477,7 +477,7 @@ class MetadataRepairConfig:
     # default -- unlike sync_calibre_opf above, this hasn't been
     # verified against a real Calibre library yet (needs calibredb on
     # the machine running this, and a live library to test against).
-    # See docs/metadata_plan.md and metadata/calibredb_write.py.
+    # See the old metadata plan in git history and metadata/calibredb_write.py.
     sync_calibre_db: bool = False
     # Language the Metadata tab's "Use default language" button sets, for
     # books whose language is blank or undetermined: "system" (this
@@ -1349,7 +1349,7 @@ min_line_height = 1.4
 # never touch a genuine two-word phrase that happens to share the
 # same shape. Possessives ("the dog s bone") are a separate, much
 # higher-false-positive-risk problem and are NOT handled by this
-# module -- see docs/apostrophe_repair_plan.md.
+# module.
 enabled = true
 
 # "auto" (recommended) follows whichever apostrophe style the book's
@@ -1438,7 +1438,7 @@ enabled = true
 # ambiguity: the EPUB and metadata.opf already agree, one side was
 # simply empty, or the two sides are the same value in a different
 # rendering (e.g. "Smith, John" vs "John Smith"). A genuine
-# disagreement is never auto-written -- see docs/metadata_plan.md.
+# disagreement is never auto-written.
 enabled = true
 
 # Also write the same resolved values into the metadata.opf sidecar
@@ -1458,7 +1458,7 @@ default_language = "system"
 # requires calibredb to be installed and on PATH (or in one of the
 # usual Windows install locations), and hasn't been verified yet
 # against a real Calibre library. Turn this on once that's confirmed
-# to work well on your machine -- see docs/metadata_plan.md.
+# to work well on your machine.
 sync_calibre_db = false
 
 # ---------------------------------------------------------------------
