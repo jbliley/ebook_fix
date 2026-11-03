@@ -293,9 +293,26 @@ _CONTAINER_XML = (
 )
 
 
+def fill_language_if_unknown(spec: EpubSpec) -> str:
+    """When the book carries no language (blank or "und"), guesses it from
+    the text (ebook_fix.language_detect) and puts it in the spec. Only a
+    clear answer is used, so an unclear book keeps "und" instead of getting
+    a wrong language. Returns the language it set, or "" if it set none."""
+    from metadata.language_codes import is_undetermined
+    from ebook_fix.language_detect import detect_from_pages
+
+    if not is_undetermined(spec.language):
+        return ""
+    code = detect_from_pages(spec.pages).code
+    if code:
+        spec.language = code
+    return code
+
+
 def write_epub(path: Path, spec: EpubSpec) -> None:
     """Writes the EPUB to `path` (via a temporary file in the same
     folder, so a failure never leaves a half-written book behind)."""
+    fill_language_if_unknown(spec)
     path = Path(path)
     has_toc = bool(spec.toc)
     modified = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

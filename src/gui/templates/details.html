@@ -165,6 +165,15 @@
           <option value="{{ code }}" {% if code == language_value %}selected{% endif %}>{{ choice_label }}</option>
           {% endfor %}
         </select>
+        {% if detected_language_code %}
+        <div style="margin-top:0.4rem;">
+          <button type="button" class="button secondary" style="margin-top:0; padding:0.3rem 0.8rem; font-size:0.85rem;"
+                  onclick='var e = document.getElementById("field-language"); e.value = {{ detected_language_code|tojson }}; e.dispatchEvent(new Event("input", {bubbles: true})); e.dispatchEvent(new Event("change", {bubbles: true}));'>
+            Use detected language ({{ detected_language_name }})
+          </button>
+          <span class="mismatch-note">The text of this book looks like {{ detected_language_name }}.</span>
+        </div>
+        {% endif %}
         {% if default_language_code %}
         <div style="margin-top:0.4rem;">
           <button type="button" class="button secondary" style="margin-top:0; padding:0.3rem 0.8rem; font-size:0.85rem;"

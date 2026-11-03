@@ -132,6 +132,8 @@ from gui import file_swap
 from metadata.core_fields import write_core_field
 from metadata import calibre_detect
 from metadata.language_codes import language_options, resolve_default_language, language_name, is_undetermined
+from metadata.language_codes import codes_equivalent as languages_match
+from ebook_fix.language_detect import detect_from_epub as detect_language_from_epub
 
 app = Flask(__name__)
 
@@ -2034,10 +2036,26 @@ def book_details(session_id):
     current_language = (staged_metadata.get("language") if staged_metadata else None) or merged.language.epub_value or merged.language.display_value
 
     default_language_code = resolve_default_language(load_config(None).metadata_repair.default_language)
+
+    # What the book's own text looks like, offered next to the default-language
+    # button when the language is undetermined or looks wrong. Only a clear
+    # answer is shown (see ebook_fix.language_detect).
+    detected_language_code = ""
+    try:
+        detected_language_code = detect_language_from_epub(_source_path(session_dir)).code
+    except Exception:
+        detected_language_code = ""
+    language_matches_text = (not detected_language_code) or languages_match(current_language, detected_language_code)
     language_choices = language_options(current_language)
     if default_language_code and not any(code.lower() == default_language_code for code, _l in language_choices):
         language_choices = sorted(
             language_choices + [(default_language_code, f"{language_name(default_language_code)} ({default_language_code})")],
+            key=lambda pair: pair[1].lower(),
+        )
+
+    if detected_language_code and not any(code.lower() == detected_language_code for code, _l in language_choices):
+        language_choices = sorted(
+            language_choices + [(detected_language_code, f"{language_name(detected_language_code)} ({detected_language_code})")],
             key=lambda pair: pair[1].lower(),
         )
 
@@ -2055,6 +2073,8 @@ def book_details(session_id):
         default_language_code=default_language_code,
         default_language_name=language_name(default_language_code) if default_language_code else "",
         language_undetermined=is_undetermined(current_language),
+        detected_language_code=detected_language_code if not language_matches_text else "",
+        detected_language_name=language_name(detected_language_code) if detected_language_code else "",
         language_note=merged.language.note,
         series_name=staged_metadata.get("series_name") if staged_metadata else (series_info.name or ""),
         series_index=series_metadata.format_index(staged_metadata.get("series_index") if staged_metadata else series_info.index),
