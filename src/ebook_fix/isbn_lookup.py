@@ -489,6 +489,26 @@ def build_suggestions(current: dict, lookup: dict, edition_exact: bool) -> dict:
     return suggestions
 
 
+_BUNDLE_WORDS = re.compile(
+    r"\b(box(?:ed)?\s*set|boxset|omnibus|collection|complete\s+series|trilogy|bundle|"
+    r"books?\s+\d+\s*(?:-|\u2013|to|&|and)\s*\d+)\b",
+    re.IGNORECASE,
+)
+
+
+def looks_like_bundle(title) -> bool:
+    """True for a title like "Bite Back Box Set 1" or "The Complete Series".
+    Open Library catalogs single books, and rarely lists a box set under its
+    own ISBN, so a miss on one of these is expected."""
+    return bool(_BUNDLE_WORDS.search(str(title or "")))
+
+
+_BUNDLE_HINT = (
+    " This looks like a box set or bundle, and Open Library rarely lists those. "
+    "Try the title of the first book instead."
+)
+
+
 # ---------------------------------------------------------------------------
 # One call for the GUI
 # ---------------------------------------------------------------------------
@@ -528,7 +548,8 @@ def run_lookup(search_type: str, current: dict, book=None) -> dict:
             if not result:
                 return {
                     "status": "not_found",
-                    "message": f"Open Library has no record for ISBN {valid[0]}. Try Look Up by Title/Author instead.",
+                    "message": f"Open Library has no record for ISBN {valid[0]}. Try Look Up by Title/Author instead."
+                               + (_BUNDLE_HINT if looks_like_bundle(current["title"]) else ""),
                 }
             edition_exact = True
         else:
@@ -540,7 +561,8 @@ def run_lookup(search_type: str, current: dict, book=None) -> dict:
                 return {
                     "status": "not_found",
                     "message": "Open Library found nothing for that title and author. "
-                               "Check the spelling, or try the ISBN lookup.",
+                               "Check the spelling, or try the ISBN lookup."
+                               + (_BUNDLE_HINT if looks_like_bundle(title) else ""),
                 }
             edition_exact = False
     except LookupFailure as failure:

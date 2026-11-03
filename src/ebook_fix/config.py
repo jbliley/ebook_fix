@@ -1229,6 +1229,10 @@ flush_first_paragraph = true
 # line above and below, and a "* * *" made by another module gets the same
 # spacing. Anything with a letter or digit in it, a heading, a picture, and
 # a one or two glyph ornament are left alone.
+# A book that already marks its scene changes with its own row of symbols
+# ("∞ ∞ ∞ ∞ ∞", used at least twice) keeps that marker: every scene break
+# the tool adds or tidies uses it instead of "* * *". A row of dashes or
+# underscores never counts as the book's own marker.
 
 # ---------------------------------------------------------------------
 # Body Paragraph Look

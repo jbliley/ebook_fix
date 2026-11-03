@@ -28,6 +28,7 @@ from ebook_fix.paragraphs import analyze_book_paragraphs, looks_mid_sentence, st
 from ebook_fix.chapters import _classify as _classify_chapter_label
 from ebook_fix.headings import HEADING_TAGS as _HEADING_TAGS, MARKER_ATTR as _MARKER_ATTR
 from ebook_fix.modules.scene_break_repair import SCENE_BREAK_TEXT
+from ebook_fix.modules.scene_marker_repair import house_marker_text
 
 # A blank paragraph standing between two stretches of story is only
 # read as a scene break when blank paragraphs are rare in the book. A
@@ -98,6 +99,47 @@ def _is_chapter_header_shape(el) -> bool:
     return bool(text) and len(text) <= 40 and _classify_chapter_label(text) is not None
 
 
+_MAX_SUBTITLE_CHARS = 60
+_MAX_SUBTITLE_WORDS = 8
+_MAX_SUBTITLE_LINES = 3
+
+
+def _is_subtitle_shape(el) -> bool:
+    """True for a short title-like line: a day, a place, a date ("THURSDAY",
+    "Denver, Colorado", "Monday, 3 p.m."). Not a sentence, so it does not
+    end in a period, question mark, exclamation mark, ellipsis or quote
+    unless it is written entirely in capitals."""
+    if el is None or _local(el) not in ("p", "div"):
+        return False
+    text = " ".join(_text(el).split())
+    if not text or len(text) > _MAX_SUBTITLE_CHARS or len(text.split()) > _MAX_SUBTITLE_WORDS:
+        return False
+    if MARKER_TEXT.match(text):
+        return False
+    if text.isupper():
+        return True
+    return text[-1] not in ".!?\u2026\"\u201d\u2019'"
+
+
+def _is_under_chapter_header(el) -> bool:
+    """True when el is a chapter header, or a subtitle line (or a couple of
+    them) sitting right under one, with only blank paragraphs in between.
+    The blank line below "Chapter 28 / THURSDAY" is spacing under the title,
+    not a change of scene."""
+    node = el
+    for _ in range(_MAX_SUBTITLE_LINES + 1):
+        if node is None:
+            return False
+        if _is_chapter_header_shape(node):
+            return True
+        if not _is_subtitle_shape(node):
+            return False
+        node = _sibling_elements(node, -1)
+        while node is not None and _is_blank_p(node):
+            node = _sibling_elements(node, -1)
+    return False
+
+
 def _spacer_runs(chapter_summary):
     """Runs of adjacent blank paragraphs sitting between two story
     paragraphs, as lists of live elements. Only runs that contain at
@@ -124,7 +166,7 @@ def _spacer_runs(chapter_summary):
         if not any(r in blanks and _renders_blank_line(r) for r in run):
             continue
         before_run = _sibling_elements(run[0], -1)
-        if _is_chapter_header_shape(before_run):
+        if _is_under_chapter_header(before_run):
             continue
         # Space above a chapter title (a Part's subtitle, then "1") is a
         # page layout gap, not a change of scene.
@@ -133,6 +175,18 @@ def _spacer_runs(chapter_summary):
         if _is_story_text(before_run, junk) and _is_story_text(node, junk):
             runs.append(run)
     return runs
+
+
+def is_header_gap(p) -> bool:
+    """True for a blank line (a blank paragraph that renders a gap) sitting
+    right under a chapter header or the subtitle below it. That space is
+    part of the title block and is never removed."""
+    if not _is_blank_p(p) or not _renders_blank_line(p):
+        return False
+    node = _sibling_elements(p, -1)
+    while node is not None and _is_blank_p(node):
+        node = _sibling_elements(node, -1)
+    return _is_under_chapter_header(node)
 
 
 def plan_spacers(paragraphs) -> dict:
@@ -160,10 +214,10 @@ def plan_spacers(paragraphs) -> dict:
     return plan
 
 
-def _make_scene_break(p) -> None:
+def _make_scene_break(p, text: str = SCENE_BREAK_TEXT) -> None:
     for child in list(p):
         p.remove(child)
-    p.text = SCENE_BREAK_TEXT
+    p.text = text
     for attr in list(p.attrib):
         del p.attrib[attr]
     p.set("style", "text-align: center;")
@@ -193,6 +247,8 @@ class ParagraphRepair:
                 for ref in chapter_summary.empty_paragraphs:
                     if ref.element in plan:
                         report.add(chapter_summary.href, "Blank paragraph marking a scene break")
+                    elif is_header_gap(ref.element):
+                        continue
                     else:
                         report.add(chapter_summary.href, "Empty paragraph")
 
@@ -211,6 +267,8 @@ class ParagraphRepair:
         paragraphs = analysis.paragraphs if analysis is not None else analyze_book_paragraphs(book)
         by_href = {c.href: c for c in paragraphs.chapters}
         plan = plan_spacers(paragraphs) if self._convert_spacers() else {}
+        # The book's own scene break marker when it has one ("\u221e \u221e \u221e"), else "* * *".
+        marker = house_marker_text(book, analysis) if plan else SCENE_BREAK_TEXT
 
         for chapter in book.chapters:
             chapter_summary = by_href.get(chapter.href)
@@ -252,14 +310,16 @@ class ParagraphRepair:
                     parent = p.getparent()
 
                     if p in plan and parent is not None:
-                        _make_scene_break(p)
+                        _make_scene_break(p, marker)
                         changed = True
                         report.add(
                             chapter.href,
                             "Blank paragraph converted to scene break",
                             "A blank paragraph between two paragraphs of story text "
-                            f"now reads {SCENE_BREAK_TEXT!r}, so the scene change is not lost.",
+                            f"now reads {marker!r}, so the scene change is not lost.",
                         )
+                    elif parent is not None and is_header_gap(p):
+                        continue
                     elif parent is not None:
                         parent.remove(p)
                         changed = True

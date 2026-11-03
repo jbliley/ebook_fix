@@ -55,13 +55,13 @@ def _remove_keep_tail(el) -> None:
             parent.text = (parent.text or "") + tail
 
 
-def _replace_with_scene_break_marker(hr) -> None:
+def _replace_with_scene_break_marker(hr, text: str = SCENE_BREAK_TEXT) -> None:
     """Swaps hr for a centered <p>* * *</p> in the same position,
     preserving hr's tail text (the whitespace/content immediately
     following it in the markup) on the new paragraph."""
     marker = etree.Element(hr.tag)
     marker.tag = "p"
-    marker.text = SCENE_BREAK_TEXT
+    marker.text = text
     marker.set("style", "text-align: center;")
     marker.tail = hr.tail
     parent = hr.getparent()
@@ -105,6 +105,10 @@ class SceneBreakRepair:
             return report
 
         scene_breaks = self._get_summary(book, analysis)
+        marker_text = SCENE_BREAK_TEXT
+        if scene_breaks.total_mid_chapter_count and self.config.replace_mid_chapter:
+            from ebook_fix.modules.scene_marker_repair import house_marker_text
+            marker_text = house_marker_text(book, analysis)   # the book's own marker, else "* * *"
 
         changed_hrefs: Set[str] = set()
         for chapter_summary in scene_breaks.chapters:
@@ -116,7 +120,7 @@ class SceneBreakRepair:
                 if issue.classification == MID_CHAPTER:
                     if not self.config.replace_mid_chapter:
                         continue
-                    _replace_with_scene_break_marker(hr)
+                    _replace_with_scene_break_marker(hr, marker_text)
                 elif issue.classification == CHAPTER_EDGE:
                     if not self.config.remove_chapter_edge:
                         continue
@@ -124,7 +128,7 @@ class SceneBreakRepair:
                 else:
                     continue
 
-                report.add(issue.href, *self._describe(issue.classification))
+                report.add(issue.href, *self._describe(issue.classification, marker_text))
                 changed_hrefs.add(issue.href)
 
         if not changed_hrefs:
@@ -153,11 +157,11 @@ class SceneBreakRepair:
         )
 
     @staticmethod
-    def _describe(classification: str) -> tuple[str, str]:
+    def _describe(classification: str, marker_text: str = SCENE_BREAK_TEXT) -> tuple[str, str]:
         if classification == MID_CHAPTER:
             return (
                 "Mid-chapter scene break",
-                f'Mid-chapter <hr> -> centered "{SCENE_BREAK_TEXT}"',
+                f'Mid-chapter <hr> -> centered "{marker_text}"',
             )
         return (
             "Chapter-edge <hr> removed",

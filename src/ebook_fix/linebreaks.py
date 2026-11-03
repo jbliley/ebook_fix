@@ -51,6 +51,7 @@ JSON cache (see serialize.py), only used within a single run.
 """
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 
 from ebook_fix.headings import HEADING_TAGS, is_chapter_header
@@ -72,6 +73,9 @@ _CONTENT_TAGS = frozenset(("img", "image", "svg", "hr", "video", "audio", "objec
 _ORNAMENTS = frozenset("*#~\u2022\u25e6\u25ca\u2042\u2726\u2727\u2731\u2732\u2756\u2055\u00a7")
 _MARKER_GLYPHS = _ORNAMENTS | frozenset("=_+-\u2013\u2014")
 _MARKER_MAX_GLYPHS = 20
+# Decorative symbols a book may use for its own scene break (infinity sign,
+# diamonds, stars, dingbats): Unicode "math symbol" and "other symbol".
+_SYMBOL_CATEGORIES = frozenset(("Sm", "So"))
 
 
 @dataclass
@@ -142,6 +146,8 @@ def is_scene_break_marker(el) -> bool:
     glyphs = "".join("".join(el.itertext()).replace("\u00a0", " ").split())
     if not glyphs or len(glyphs) > _MARKER_MAX_GLYPHS:
         return False
+    if all(unicodedata.category(ch) in _SYMBOL_CATEGORIES for ch in glyphs) and len(glyphs) >= 3:
+        return True                     # "\u221e \u221e \u221e \u221e \u221e", a row of decorative symbols
     if any(ch not in _MARKER_GLYPHS for ch in glyphs):
         return False
     if len(glyphs) >= 3:

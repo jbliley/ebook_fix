@@ -12,8 +12,10 @@
     .top-bar-actions { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; justify-content: flex-end; }
     form.fix-form { display: flex; align-items: center; gap: 0.7rem; margin: 0; }
     form.fix-form label.fix-replace { display: flex; align-items: center; gap: 0.3rem; margin: 0; font-size: 0.8rem; font-weight: 400; color: #555; white-space: nowrap; cursor: pointer; }
-    button.button.fix-button { margin-top: 0; padding: 0.45rem 1rem; font-size: 0.9rem; font-weight: 600; white-space: nowrap; }
+    button.button.fix-button { margin-top: 0; min-width: 8.5rem; padding: 0.45rem 1rem; font-size: 0.9rem; font-weight: 600; white-space: nowrap; }
     button.button.fix-button:disabled { background: #cbd5e0; color: #718096; cursor: not-allowed; }
+    .fix-status { margin: 0.5rem 0 0; padding: 0.4rem 0.7rem; background: #ebf8ff; border: 1px solid #90cdf4; border-radius: 6px; color: #2c5282; font-size: 0.85rem; overflow-wrap: anywhere; }
+    .fix-status[hidden] { display: none; }
     .save-status { font-size: 0.8rem; color: #718096; }
     .save-status.error { color: #c53030; font-weight: 600; }
     .content { margin-top: 1.5rem; padding-bottom: 2rem; }
@@ -92,6 +94,9 @@
         <a class="button secondary top-bar-action" href="/">Analyze another book</a>
       </div>
     </div>
+    {% if session_id %}
+    <div class="fix-status" id="fix-status" role="status" aria-live="polite" hidden></div>
+    {% endif %}
     <div class="tabs">
       <a href="{{ url_for('book_overview', session_id=session_id) }}" class="{{ 'active' if active_tab == 'overview' else '' }}">Overview</a>
       <a href="{{ url_for('book_details', session_id=session_id) }}" class="{{ 'active' if active_tab == 'details' else '' }}">Metadata</a>
@@ -115,6 +120,14 @@
     if (!form) return;
     var button = document.getElementById("fix-button");
     var replace = document.getElementById("fix-replace");
+    // Progress messages go in their own row above the tabs, so a long message
+    // never changes the size of the button or squeezes the title.
+    var status = document.getElementById("fix-status");
+    function showStatus(text) {
+      if (!status) return;
+      status.textContent = text;
+      status.hidden = !text;
+    }
     var KEY = "ebookfix.replaceOriginal";
     try { replace.checked = localStorage.getItem(KEY) === "1"; } catch (e) {}
     replace.addEventListener("change", function() {
@@ -150,13 +163,14 @@
       if (button.disabled || busy) return;
       busy = true;
       button.disabled = true;
-      button.textContent = "Fixing... this can take a minute";
+      button.textContent = "Fixing...";
+      showStatus("Fixing... this can take a minute");
       var go = function() {
         form.submit();
         // Show what is happening so a long run does not look frozen.
         setInterval(function() {
           fetch("/progress").then(function(r) { return r.json(); }).then(function(p) {
-            if (p.text) button.textContent = p.text;
+            if (p.text) showStatus(p.text);
           }).catch(function() {});
         }, 700);
       };

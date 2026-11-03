@@ -96,7 +96,7 @@ PLAIN_NAMES = {
     "header_spacing_repair": "One blank line above and 2 to 5 below chapter headers, all styled alike",
     "scene_break_repair": "Standardize scene breaks",
     "scene_opener_repair": "Mark scene changes that open with capitals",
-    "scene_marker_repair": "Show every scene break as a centered * * * with space around it",
+    "scene_marker_repair": "Show every scene break as a centered marker (the book's own, else * * *) with space around it",
     "body_variant_repair": "Give stray body paragraphs the same line height as the rest",
     "class_cleanup_repair": "Remove class names no style uses",
     "div_paragraph_repair": "Turn paragraphs written as div tags into real paragraphs",

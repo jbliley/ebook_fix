@@ -29,6 +29,7 @@ from lxml import etree
 
 from ebook_fix.config import SceneOpenerConfig
 from ebook_fix.headings import chapter_marker_elements
+from ebook_fix.modules.scene_marker_repair import house_marker_text
 from ebook_fix.report import Report
 from ebook_fix.scene_openers import analyze_book_scene_openers
 
@@ -60,6 +61,7 @@ class SceneOpenerRepair:
         if not self.config.enabled:
             return report
         summary = self._summary(book, analysis)
+        marker_text = house_marker_text(book, analysis) if summary.chapters else SCENE_BREAK_TEXT
 
         changed = set()
         for chapter_summary in summary.chapters:
@@ -69,7 +71,7 @@ class SceneOpenerRepair:
                 if parent is None:
                     continue
                 marker = etree.Element(p.tag)
-                marker.text = SCENE_BREAK_TEXT
+                marker.text = marker_text
                 marker.set("style", "text-align: center;")
                 marker.tail = "\n"
                 parent.insert(parent.index(p), marker)
@@ -77,7 +79,7 @@ class SceneOpenerRepair:
                 report.add(
                     opener.href,
                     "Scene opener marked",
-                    f'Added a centered "{SCENE_BREAK_TEXT}" before the scene opening "{opener.lead}"',
+                    f'Added a centered "{marker_text}" before the scene opening "{opener.lead}"',
                 )
 
         if changed:
