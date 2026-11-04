@@ -129,6 +129,7 @@ from ebook_fix.modules.font_strip import FontStripRepair
 from gui import metadata_preview as metadata_preview_module
 from gui import overview_view
 from gui import file_swap
+from gui import bulk
 from metadata.core_fields import write_core_field
 from metadata import calibre_detect
 from metadata.language_codes import language_options, resolve_default_language, language_name, is_undetermined
@@ -1093,24 +1094,23 @@ def _converted_epub_path(source: Path) -> Path:
     return candidate
 
 
-@app.route("/upload", methods=["POST"])
-def upload():
-    typed_path = request.form.get("path", "").strip().strip('"')
-    _set_progress("Starting\u2026")
-    if not typed_path:
-        return render_template("index.html", error="No file was chosen.")
+class BookOpenError(Exception):
+    """A book could not be opened; the message is shown to the person."""
 
-    path_obj = Path(typed_path)
+
+def _start_session(path_obj: Path) -> str:
+    """Opens a book by its real path and returns the new session id.
+    A MOBI/AZW/AZW3/PRC/PDB, FB2 or HTML book is converted to an EPUB
+    first (see ebook_fix.mobi.convert / ebook_fix.fb2.convert; an AZW3 is
+    routed to ebook_fix.mobi.kf8_convert by convert_mobi_to_epub), and that
+    EPUB is what gets opened -- everything else in the GUI only knows how
+    to work on an EPUB. Used by the first page's Browse button and by Fix a
+    Folder. Raises BookOpenError with a plain message when it can't."""
     if not path_obj.is_file():
-        return render_template("index.html", error=f"Can't find that file: {typed_path}")
+        raise BookOpenError(f"Can't find that file: {path_obj}")
     suffix = path_obj.suffix.lower()
     converted_here = False
     if suffix in MOBI_EXTENSIONS or suffix in FB2_EXTENSIONS or suffix in HTML_EXTENSIONS:
-        # A MOBI/AZW/AZW3/PRC/PDB or FB2 book is converted to an EPUB first (see
-        # ebook_fix.mobi.convert / ebook_fix.fb2.convert; an AZW3 is routed
-        # to ebook_fix.mobi.kf8_convert by convert_mobi_to_epub), and that EPUB
-        # is what gets opened -- everything else in the GUI only knows
-        # how to work on an EPUB.
         target = _converted_epub_path(path_obj)
         try:
             if suffix in HTML_EXTENSIONS:
@@ -1120,16 +1120,15 @@ def upload():
             else:
                 convert_mobi_to_epub(path_obj, target)
         except (MobiError, Fb2Error, HtmlError) as exc:
-            return render_template("index.html", error=f"Couldn't convert that book to EPUB: {exc}")
+            raise BookOpenError(f"Couldn't convert that book to EPUB: {exc}")
         except Exception as exc:
             traceback.print_exc()
-            return render_template("index.html", error=f"Something went wrong converting that book to EPUB: {exc}")
+            raise BookOpenError(f"Something went wrong converting that book to EPUB: {exc}")
         path_obj = target
         converted_here = True
     elif suffix != ".epub":
-        return render_template(
-            "index.html",
-            error="That doesn't look like a supported book file (expected a .epub, or a MOBI/AZW/AZW3/PRC/PDB/FB2/HTML to convert to EPUB).",
+        raise BookOpenError(
+            "That doesn't look like a supported book file (expected a .epub, or a MOBI/AZW/AZW3/PRC/PDB/FB2/HTML to convert to EPUB)."
         )
 
     session_id = str(uuid.uuid4())
@@ -1139,6 +1138,20 @@ def upload():
     (session_dir / "original_filename.txt").write_text(path_obj.name, encoding="utf-8")
     if converted_here:
         _converted_flag_path(session_dir).write_text(str(path_obj.resolve()), encoding="utf-8")
+    return session_id
+
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    typed_path = request.form.get("path", "").strip().strip('"')
+    _set_progress("Starting\u2026")
+    if not typed_path:
+        return render_template("index.html", error="No file was chosen.")
+
+    try:
+        session_id = _start_session(Path(typed_path))
+    except BookOpenError as exc:
+        return render_template("index.html", error=str(exc))
     return redirect(url_for("book_overview", session_id=session_id))
 
 
@@ -2082,20 +2095,19 @@ def book_details(session_id):
     )
 
 
-@app.route("/book/<session_id>/fix", methods=["POST"])
-@_handle_missing_source
-def fix_book(session_id):
-    """Fix This Book: the one action that applies everything -- staged
-    metadata, a staged cover, staged review choices and the repairs
-    ticked on the Overview tab -- in a single pass into one output
-    file, and, if asked, replaces the original with it. (Formerly the
-    Repair tab's Apply Everything.)"""
-    session_dir = _session_dir(session_id)
-    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+def _run_fix(session_dir: Path, filename: str, replace_requested: bool) -> dict:
+    """Fix This Book, without the web page: the one action that applies
+    everything -- staged metadata, a staged cover, staged review choices
+    and the repairs ticked on the Overview tab -- in a single pass into
+    one output file, and, if asked, replaces the original with it.
+    (Formerly the Repair tab's Apply Everything.)
+
+    Shared by the Fix This Book button (fix_book) and Fix a Folder (see
+    bulk_fix_one), so a book fixed in bulk is fixed exactly the way the
+    button would fix it. Returns {"result": {...}, "replace_outcome": ...}."""
     _set_progress("Getting ready to fix the book\u2026")
 
     selected = _selected_modules(session_dir, filename)
-    replace_requested = request.form.get("replace_original") == "1"
     config = load_config(None)
     # metadata_repair's config-file `enabled` value controls a second,
     # unrelated thing besides whether MetadataSyncRepair runs against
@@ -2370,13 +2382,8 @@ def fix_book(session_id):
     _cleanup_converted_epub(session_dir)
 
     _set_progress("")
-    already_replaced = _replaced_flag_path(session_dir).exists()
-    return render_template(
-        "fix_result.html",
-        active_tab="overview",
-        session_id=session_id,
-        filename=filename,
-        result={
+    return {
+        "result": {
             "output_path": str(output_path),
             "split_count": split_count,
             "possessive_resolved_count": possessive_resolved_count,
@@ -2389,9 +2396,27 @@ def fix_book(session_id):
             "opf_sync": opf_sync_status,
             "db_sync": db_sync_status,
         },
+        "replace_outcome": replace_outcome,
+    }
+
+
+@app.route("/book/<session_id>/fix", methods=["POST"])
+@_handle_missing_source
+def fix_book(session_id):
+    """The Fix This Book button: runs _run_fix and shows the result page."""
+    session_dir = _session_dir(session_id)
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+    outcome = _run_fix(session_dir, filename, request.form.get("replace_original") == "1")
+    already_replaced = _replaced_flag_path(session_dir).exists()
+    return render_template(
+        "fix_result.html",
+        active_tab="overview",
+        session_id=session_id,
+        filename=filename,
+        result=outcome["result"],
         has_fixed=True,
         already_replaced=already_replaced,
-        replace_outcome=replace_outcome,
+        replace_outcome=outcome["replace_outcome"],
         replaced_backup=_replaced_flag_path(session_dir).read_text(encoding="utf-8") if already_replaced else None,
         backup_deletable=_backup_deletable(session_dir),
     )
@@ -2757,6 +2782,153 @@ def book_asset(session_id, side, href):
 
     media_type = mimetypes.guess_type(href)[0] or "application/octet-stream"
     return Response(data, mimetype=media_type)
+
+
+# ---------------------------------------------------------------------
+# Fix a Folder
+# ---------------------------------------------------------------------
+# Works through every book in a folder with the same repairs the Fix This
+# Book button applies, one after another. The books are found and tracked
+# in gui/bulk.py; what happens to one book is bulk_fix_one below, built from
+# the same _start_session and _run_fix the single-book pages use, so a book
+# fixed here comes out exactly as it would from the button with nothing
+# changed on the Metadata, Review or Overview tabs.
+
+@app.route("/browse-folder", methods=["POST"])
+def browse_folder():
+    """Opens a real OS folder-picker on this machine (see browse() for why
+    it runs in a short-lived subprocess) and returns the chosen folder."""
+    script = (
+        "import sys\n"
+        "try:\n"
+        "    import tkinter, tkinter.filedialog\n"
+        "except ImportError:\n"
+        "    sys.exit(3)\n"
+        "root = tkinter.Tk()\n"
+        "root.withdraw()\n"
+        "root.attributes('-topmost', True)\n"
+        "path = tkinter.filedialog.askdirectory(title='Choose a folder of books', mustexist=True)\n"
+        "path = str(path) if path else ''\n"
+        "sys.stdout.buffer.write(path.encode('utf-8', 'surrogatepass'))\n"
+        "sys.stdout.buffer.flush()\n"
+    )
+    try:
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, timeout=180)
+    except Exception as exc:
+        return {"error": f"Couldn't open the folder browser: {exc}"}
+    if result.returncode == 3:
+        return {"error": "Couldn't open the folder browser -- is tkinter installed with your Python?"}
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip().splitlines()
+        return {"error": f"Couldn't open the folder browser: {detail[-1] if detail else result.returncode}"}
+    return {"path": result.stdout.decode("utf-8", errors="replace").strip()}
+
+
+def bulk_fix_one(path: Path, options: "bulk.BulkOptions") -> dict:
+    """What Fix a Folder does to one book. Returns the dict BulkRun wants:
+    status (fixed, nothing), a short detail, and what the results list
+    shows besides (changes, needs_look, note, session_id)."""
+    try:
+        session_id = _start_session(path)
+    except BookOpenError as exc:
+        return {"status": bulk.FAILED, "detail": str(exc)}
+    session_dir = SESSIONS_ROOT / session_id
+    filename = (session_dir / "original_filename.txt").read_text(encoding="utf-8")
+
+    # The Overview is what Fix This Book decides its default repairs from
+    # (and it is cached, so _run_fix reuses it); it also says how many items
+    # a person still has to decide on and whether the book is an omnibus.
+    # Read before the fix, while the cache still matches the book file.
+    overview = _overview_data(session_dir, filename)
+    # Structure and styling items are real decisions. The "text" box (possible
+    # possessives) is optional tidying that Fix never needs, so it does not
+    # mark a book as needing a look.
+    needs_look = sum(int(b.get("review", 0) or 0) for b in overview.get("boxes", []) if b.get("key") != "text")
+    omnibus = bool(overview.get("omnibus"))
+
+    outcome = _run_fix(session_dir, filename, False)
+    result = outcome["result"]
+    changes = sum(m["count"] for m in result["module_summaries"]) + result["split_count"]
+    fixed_path = Path(result["output_path"])
+    converted = _converted_flag_path(session_dir).exists()
+
+    notes = []
+    if omnibus:
+        notes.append("Looks like several books in one; open it to split.")
+    if needs_look:
+        notes.append(f"{needs_look} item(s) to look at.")
+    info = {"session_id": session_id, "changes": changes, "needs_look": needs_look, "note": " ".join(notes)}
+
+    if not changes and not converted:
+        # Nothing was wrong with it: no copy is kept next to the original.
+        fixed_path.unlink(missing_ok=True)
+        return dict(info, status=bulk.NOTHING, detail="Nothing needed fixing.")
+
+    repairs = len(result["module_summaries"])
+    detail = f"{changes} change(s) in {repairs} repair(s), {result['pass_count']} pass(es)."
+    if converted:
+        detail = "Converted to EPUB. " + detail
+    if options.replace_originals:
+        replaced = _replace_original_files(session_dir)
+        if replaced["ok"]:
+            _staged_metadata_path(session_dir).unlink(missing_ok=True)
+            _staged_review_path(session_dir).unlink(missing_ok=True)
+            detail += " Original replaced; the untouched one is kept as _original."
+        else:
+            detail += f" Could not replace the original ({replaced['error']}); the fixed copy is next to it."
+    else:
+        detail += " Saved as a _fixed copy next to the original."
+    return dict(info, status=bulk.FIXED, detail=detail)
+
+
+@app.route("/bulk/start", methods=["POST"])
+def bulk_start():
+    folder = request.form.get("folder", "").strip().strip('"')
+    if not folder or not Path(folder).is_dir():
+        return render_template("index.html", error=f"Can't find that folder: {folder or '(none chosen)'}")
+    busy = bulk.running_run()
+    if busy is not None:
+        return redirect(url_for("bulk_page", run_id=busy.id))
+    options = bulk.BulkOptions(
+        folder=folder,
+        include_subfolders=request.form.get("subfolders") == "1",
+        replace_originals=request.form.get("replace") == "1",
+        include_html=request.form.get("html") == "1",
+    )
+    items = bulk.find_books(options, {".epub"}, set(MOBI_EXTENSIONS) | set(FB2_EXTENSIONS), set(HTML_EXTENSIONS))
+    if not any(i["status"] == bulk.WAITING for i in items):
+        message = "No books to fix in that folder." if not items else "Every book in that folder has already been fixed."
+        return render_template("index.html", error=message)
+    run = bulk.BulkRun(options, items)
+    bulk.register(run)
+    run.start(bulk_fix_one)
+    return redirect(url_for("bulk_page", run_id=run.id))
+
+
+def _bulk_run_or_404(run_id: str):
+    run = bulk.get_run(run_id)
+    if run is None:
+        abort(404)
+    return run
+
+
+@app.route("/bulk/<run_id>")
+def bulk_page(run_id):
+    _bulk_run_or_404(run_id)
+    return render_template("bulk.html", run_id=run_id)
+
+
+@app.route("/bulk/<run_id>/status")
+def bulk_status(run_id):
+    data = _bulk_run_or_404(run_id).snapshot()
+    data["progress"] = _PROGRESS["text"]
+    return jsonify(data)
+
+
+@app.route("/bulk/<run_id>/stop", methods=["POST"])
+def bulk_stop(run_id):
+    _bulk_run_or_404(run_id).stop()
+    return jsonify({"ok": True})
 
 
 def _open_browser_soon():

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>Fix a Folder - ebook_fix</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 980px; margin: 2rem auto; color: #222; padding: 0 1rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .subtitle { color: #666; margin-top: 0; word-break: break-all; }
+    a { color: #2b6cb0; }
+    button { background: #2b6cb0; color: white; border: none; padding: 0.5rem 1.1rem; border-radius: 6px; font-size: 0.95rem; cursor: pointer; }
+    button:hover { background: #2c5282; }
+    button:disabled { background: #a0aec0; cursor: default; }
+    .bar { background: #edf2f7; border-radius: 8px; height: 14px; overflow: hidden; margin: 1rem 0 0.4rem; }
+    .bar > div { background: #2b6cb0; height: 100%; width: 0; transition: width 0.4s; }
+    .line { color: #444; margin: 0.25rem 0; min-height: 1.3em; }
+    .small { color: #666; font-size: 0.88rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.8rem 0; }
+    .chip { border: 1px solid #ddd; border-radius: 999px; padding: 0.15rem 0.8rem; font-size: 0.88rem; background: #fafafa; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.8rem; font-size: 0.92rem; }
+    th { text-align: left; border-bottom: 2px solid #ddd; padding: 0.4rem 0.5rem; color: #555; }
+    td { border-bottom: 1px solid #eee; padding: 0.4rem 0.5rem; vertical-align: top; }
+    td.name { word-break: break-all; }
+    .badge { display: inline-block; padding: 0.05rem 0.55rem; border-radius: 999px; font-size: 0.8rem; white-space: nowrap; }
+    .b-waiting, .b-not_run { background: #edf2f7; color: #4a5568; }
+    .b-working { background: #bee3f8; color: #2a4365; }
+    .b-fixed { background: #c6f6d5; color: #22543d; }
+    .b-nothing { background: #e2e8f0; color: #2d3748; }
+    .b-skipped { background: #fefcbf; color: #744210; }
+    .b-failed { background: #fed7d7; color: #742a2a; }
+    .look { color: #975a16; }
+    .tools { margin-top: 1rem; display: flex; gap: 0.8rem; align-items: center; }
+    .filter label { margin-right: 1rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <p class="small"><a href="/">&larr; Back to the start page</a></p>
+  <h1>Fix a Folder</h1>
+  <p class="subtitle" id="folder"></p>
+
+  <div class="bar"><div id="bar"></div></div>
+  <p class="line" id="headline">Starting&hellip;</p>
+  <p class="line small" id="progress"></p>
+  <div class="chips" id="chips"></div>
+
+  <div class="tools">
+    <button type="button" id="stop-btn" onclick="stopRun()">Stop after this book</button>
+    <span class="filter">
+      <label><input type="checkbox" id="only-attention"> Show only books that need a look or failed</label>
+    </span>
+  </div>
+
+  <table>
+    <thead><tr><th style="width:8.5rem">Result</th><th>Book</th><th>What happened</th><th style="width:5.5rem"></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <script>
+    const runId = {{ run_id|tojson }};
+    const LABELS = { waiting: 'Waiting', working: 'Working', fixed: 'Fixed', nothing: 'Nothing to fix',
+                     skipped: 'Skipped', failed: 'Failed', not_run: 'Not run' };
+
+    function fmtTime(sec) {
+      sec = Math.round(sec || 0);
+      const m = Math.floor(sec / 60), s = sec % 60;
+      return m ? m + ' min ' + s + ' s' : s + ' s';
+    }
+
+    function cell(text, cls) {
+      const td = document.createElement('td');
+      if (cls) td.className = cls;
+      td.textContent = text;
+      return td;
+    }
+
+    function render(d) {
+      document.getElementById('folder').textContent = d.folder +
+        (d.replace_originals ? '  (originals are replaced; the untouched ones are kept as _original)' : '');
+      const finished = d.state !== 'running';
+      const pct = d.to_do ? Math.round(100 * d.done / d.to_do) : 100;
+      document.getElementById('bar').style.width = pct + '%';
+
+      let head;
+      if (d.state === 'running') {
+        head = 'Working on book ' + Math.min(d.done + 1, d.to_do) + ' of ' + d.to_do + (d.current ? ': ' + d.current : '');
+      } else if (d.state === 'stopped') {
+        head = 'Stopped after ' + d.done + ' of ' + d.to_do + ' books (' + fmtTime(d.elapsed) + ').';
+      } else {
+        head = 'Done: ' + d.done + ' of ' + d.to_do + ' books in ' + fmtTime(d.elapsed) + '.';
+      }
+      document.getElementById('headline').textContent = head;
+      document.getElementById('progress').textContent = d.state === 'running' ? (d.progress || '') : '';
+
+      const c = d.counts;
+      const chips = document.getElementById('chips');
+      chips.textContent = '';
+      [['fixed', 'Fixed'], ['nothing', 'Nothing to fix'], ['failed', 'Failed'], ['skipped', 'Skipped'], ['waiting', 'Waiting'], ['not_run', 'Not run']]
+        .forEach(([k, label]) => {
+          if (!c[k]) return;
+          const span = document.createElement('span');
+          span.className = 'chip';
+          span.textContent = c[k] + ' ' + label.toLowerCase();
+          chips.appendChild(span);
+        });
+      const needLook = d.rows.filter(r => r.needs_look || r.note).length;
+      if (needLook) {
+        const span = document.createElement('span');
+        span.className = 'chip look';
+        span.textContent = needLook + ' to look at';
+        chips.appendChild(span);
+      }
+
+      document.getElementById('stop-btn').style.display = d.state === 'running' ? '' : 'none';
+
+      const onlyAttention = document.getElementById('only-attention').checked;
+      const body = document.getElementById('rows');
+      body.textContent = '';
+      d.rows.forEach(r => {
+        const attention = r.status === 'failed' || r.needs_look || r.note;
+        if (onlyAttention && !attention) return;
+        const tr = document.createElement('tr');
+        const first = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.className = 'badge b-' + r.status;
+        badge.textContent = LABELS[r.status] || r.status;
+        first.appendChild(badge);
+        tr.appendChild(first);
+        tr.appendChild(cell(r.name, 'name'));
+
+        const what = document.createElement('td');
+        what.appendChild(document.createTextNode(r.detail || ''));
+        if (r.note) {
+          const note = document.createElement('div');
+          note.className = 'look small';
+          note.textContent = r.note;
+          what.appendChild(note);
+        }
+        if (r.seconds != null && r.status !== 'skipped') {
+          const t = document.createElement('div');
+          t.className = 'small';
+          t.textContent = r.seconds + ' s';
+          what.appendChild(t);
+        }
+        tr.appendChild(what);
+
+        const open = document.createElement('td');
+        if (r.session_id) {
+          const a = document.createElement('a');
+          a.href = '/book/' + r.session_id + '/overview';
+          a.target = '_blank';
+          a.textContent = 'Open';
+          open.appendChild(a);
+        }
+        tr.appendChild(open);
+        body.appendChild(tr);
+      });
+      return finished;
+    }
+
+    let timer = null;
+    async function poll() {
+      try {
+        const d = await (await fetch('/bulk/' + runId + '/status')).json();
+        if (render(d)) { clearInterval(timer); timer = null; }
+      } catch (e) { /* the program may be busy; try again on the next tick */ }
+    }
+
+    async function stopRun() {
+      const btn = document.getElementById('stop-btn');
+      btn.disabled = true;
+      btn.textContent = 'Stopping after this book…';
+      await fetch('/bulk/' + runId + '/stop', { method: 'POST' });
+    }
+
+    document.getElementById('only-attention').addEventListener('change', poll);
+    poll();
+    timer = setInterval(poll, 1000);
+  </script>
+</body>
+</html>

@@ -93,6 +93,8 @@ You do **not** need to install `ebook_fix` as a command to use the GUI.
 
 The GUI runs locally on your computer. Nothing is sent over the internet unless you click one of the **Look Up** buttons on the Metadata tab. Those send only the book's ISBN, or its title and author, to [Open Library](https://openlibrary.org) to find suggested details, which you then accept or ignore. Otherwise it is simply a local application that uses your web browser as its interface.
 
+Besides opening one book at a time, the start page has a **Fix a Folder of Books** option. It works through every book in a folder you choose (and its subfolders, if you want), applies the same repairs as the **Fix This Book** button, and shows a live list of what happened to each book. Fixed copies are saved next to the originals unless you choose to replace them, in which case the untouched original is kept as `_original`. A book that cannot be fixed never stops the rest.
+
 ### Starting the GUI manually
 
 If you prefer to start it from a terminal, run this from the project root:

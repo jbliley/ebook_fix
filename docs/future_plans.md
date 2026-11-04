@@ -78,9 +78,14 @@ Where things stand: the tabs are Overview, Metadata, Review (shown only when
 something needs a choice) and Before / After, plus Browse, Fix This Book
 and the split page.
 
-- **Bulk mode.** Working through a whole folder or library instead of
-  one book at a time. Calibre covers a library-level series view, so
-  that part is not wanted.
+- **Bulk mode follow-ups.** Fix a Folder is built (see the 2026-11-04
+  entry in `docs/analysis_roadmap.md`). Still open: fixing several books
+  at the same time (the books are done one after another today), an
+  analyze-only run that lists what a folder needs without changing
+  anything, choosing which books in the list to include before it starts,
+  saving the results list as a file, and cleaning up the temporary
+  working folders it leaves behind (see Session folder cleanup below).
+  Calibre covers a library-level series view, so that part is not wanted.
 - **Analysis drill-down.** The individual broken links, per-chapter
   whitespace fixes and similar details that `--details` shows on the
   command line, shown in the Overview.
