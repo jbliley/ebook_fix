@@ -3949,3 +3949,18 @@ Jacob's test book was Mark Henwick's "Bite Back Box Set 1" (three novels, 190 pa
 - GUI (`templates/base.html`): the Fix This Book progress text no longer goes inside the button. It shows in its own row under the title and above the tabs (hidden until a repair starts), and the button keeps a fixed minimum width and says "Fixing..." while it runs.
 
 Checks: on the box set all 107 scene breaks (49 original and 58 made from blank lines) now read "∞ ∞ ∞ ∞ ∞", none follows a day line, and a second repair changes nothing. Across the 25 example EPUBs repaired with the old and the new code, the only differences are the modified time and Omnibus-Tarzan, whose own "* * * * *" marker is now kept instead of being cut to "* * *".
+
+### Changed: faster Fix runs, and a page break loop stopped (2026-11-04)
+
+First stretch of the efficiency work. Timing every example showed most books take 2 to 8 seconds, but the Tarzan omnibus (7.5 MB) took 26 seconds to analyze and 103 seconds to auto-fix, and War and Peace 30 seconds.
+
+- Page break loop (`page_breaks.py`, `chapter_break_target`): Fix runs repeat the whole analysis until a pass changes nothing, and Tarzan always ran all 5 passes. From pass 3 on, Class Standardize added a page break after the last block before a heading and Extra Page Break Removal took it off again, 20 times per pass. Two causes. A heading with nothing visible after it to the end of the file (an empty heading at the end) got a break that the removal rule calls empty. And when the chapter class sat on a span inside a heading, the check looked at the heading's own earlier words instead of what comes before the heading. Both now follow the removal rule, so Tarzan settles in 3 passes (the minimum: one to fix, one to catch what the fix uncovered, one to confirm nothing is left).
+- Side effect, intended: the old output kept 20 breaks in Tarzan that were left over from the last pass of the loop, each one in front of an empty page at the end of a file. Those are now gone. Every other example is byte-identical.
+- Apostrophe check (`apostrophes.py`): the "don t" pattern stopped at every pair of neighbouring words in the book and looked the pair up afterwards (1.5 million lookups on Tarzan). The pattern is now limited to words that can be in the list, with the same exact-pair check as before. Compared against the old pattern on 424,544 pieces of text (every text in the examples plus random text): no difference.
+- Typography (`typography.py`): control characters were counted one character at a time; now one pattern does it (checked against all Unicode characters).
+- Gutenberg search (`gutenberg.py`): a file without the words "Project Gutenberg" or "small print" is skipped without walking its elements.
+- Report file (`serialize.py`): the analysis cache is written compactly with Python's fast writer instead of indented.
+
+Checks: auto-fix of all 25 example EPUBs, old code against new, identical apart from the modified time (and the 20 Tarzan breaks above). `analyze --details` text identical on all 25. Second auto-fix run identical on all 25. Timing, analyze / auto-fix: Tarzan 26s / 103s to 23s / 61s, War and Peace 8.6s / 30.5s to 7.8s / 29.0s, Images-PageNumbers 4.4s / 11.9s to 3.8s / 11.0s.
+
+Still open for the efficiency work: each analysis walks the text of every file many times (whitespace, typography, front/back matter, paragraphs, scene openers each do their own walk), Mid-Word Hyphen Repair, and the class profile that is rebuilt more than once per pass.

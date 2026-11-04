@@ -229,6 +229,29 @@ def redundant_forced_breaks(root) -> list:
     return redundant
 
 
+_VISIBLE_XPATH = " or ".join(f"local-name()='{t}'" for t in sorted(_VISIBLE_TAGS))
+
+
+def _visible_from(marker) -> bool:
+    """True when anything visible (text or a picture, table or rule) sits in
+    the marker or after it, up to the end of its file. Uses the same notion
+    of "visible" as redundant_forced_breaks."""
+    texts = marker.xpath(
+        "descendant-or-self::text()[normalize-space(translate(., ' ', ' '))]"
+        " | following::text()[normalize-space(translate(., ' ', ' '))]"
+    )
+    for t in texts:
+        parent = t.getparent()
+        if parent is not None and isinstance(parent.tag, str) \
+                and etree.QName(parent).localname.lower() in _SKIP_TEXT:
+            continue
+        return True
+    media = marker.xpath(
+        f"descendant-or-self::*[{_VISIBLE_XPATH}] | following::*[{_VISIBLE_XPATH}]"
+    )
+    return bool(media)
+
+
 def chapter_break_target(marker):
     """closest_preceding_block(marker), or None when a forced break there
     would be redundant: nothing visible comes before the marker in its own
@@ -236,12 +259,21 @@ def chapter_break_target(marker):
     target = closest_preceding_block(marker)
     if target is None:
         return None
+    # A marker can be an inline element in the middle of a heading (a span
+    # carrying the chapter class). What matters is what sits before the
+    # heading itself, not the heading's own earlier words, so everything
+    # below is measured from the enclosing block.
+    ref = marker
+    while ref is not None and not is_block(ref):
+        ref = ref.getparent()
+    if ref is None:
+        ref = marker
     # Visible content before the marker (other than blank blocks)?
-    prev_text = marker.xpath(
+    prev_text = ref.xpath(
         "preceding::text()[normalize-space(translate(., ' ', ' '))]"
         "[not(ancestor::*[local-name()='head'])]"
     )
-    prev_media = marker.xpath(
+    prev_media = ref.xpath(
         "preceding::*[local-name()='img' or local-name()='svg' or local-name()='image' or local-name()='hr']"
     )
     # Text inside the marker's own ancestors that precedes it is counted by
@@ -249,10 +281,16 @@ def chapter_break_target(marker):
     # are in "preceding" as well.
     if not prev_text and not prev_media:
         return None
+    # Nothing visible from the marker to the end of its file (an empty
+    # heading at the very end, say): the file boundary is the page break,
+    # and Extra Page Break Removal would strip a break added here again on
+    # every pass.
+    if not _visible_from(ref):
+        return None
     # A forced break already sits between the last visible content and this
     # marker (on a blank spacer paragraph, say): marking the nearest block
     # again would only stack a second break and show an empty page.
-    for el in reversed(marker.xpath("preceding::*")):
+    for el in reversed(ref.xpath("preceding::*")):
         if forced_break_props(el):
             return None   # a break-after OR break-before (an empty page-break <div>, say)
         name = etree.QName(el).localname.lower() if isinstance(el.tag, str) else ""
@@ -260,7 +298,7 @@ def chapter_break_target(marker):
                 or _own_visible(el, tail=True):
             # Last visible content: a wrapper around it (not around the
             # marker) may carry the break.
-            marker_ancestors = {id(a) for a in marker.iterancestors()}
+            marker_ancestors = {id(a) for a in ref.iterancestors()}
             for anc in el.iterancestors():
                 if id(anc) in marker_ancestors:
                     break

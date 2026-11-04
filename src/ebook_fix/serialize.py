@@ -75,8 +75,11 @@ def save_report(report, epub_path) -> Path:
     from. Returns the path it was written to.
     """
     path = cache_path_for(epub_path)
+    # No indent: json's fast C writer is only used for compact output, and
+    # this is a cache file the program reads back, not one meant for reading.
+    text = json.dumps(to_dict(report), ensure_ascii=False)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(to_dict(report), f, indent=2, ensure_ascii=False)
+        f.write(text)
     return path
 
 

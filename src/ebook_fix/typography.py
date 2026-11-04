@@ -16,7 +16,6 @@ HTML (see analyzer.py, which builds this via `"".join(tree.itertext())`).
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------
@@ -149,6 +148,12 @@ class TypographyReport:
     shortest_sentence_words: int = 0
 
 
+# Every character unicodedata calls category "Cc" (0-31 and 127-159), except
+# the three ordinary whitespace controls. One regex pass instead of a Python
+# call per character.
+CONTROL_CHAR_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
 def analyze_text(text: str) -> TypographyReport:
     """
     Run every typography check against a block of plain text already
@@ -192,10 +197,7 @@ def analyze_text(text: str) -> TypographyReport:
     r.zero_width_space_count = text.count(ZERO_WIDTH_SPACE) + text.count(ZERO_WIDTH_NON_JOINER)
     r.soft_hyphen_count = text.count(SOFT_HYPHEN)
     r.bom_found = BOM in text
-    r.control_char_count = sum(
-        1 for ch in text
-        if unicodedata.category(ch) == "Cc" and ch not in ("\n", "\r", "\t")
-    )
+    r.control_char_count = len(CONTROL_CHAR_RE.findall(text))
 
     # --- Mojibake ---
     for marker in MOJIBAKE_MARKERS:

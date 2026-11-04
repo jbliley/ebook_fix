@@ -277,6 +277,13 @@ def _tagged_candidates(tree):
     return found
 
 
+# Every marker pattern above needs one of these two phrases in its text, so a
+# file with neither can be skipped without walking its elements. Built with
+# the same flags as the marker patterns (and without their word-boundary or
+# star requirements), so it can never reject text a marker would match.
+_MARKER_PREFILTER_RE = re.compile(r"project gutenberg|small print", re.IGNORECASE)
+
+
 def _find_marker_element(tree, pattern):
     """Finds the most specific (innermost) element whose own text
     contains the marker line -- the older conversion's bare-paragraph
@@ -301,6 +308,9 @@ def _find_marker_element(tree, pattern):
     shortest-text heuristic above: the owning element is already about
     as specific an anchor as this ever gets."""
     if tree is None:
+        return None, ""
+    root = tree.getroot() if hasattr(tree, "getroot") else tree
+    if _MARKER_PREFILTER_RE.search("".join(root.itertext())) is None:
         return None, ""
     best = None
     best_text = ""

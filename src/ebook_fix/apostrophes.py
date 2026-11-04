@@ -125,6 +125,27 @@ _LEADING_APOSTROPHE_RE = re.compile(
 _PAIR_RE = re.compile(r"\b([A-Za-z]+) (?=([A-Za-z]+)\b(?!/))")
 
 
+def _ci(word: str) -> str:
+    """A word as a case-insensitive pattern, spelled out letter by letter
+    (a re.IGNORECASE flag would also accept look-alike non-ASCII letters,
+    which the plain [A-Za-z] pattern above never does)."""
+    return "".join(f"[{c.lower()}{c.upper()}]" if c.isalpha() else re.escape(c) for c in word)
+
+
+# The same pattern narrowed to the words that can appear in an allowed
+# pair at all. Matching every "word word" gap in a book and looking each
+# one up afterwards ran a Python callback millions of times on a long
+# book; this only stops at the few gaps that could really be a
+# contraction. The exact pair is still checked in the callback, so the
+# result is identical to _PAIR_RE's.
+_PAIR_FIRST_WORDS = sorted({first for first, _second in _ALLOWED_PAIRS}, key=len, reverse=True)
+_PAIR_SECOND_WORDS = sorted({second for _first, second in _ALLOWED_PAIRS}, key=len, reverse=True)
+_PAIR_CANDIDATE_RE = re.compile(
+    r"\b(" + "|".join(_ci(w) for w in _PAIR_FIRST_WORDS) + r") "
+    r"(?=(" + "|".join(_ci(w) for w in _PAIR_SECOND_WORDS) + r")\b(?!/))"
+)
+
+
 @dataclass
 class ApostropheNormalizeResult:
     text: str
@@ -172,7 +193,7 @@ def normalize_apostrophes_text(text: str, apostrophe_char: str = STRAIGHT_APOSTR
         result.match_count += 1
         return f"{apostrophe_char}{m.group(0)}"
 
-    new_text = _PAIR_RE.sub(_repl_pair, text)
+    new_text = _PAIR_CANDIDATE_RE.sub(_repl_pair, text)
     new_text = _LEADING_APOSTROPHE_RE.sub(_repl_leading, new_text)
     result.text = new_text
     result.changed = new_text != text
