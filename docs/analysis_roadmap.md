@@ -4014,3 +4014,13 @@ Third phase of "only one analysis pass". Timing a whole analysis of Tarzan showe
 Checks: auto-fix of all 25 example EPUBs, identical to the previous version's output, and a second run of two outputs changes nothing.
 
 Still open for "only one analysis": the confirming second pass itself. It needs a list of which findings each repair can invalidate before it can be skipped or limited to the touched pages.
+
+### Changed: Text Size also fixes a book whose text is sized too large everywhere (2026-11-05)
+
+Jacob's "The Loner: Inferno" showed a large font in the reading app and the repair did nothing. Cause: the stylesheet has `.calibre1 { font-size: 1.8em; }` and every piece of text sits in a span with that class, but the page body has no size at all. The earlier Text Size rule only acted when a body size and an inner size cancelled each other (the Crossfire book: 0.41667em times 1.8em). Here nothing cancels, so every reading app shows the text at 1.8 times its own size, and the module saw "no body factor" and gave up.
+
+- `modules/text_size_repair.py`, `find_text_size_problem`: a second shape is now recognized. When the body factor is plain (0.9em to 1.1em), the inner factor is outside 0.77em to 1.3em, the combined size is between 0.5em and 2em, at least 70% of the book's text is in that one size, and no size class sits inside another, every size class is divided by the inner factor, so the main text becomes 1em and bigger or smaller text keeps its proportion.
+- For this shape the original rule is edited where it is written (a size that comes out at 1em is removed from the rule, anything else is rewritten). The earlier method of adding a rule at the end of the stylesheet does not work here, because Reader Settings removes a leftover `font-size: 1em` rule on the next pass, and the repair then added its comment again on every pass. The cancelling case (Crossfire) still uses the closing-rule method as before.
+- The finding reads "Text size depends on the page body size" with its own wording for this case: nearly all of the text is sized 1.8em with nothing on the page body to bring it back down.
+
+Result: Inferno's stylesheet loses the 1.8em, the wrapper spans that no longer do anything are cleaned up by Span Cleanup, and a second repair changes nothing. Checks: the visible text of all 36 pages is identical before and after (compared with strict XML parsing), and the problem finder run over all 25 example EPUBs flags none of them, so no other book changes.

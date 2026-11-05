@@ -16,6 +16,13 @@ set the body size to 1em and divide every other class's size by the inner
 factor, so the text comes out at 1em in every reader, and the relative
 sizes (a bigger title, a smaller note) stay in proportion.
 
+A second shape of the same problem has no body size at all: every piece
+of text sits in a span set to 1.8em (found in "The Loner: Inferno"), so
+there is nothing to cancel and every reader shows text 1.8 times too big.
+That is handled the same way (every class divided by the inner factor)
+when at least 70% of the book's text is in that one size, the size is
+outside 0.77em to 1.3em, and no size class sits inside another.
+
 It only acts when ALL of these are true:
 - The body text's size comes from a body-level factor outside 0.9em to
   1.1em AND an inner factor outside 0.77em to 1.3em, which roughly cancel
@@ -55,6 +62,9 @@ from ebook_fix.report import Report
 BODY_LOW, BODY_HIGH = 0.9, 1.1
 INNER_LOW, INNER_HIGH = 0.77, 1.3
 COMBINED_LOW, COMBINED_HIGH = 0.5, 2.0
+# Plain case (no body-level size): the share of the book's text that must
+# sit at the same size before that size is treated as the book's body text.
+PLAIN_SHARE = 0.7
 
 _SIZE = re.compile(r"^\s*([\d.]+)\s*(em|rem|%)\s*$", re.IGNORECASE)
 _CLASS_ONLY = re.compile(r"^(?:[a-zA-Z][\w-]*)?\.([\w-]+)$")
@@ -111,6 +121,7 @@ def find_text_size_problem(book):
         return None
 
     chains = Counter()
+    nested_sizes = False
     body_classes = set()
     other_use = Counter()
     for chapter in book.chapters:
@@ -132,6 +143,7 @@ def find_text_size_problem(book):
             if not text:
                 continue
             body_f = inner_f = 1.0
+            inner_count = 0
             node = el
             while node is not None:
                 local = _local(node)
@@ -141,13 +153,27 @@ def find_text_size_problem(book):
                             body_f *= sizes[c]
                         else:
                             inner_f *= sizes[c]
+                            inner_count += 1
                 node = node.getparent()
+            if inner_count > 1:
+                nested_sizes = True
             chains[(round(body_f, 4), round(inner_f, 4))] += len(text)
     if not chains:
         return None
-    (b, i), _count = chains.most_common(1)[0]
+    (b, i), count = chains.most_common(1)[0]
     combined = b * i
-    if BODY_LOW <= b <= BODY_HIGH or INNER_LOW <= i <= INNER_HIGH:
+    if INNER_LOW <= i <= INNER_HIGH:
+        return None
+    if BODY_LOW <= b <= BODY_HIGH:
+        # Plain oversized (or undersized) text: nothing on the page body
+        # cancels the size, so every reading app shows the text at the
+        # full class size (The Loner: Inferno sets every span to 1.8em
+        # under a body with no size at all). Only when nearly all of the
+        # book's text is in that one size, with no size classes stacked
+        # inside each other, so the whole book can be scaled together.
+        if nested_sizes or count < PLAIN_SHARE * sum(chains.values()):
+            return None
+    elif not COMBINED_LOW <= combined <= COMBINED_HIGH:
         return None
     if not COMBINED_LOW <= combined <= COMBINED_HIGH:
         return None
@@ -164,6 +190,7 @@ def find_text_size_problem(book):
     if not overrides:
         return None
     return {
+        "plain": BODY_LOW <= b <= BODY_HIGH,
         "body_classes": sorted(body_classes),
         "body_factor": b,
         "inner_factor": i,
@@ -334,6 +361,42 @@ def find_inline_size_problem(book, sizes, lo, hi):
     return {"overrides": overrides, "runs": runs, "chars": chars_total, "classes": shown}
 
 
+_RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
+_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+
+def _rewrite_in_place(text: str, overrides: dict):
+    """(new_text, changed): the stylesheet with each `.class { font-size }`
+    in `overrides` changed where it is written. A size of 1em is removed
+    outright (the text then simply follows the reading app's size), which
+    is also what Reader Settings would do to a leftover 1em rule."""
+    changed = set()
+
+    def fix(m):
+        sel = _COMMENT.sub("", m.group(1)).strip()
+        cm = re.fullmatch(r"\.([\w-]+)", sel)
+        if not cm or cm.group(1) not in overrides:
+            return m.group(0)
+        new = overrides[cm.group(1)]
+        out = []
+        touched = False
+        for decl in m.group(2).split(";"):
+            if decl.strip().lower().startswith("font-size"):
+                touched = True
+                if abs(new - 1.0) > 0.001:
+                    out.append(f"font-size: {_fmt(new)}")
+                continue
+            if decl.strip():
+                out.append(decl.strip())
+        if not touched:
+            return m.group(0)
+        changed.add(cm.group(1))
+        lead = m.group(1)
+        return lead + "{" + ("\n    " + ";\n    ".join(out) + "\n    " if out else "") + "}"
+
+    return _RULE.sub(fix, text), changed
+
+
 def pct(ratio: float) -> str:
     return f"{round(ratio * 100)}%"
 
@@ -391,10 +454,20 @@ class TextSizeRepair:
         rules, sources = _book_rules(book)
         base = PurePosixPath(getattr(book, "package_path", "") or "").parent
         written = 0
+        in_place = dict(overrides) if (problem and problem.get("plain")) else {}
         for kind, where, text in sources:
             if kind != "css":
                 continue
-            declared = [c for c in overrides if re.search(rf"\.{re.escape(c)}\s*[{{,]", text)]
+            if in_place:
+                new_text, done = _rewrite_in_place(text, in_place)
+                if done:
+                    text = new_text
+                    book.new_files[str(base / where)] = text.encode("utf-8")
+                    written += 1
+            declared = [
+                c for c in overrides
+                if c not in in_place and re.search(rf"\.{re.escape(c)}\s*[{{,]", text)
+            ]
             if not declared:
                 continue
             note = "text size no longer depends on the page body size" if problem else "text runs kept close to the normal size"
@@ -426,6 +499,13 @@ class TextSizeRepair:
 
     @staticmethod
     def _describe(problem, will):
+        if problem.get("plain"):
+            return (
+                f"Nearly all of the text is sized {_fmt(problem['inner_factor'])} with nothing on the page "
+                f"body to bring it back down, so reading apps show it that much larger than their own "
+                f"text size. The sizes {'will be' if will else 'were'} reset so the text shows at 1em, "
+                f"keeping bigger and smaller text in proportion."
+            )
         return (
             f"The body text is sized by {_fmt(problem['body_factor'])} on the page body times "
             f"{_fmt(problem['inner_factor'])} on the text. Reading apps that ignore the body size "
