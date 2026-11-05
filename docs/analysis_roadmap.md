@@ -4002,3 +4002,15 @@ Second phase of "only one analysis pass". A Fix repeats the whole analysis and e
 Checks: auto-fix of all 25 example EPUBs, old code against new, identical apart from modified time and the two spaces above. A second auto-fix run of every output changes nothing. Time, old to new (alternating runs): MM5 5.0s to 4.2s, Sidewinders 6.7s to 5.8s, Images-PageNumbers 16.4s to 15.1s, War and Peace 43s to 31s, Tarzan 90s to 79s.
 
 Still open for "only one analysis": the confirming second pass is a full analysis plus every repair. It could be skipped when the settling step changed nothing the analysis reads, or made cheap by checking only the pages the settling step touched. That needs a list of which findings each repair can invalidate, so it is the next phase.
+
+### Changed: cheaper front matter and Gutenberg checks (2026-11-05)
+
+Third phase of "only one analysis pass". Timing a whole analysis of Tarzan showed two checks spending most of their time running long regular expressions over the full text of every page: front and back matter detection (`frontmatter.py`) and Project Gutenberg marker detection (`gutenberg.py`). Since a Fix analyzes the book at least twice, every second saved here is saved at least twice.
+
+- `frontmatter.py`, `_label_from_text`: the page text is lowercased once, and each phrase check (copyright, acknowledgments, afterword, colophon, fiction disclaimer, publisher wording, dedication) first looks for a plain keyword. The full pattern only runs on pages that contain the keyword. The keywords are necessary parts of each pattern, so a page that would match still matches; the same label is chosen.
+- `gutenberg.py`: whether a page mentions "project gutenberg" or "small print" at all is now worked out once per page, instead of once for each of the four fallback searches. The searches only visit pages that mention either phrase.
+- Result: a single analysis of Tarzan 32.8s to 29.2s (alternating runs).
+
+Checks: auto-fix of all 25 example EPUBs, identical to the previous version's output, and a second run of two outputs changes nothing.
+
+Still open for "only one analysis": the confirming second pass itself. It needs a list of which findings each repair can invalidate before it can be skipped or limited to the touched pages.

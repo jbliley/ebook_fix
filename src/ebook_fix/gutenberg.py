@@ -284,6 +284,17 @@ def _tagged_candidates(tree):
 _MARKER_PREFILTER_RE = re.compile(r"project gutenberg|small print", re.IGNORECASE)
 
 
+def _may_have_marker(tree) -> bool:
+    """False when the page cannot hold a marker line (neither phrase in its
+    text). A plain substring test on the lowercased text, which is much
+    quicker than the case-insensitive regex search it stands in for."""
+    if tree is None:
+        return False
+    root = tree.getroot() if hasattr(tree, "getroot") else tree
+    low = "".join(root.itertext()).lower()
+    return "project gutenberg" in low or "small print" in low
+
+
 def _find_marker_element(tree, pattern):
     """Finds the most specific (innermost) element whose own text
     contains the marker line -- the older conversion's bare-paragraph
@@ -310,7 +321,7 @@ def _find_marker_element(tree, pattern):
     if tree is None:
         return None, ""
     root = tree.getroot() if hasattr(tree, "getroot") else tree
-    if _MARKER_PREFILTER_RE.search("".join(root.itertext())) is None:
+    if not _may_have_marker(tree):
         return None, ""
     best = None
     best_text = ""
@@ -369,15 +380,20 @@ def analyze_book_gutenberg(book) -> BookGutenbergSummary:
                 )
 
     # Fallback: bare marker text with no wrapper tag (older conversions).
+    # Only pages that mention either phrase at all can hold a marker, so
+    # that is checked once per page instead of once per search.
+    maybe = []
+    if front is None or back is None:
+        maybe = [c for c in ordered if _may_have_marker(c.document)]
     if front is None:
-        for chapter in ordered:
+        for chapter in maybe:
             el, matched = _find_marker_element(chapter.document, _START_MARKER_RE)
             if el is not None:
                 front = GutenbergMarker(href=chapter.href, method="text", marker_text=matched, element=el)
                 break
 
     if back is None:
-        for chapter in ordered:
+        for chapter in maybe:
             el, matched = _find_marker_element(chapter.document, _END_MARKER_RE)
             if el is not None:
                 back = GutenbergMarker(href=chapter.href, method="text", marker_text=matched, element=el)
@@ -388,14 +404,14 @@ def analyze_book_gutenberg(book) -> BookGutenbergSummary:
     # and the two regexes' own comments above. Tried last since it's
     # the least specific of the three tiers.
     if front is None:
-        for chapter in ordered:
+        for chapter in maybe:
             el, matched = _find_marker_element(chapter.document, _SMALL_PRINT_END_RE)
             if el is not None:
                 front = GutenbergMarker(href=chapter.href, method="small_print", marker_text=matched, element=el)
                 break
 
     if back is None:
-        for chapter in ordered:
+        for chapter in maybe:
             el, matched = _find_marker_element(chapter.document, _OLD_ETEXT_END_RE)
             if el is not None:
                 back = GutenbergMarker(href=chapter.href, method="old_etext_end", marker_text=matched, element=el)

@@ -347,6 +347,10 @@ _FICTION_DISCLAIMER_RE = re.compile(
     r"(?:entirely|purely) coincidental",
     re.IGNORECASE,
 )
+_COPYRIGHT_WORDS = ("all rights reserved", "copyright", "isbn", "library of congress",
+                    "printed in the united states")
+_FICTION_WORDS = ("work of fiction", "resemblance to actual", "coincidental")
+_PUBLISHER_WORDS = ("published by", "imprint of", "division of")
 _DEDICATION_WORD_RE = re.compile(r"\bdedicat(e|ed|ion)\b", re.IGNORECASE)
 _DEDICATION_OPENER_RE = re.compile(r"^\s*(for|to)\s+\S", re.IGNORECASE)
 # A short line opening with an em/en dash or plain hyphen -- the
@@ -503,21 +507,26 @@ def _label_from_href(href):
 
 
 def _label_from_text(text, word_count, metadata=None):
-    if _COPYRIGHT_RE.search(text):
+    # Cheap lowercase substring tests first: most pages contain none of
+    # these phrases, and a plain "in" test is far quicker than a regex
+    # scan of the whole page. They only ever skip a regex that could not
+    # have matched, so the result is the same.
+    low = text.lower()
+    if any(k in low for k in _COPYRIGHT_WORDS) and _COPYRIGHT_RE.search(text):
         return MatterLabel.COPYRIGHT, "high"
     if _TOC_RE.search(text[:200]):
         return MatterLabel.TABLE_OF_CONTENTS, "high"
-    if _ACK_RE.search(text):
+    if "acknowledg" in low and _ACK_RE.search(text):
         return MatterLabel.ACKNOWLEDGMENTS, "high"
-    if _AFTERWORD_RE.search(text):
+    if "afterword" in low and _AFTERWORD_RE.search(text):
         return MatterLabel.AFTERWORD, "high"
     if _ABOUT_AUTHOR_RE.search(text[:_HEADING_WINDOW + 90]):
         # Only as the page's own heading. Anywhere in the text it also matched
         # a contents list that names the page ("... About the Author ...").
         return MatterLabel.ABOUT_AUTHOR, "high"
-    if _COLOPHON_RE.search(text):
+    if "colophon" in low and _COLOPHON_RE.search(text):
         return MatterLabel.COLOPHON, "high"
-    if _FICTION_DISCLAIMER_RE.search(text):
+    if any(k in low for k in _FICTION_WORDS) and _FICTION_DISCLAIMER_RE.search(text):
         return MatterLabel.FICTION_DISCLAIMER, "high"
 
     publisher_name = (getattr(metadata, "publisher", "") or "").strip()
@@ -527,10 +536,10 @@ def _label_from_text(text, word_count, metadata=None):
         # below, since it isn't just matching common boilerplate
         # wording that could appear anywhere.
         return MatterLabel.PUBLISHER, "high"
-    if _PUBLISHER_PHRASE_RE.search(text):
+    if any(k in low for k in _PUBLISHER_WORDS) and _PUBLISHER_PHRASE_RE.search(text):
         return MatterLabel.PUBLISHER, "medium"
 
-    if _DEDICATION_WORD_RE.search(text):
+    if "dedicat" in low and _DEDICATION_WORD_RE.search(text):
         return MatterLabel.DEDICATION, "high"
 
     stripped = text.strip()
