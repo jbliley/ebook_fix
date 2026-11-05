@@ -1220,6 +1220,37 @@ def _overview_lock(session_dir: Path) -> threading.Lock:
         return _overview_locks.setdefault(str(session_dir), threading.Lock())
 
 
+# The book and analysis the Overview just worked out, kept in memory so the
+# Fix that usually follows can start from them instead of reading and
+# analyzing the same file again. Only the latest one is kept (a big book is
+# large), and it is used at most once: Fix changes the book.
+_OVERVIEW_KEEP: dict = {}
+_OVERVIEW_KEEP_GUARD = threading.Lock()
+
+
+def _keep_overview_analysis(session_dir: Path, key: str, book, analysis_report) -> None:
+    with _OVERVIEW_KEEP_GUARD:
+        _OVERVIEW_KEEP.clear()
+        _OVERVIEW_KEEP[str(session_dir)] = (key, book, analysis_report)
+
+
+def _take_overview_analysis(session_dir: Path):
+    """(book, analysis_report) kept by the Overview for this session, or None
+    when there is none or the book file has changed since (same check the
+    Overview's own cache uses). Taking it removes it."""
+    with _OVERVIEW_KEEP_GUARD:
+        kept = _OVERVIEW_KEEP.pop(str(session_dir), None)
+    if kept is None:
+        return None
+    key, book, analysis_report = kept
+    try:
+        if key != _overview_cache_key(session_dir, load_config(None)):
+            return None
+    except OSError:
+        return None
+    return book, analysis_report
+
+
 def _overview_data(session_dir: Path, filename: str) -> dict:
     """The Overview page's data, cached in the session folder as JSON
     (it is built from a full analysis plus every repair module's own
@@ -1310,6 +1341,7 @@ def _compute_overview_data(session_dir: Path, filename: str, config, key: str, c
     data["omnibus"] = _omnibus_card(book, _source_path(session_dir), filename)
     _set_progress("")
     cache_path.write_text(json.dumps({"key": key, "data": data}), encoding="utf-8")
+    _keep_overview_analysis(session_dir, key, book, analysis_report)
     return data
 
 
@@ -2147,7 +2179,23 @@ def _run_fix(session_dir: Path, filename: str, replace_requested: bool) -> dict:
     if config.extra_content_removal.enabled:
         config.dead_link_repair.enabled = True
 
-    book = EPUBParser().load(_source_path(session_dir))
+    # Start from the book and analysis the Overview just made when nothing
+    # has changed the book since: no staged metadata, cover or Review
+    # choices, and no chapter split to make. Then the analysis below would
+    # come out the same, so it is not done twice. Anything else reads the
+    # file fresh, exactly as before.
+    reused = _take_overview_analysis(session_dir)
+    if reused is not None:
+        kept_cover = _read_staged(_staged_cover_path(session_dir))
+        untouched = (
+            _read_staged(_staged_metadata_path(session_dir)) is None
+            and not (kept_cover and (kept_cover.get("cover_source") or kept_cover.get("cover_url")))
+            and _read_staged(_staged_review_path(session_dir)) is None
+            and not _default_accepted_split_ids(_split_candidate_groups(reused[0]))
+        )
+        if not untouched:
+            reused = None
+    book = reused[0] if reused is not None else EPUBParser().load(_source_path(session_dir))
 
     # Staged metadata edits, if any -- applied directly the same way
     # save_metadata used to write immediately, just deferred to here so
@@ -2277,7 +2325,8 @@ def _run_fix(session_dir: Path, filename: str, replace_requested: bool) -> dict:
         # here actually changes what those modules do this pass, not
         # just what the Review tab displayed.
         frontmatter_labels = staged_review.get("frontmatter_labels", {}) if staged_review is not None else {}
-        analysis_report = EPUBAnalyzer().analyze(book, frontmatter_overrides=frontmatter_labels, progress=_set_progress)
+        analysis_report = reused[1] if reused is not None else EPUBAnalyzer().analyze(
+            book, frontmatter_overrides=frontmatter_labels, progress=_set_progress)
 
         # The default ticks were worked out on the book as it was before this
         # Fix, so a repair with nothing to do then stayed off, even though other

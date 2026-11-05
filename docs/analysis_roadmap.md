@@ -3978,3 +3978,14 @@ Jacob wanted bulk work and said the GUI is the main way he uses the program, so 
 Checks: a folder of 17 files (EPUB, MOBI, FB2, AZW3, an HTML file, a subfolder, a hidden folder, a damaged EPUB, and leftovers `_fixed` and `_original` files) gave 11 fixed, 1 failed (the damaged one), 1 skipped, and nothing for the hidden folder, the leftovers or the HTML file. Six of those books (EPUB, MOBI and FB2) were also fixed through the Fix This Book route on a second copy: the outputs are byte-identical. A second run of the same folder skips everything it did. Replace mode kept `_original` for the dirty book and left two already-clean books untouched with no extra files. Stop after the first book finished the book in progress and marked the rest as not run.
 
 Known limits: the books are done one after another (a parallel run would multiply the memory used and the progress line is shared), and each book is analyzed twice, once for the Overview that decides the default repairs and once inside the fix, as the button does. The results list lives in memory, so it is gone when the program is closed. Each book leaves a small temporary working folder behind, like opening it by hand does.
+
+### Changed: Fix reuses the Overview's analysis (2026-11-04)
+
+First phase of "only one analysis pass". Counting showed a single book fixed in the GUI was read once and analyzed 4 to 5 times: once for the Overview, once at the start of Fix, and once for every extra repair pass (a book that settles in 3 passes pays for the Overview, the Fix's first analysis, and two re-checks).
+
+- `gui/app.py`: when the Overview works out a book it now keeps the parsed book and its analysis in memory (the latest book only, since a big book is large). Fix and Fix a Folder start from those when nothing has changed the book since: no staged metadata, cover or Review choices, and no chapter split to make. The file is not read a second time and the first analysis is not repeated. If anything was staged, a split is due, or the file changed on disk, Fix reads the book fresh and analyzes it as before, so every other case behaves exactly as it did. The kept book is used once and then dropped, since Fix changes it.
+- Result per book: one analysis fewer (3 to 2 on MM5, Images-PageNumbers; 4 to 3 on War and Peace) and one parse fewer.
+
+Checks: all 25 example EPUBs run through the real GUI routes (open, Overview, Fix), old code against new: the fixed files are identical (modified time ignored). Total time for the 25 books 360s to 326s.
+
+Next phases, not started: (2) the repair passes. Pass 2 and the final confirming pass each repeat the whole analysis; most checks that only look at one page could keep their answer for pages no repair touched (`chapter.modified` already says which), so the confirming pass would cost almost nothing. (3) The Overview's own per-repair checks, which repeat scans the analysis has already done.
