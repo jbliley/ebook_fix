@@ -13,6 +13,13 @@ from ebook_fix.report import print_header
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
+from ebook_fix.whitespace import analyze_book_whitespace
+from ebook_fix.ellipsis import analyze_book_ellipsis
+from ebook_fix.apostrophes import analyze_book_apostrophes
+from ebook_fix.paragraphs import analyze_book_paragraphs
+from ebook_fix.chapters import analyze_book_chapters
+from ebook_fix.toc_corroborated import find_corroborated_titles
+from ebook_fix.headings import chapter_marker_elements
 from metadata import review
 from metadata import calibre_write
 from metadata import calibredb_write
@@ -152,6 +159,65 @@ class _AutoClassStandardize:
         if not entries:
             return None
         return ClassStandardizeRepair(entries).repair(book, analysis)
+
+
+
+# Settling inside one pass (see Engine._run_repair_passes).
+#
+# A repair reads the analysis made before the pass began, so work that an
+# earlier repair in the same pass created used to wait for the next pass,
+# and nearly every book needed a third one. Two small rules close most of
+# that gap without analyzing the whole book again:
+#
+# - These three read per-text findings. When something has already changed
+#   the book this pass, their own findings are worked out again from the
+#   current text just before they run (one check, not the whole analysis).
+_REFRESH_BEFORE = {
+    "Ellipsis Normalizer": ("ellipsis", analyze_book_ellipsis),
+    "Apostrophe Repair": ("apostrophes", analyze_book_apostrophes),
+    "Whitespace Normalizer": ("whitespace", analyze_book_whitespace),
+}
+# - These read the live book (not the findings), so running them once more
+#   when the pass is over picks up what the repairs after them left behind,
+#   such as class names that stopped being used.
+# - Paragraph Repair joins what later repairs make joinable (a class renamed
+#   to the standard body class, for one), and the three text repairs above
+#   then clean the seams it leaves. Its findings are worked out again first.
+_SETTLE_AFTER = (
+    "Paragraph Repair", "Chapter Markup", "Chapter Header Spacing", "Reader Settings", "Class Cleanup",
+    "Unused CSS", "Apostrophe Repair", "Ellipsis Normalizer", "Whitespace Normalizer",
+)
+
+
+def _refresh_paragraphs(book, analysis_report):
+    """Paragraph findings as EPUBAnalyzer.analyze makes them, for the book as
+    it is now."""
+    return analyze_book_paragraphs(
+        book,
+        frontmatter_summary=analysis_report.frontmatter,
+        chapter_markers=chapter_marker_elements(analysis_report.chapters),
+    )
+
+
+def _refresh_chapters(book, analysis_report):
+    """Chapter findings as EPUBAnalyzer.analyze makes them, for the book as
+    it is now (Chapter Markup and Chapter Header Spacing read these)."""
+    chapters = analyze_book_chapters(book)
+    if not chapters.confirmed_boundaries:
+        try:
+            chapters.corroborated_titles = find_corroborated_titles(book)[0]
+        except Exception:
+            chapters.corroborated_titles = []
+    return chapters
+
+
+# Refreshes that need the whole analysis report get it as a second argument.
+_SETTLE_REFRESH = dict(_REFRESH_BEFORE, **{
+    "Paragraph Repair": ("paragraphs", _refresh_paragraphs),
+    "Chapter Markup": ("chapters", _refresh_chapters),
+    "Chapter Header Spacing": ("chapters", _refresh_chapters),
+})
+_NEEDS_REPORT = (_refresh_paragraphs, _refresh_chapters)
 
 
 class Engine:
@@ -2201,19 +2267,36 @@ class Engine:
                 analysis_report = analyzer.analyze(book)
 
             changes_this_pass = 0
-            for module_number, module in enumerate(modules, start=1):
-                self.log(f"Repairing: {module.name}")
-                if self.progress is not None:
-                    self.progress(f"Fixing: {module.name} ({module_number} of {len(modules)})")
-                repair_report = module.repair(book, analysis_report)
+
+            def _record(module, repair_report):
+                nonlocal changes_this_pass
                 if repair_report is None:
-                    continue
+                    return
                 changes_this_pass += repair_report.count
                 existing = reports_by_module.get(module.name)
                 if existing is None:
                     reports_by_module[module.name] = repair_report
                 else:
                     existing.issues.extend(repair_report.issues)
+
+            for module_number, module in enumerate(modules, start=1):
+                self.log(f"Repairing: {module.name}")
+                if self.progress is not None:
+                    self.progress(f"Fixing: {module.name} ({module_number} of {len(modules)})")
+                refresh = _REFRESH_BEFORE.get(module.name)
+                if refresh is not None and changes_this_pass:
+                    setattr(analysis_report, refresh[0], refresh[1](book))
+                _record(module, module.repair(book, analysis_report))
+
+            # Settle: what the repairs after them left for these.
+            if changes_this_pass:
+                for module in modules:
+                    if module.name in _SETTLE_AFTER:
+                        self.log(f"Repairing: {module.name} (settling)")
+                        refresh = _SETTLE_REFRESH.get(module.name)
+                        if refresh is not None:
+                            setattr(analysis_report, refresh[0], refresh[1](book, analysis_report) if refresh[1] in _NEEDS_REPORT else refresh[1](book))
+                        _record(module, module.repair(book, analysis_report))
 
             if changes_this_pass == 0:
                 break
