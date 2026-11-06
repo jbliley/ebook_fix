@@ -101,7 +101,8 @@ into the repo.
 
 - Pull the latest repo first; Jacob may have changed files.
 - Say up front roughly how big the stretch is.
-- Output on all 25 example books must be identical to the previous version
+- Output on all example books (26 since the Bite Back box set was added,
+  `examples/BiteBack-BoxSet.epub`) must be identical to the previous version
   (compared by unpacking the files, ignoring the modified time in the
   package file), and fixing an already fixed output must change nothing.
 - Run old code against new code at the same time to keep the checks short.
@@ -208,7 +209,7 @@ Final check that every Group A step only reads findings.
 
 Only after the shadow check has agreed on every test book through Stretch
 10. Remove the settling step and the confirming analysis. Keep the cap on
-passes as a safety net. Run all 25 examples plus a second-run check, and
+passes as a safety net. Run all the examples plus a second-run check, and
 ask Jacob to try the books that gave trouble before (Tarzan, War and
 Peace, Sidewinders and others he picks).
 
@@ -322,7 +323,7 @@ the "now" column at Stretches 3, 6, 9 and 11.
 - **Elements held by findings after an edit.** Page Reuse found that a removed
   element still names its old document. The store checks that an element is
   still attached by walking up to the top of its own branch.
-- **The examples miss a rare branch.** Output on 25 books cannot prove every
+- **The examples miss a rare branch.** Output on 26 books cannot prove every
   path. The Stretch 11 trial on Jacob's own books is there for this, and
   any book that shows a difference gets added as a test.
 - **A stretch runs over.** L stretches have a split point, and nothing ships
@@ -343,16 +344,18 @@ Made:
 - A deliverable at the end of every stretch, sized to fit one interval.
 - The analysis cache file is for the program, not for reading, so a compact
   format is fine.
+- Stretches 1 to 3 may show little speed gain, because the savings arrive in
+  Phases 2 and 3. Speed is not the focus until this plan is complete.
+- Shadow check messages go to the Fix log only, not the GUI.
+- The test set is the examples folder plus any book Jacob attaches in chat.
+  The Bite Back box set (Mark Henwick, three books in one file) is added
+  now as `examples/BiteBack-BoxSet.epub`.
 
-Open, with the default if Jacob does not say otherwise:
-
-- Early stretches show little speed gain. Default: go ahead.
-- Shadow check messages go to the Fix log only, not the GUI. Default: log only.
-- Which of Jacob's own books to add to the test set for Stretch 11. Default:
-  only the 25 examples plus any book Jacob attaches in chat.
+Open: nothing right now.
 
 ## Status log
 
 | Stretch | Date finished | Result |
 | --- | --- | --- |
 | Plan written | 2026-11-05 | This file |
+| Open decisions answered | 2026-11-05 | Decisions section updated. Bite Back box set added to the examples (a Fix runs cleanly in 12.6s and 2 passes before any of this work starts) |
