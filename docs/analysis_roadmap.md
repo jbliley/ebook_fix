@@ -4050,3 +4050,25 @@ Stretch 1 of `docs/single_analysis_plan.md`. The whitespace, ellipsis, apostroph
 - Inventory: what every repair step reads and changes was recorded on the 26 example books and written into the checklist in the plan. No step moved between stretches. Seven steps changed nothing on any example, so they need synthetic tests later.
 
 Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; 17 direct tests of the store (an edited page read again, an element swapped for an identical copy detected, the report's saved form unchanged, a second analysis with the same store reads no page again). There is no speed gain yet, as planned: the savings arrive in Phases 2 and 3.
+
+### Changed: chapter and front matter findings come from the store (2026-11-06)
+
+Stretch 2a of `docs/single_analysis_plan.md`. The chapter and front matter findings depend on more than one page, so they could not be kept per page like the whitespace and ellipsis findings. The store now keeps them as whole-book findings.
+
+- `analysis_store.py`: `AnalysisStore.findings` also answers `chapters` (the chapter starts plus the contents-page confirmed titles, exactly as the analysis made them) and `frontmatter`. Each is kept with a fingerprint of the whole book (every page, the package and contents documents, the metadata, spine and contents list, and every file this tool added, changed or removed) and with the numbers of the findings it is made from. A kept answer is reused only while all of that is unchanged, the person's front matter choices (Review tab) are unchanged, and every element it points at is still on a page. Otherwise it is made again.
+- The fingerprint is coarse on purpose: a change anywhere makes the finding again, so a kept answer can never be out of date. Finer inputs per finding come later in the plan.
+- `analyzer.py`: `analyze` reads both from the store. `engine.py`: the chapter refresh before Chapter Markup and Chapter Header Spacing asks the store, and `_refresh_chapters` is gone.
+- Front matter choices count only as an input to front matter, not to the chapters it is made from. A direct test caught this before delivery: a changed choice made the chapters again.
+
+Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; direct tests on three books (an unchanged book reuses both findings, an edited page, a package change, an added file, a changed front matter choice and a detached element each make the right findings again, and a kept answer equals a fresh one). No speed change is expected from this half.
+
+### Changed: paragraph, line break, scene break, color and font findings come from the store (2026-11-06)
+
+Stretch 2b of `docs/single_analysis_plan.md`. Together with 2a, every finding the repairs read from the analysis now comes from one place, `AnalysisStore.findings`.
+
+- `analysis_store.py`: `paragraphs`, `linebreaks`, `scene_breaks`, `color` and `fonts` are stored as whole-book findings made from the chapter and front matter findings. Whenever one is made, the chapters and front matter it needs are asked from the store too, so they are made from the book as it is now. The person's front matter choices (Review tab) are kept on the store (`store.overrides`, set by each analysis) and count as an input to front matter and everything made from it. The book's fingerprint is worked out once per request, not once per finding it is made from.
+- `analyzer.py`: `analyze` reads all of them from the store. `engine.py`: `_REFRESH_BEFORE` and `_SETTLE_REFRESH` now only name which finding to ask the store for before a repair runs. The paragraph and chapter refresh functions and `_fresh_findings` are removed.
+- Result on the repairs: none. The outputs of all 26 example books are the same as before, so asking for the chapters fresh did not change what Paragraph Repair does.
+- Speed: no gain yet, as planned (Tarzan 34s to 35s, within the noise of repeated runs). Whole-book findings are reused only when nothing in the book changed since they were made, which a Fix rarely allows. The savings come when the self-scanning repairs move onto shared indexes (Stretches 4 to 10) and the confirming pass is replaced (Stretch 11).
+
+Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; direct tests on three books (reuse when nothing changed, a made-again finding when a page, the package, an added file or a front matter choice changes, a detached element, and a kept paragraph finding equal to a fresh one).

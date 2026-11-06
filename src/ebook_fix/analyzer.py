@@ -16,8 +16,7 @@ from ebook_fix.typography import TypographyReport, BookTypographySummary, analyz
 from ebook_fix.css import BookCSSSummary, analyze_book_css
 from ebook_fix.color import BookColorSummary, analyze_book_color
 from ebook_fix.fonts import BookFontSummary, analyze_book_font_usage
-from ebook_fix.chapters import BookChapterSummary, analyze_book_chapters
-from ebook_fix.toc_corroborated import find_corroborated_titles
+from ebook_fix.chapters import BookChapterSummary
 from ebook_fix.images import BookImageSummary, analyze_book_images
 from ebook_fix.packaging import BookPackagingSummary, analyze_book_packaging
 from ebook_fix.headings import chapter_marker_elements
@@ -186,6 +185,7 @@ class EPUBAnalyzer:
         if store is None:
             store=AnalysisStore()
         r.store=store
+        store.overrides=frontmatter_overrides
 
         # Computed ahead of the per-chapter loop below (rather than at
         # the end, alongside css/images/paragraphs/whitespace) because
@@ -203,16 +203,9 @@ class EPUBAnalyzer:
         # r.frontmatter object rather than recomputing their own, so a
         # reviewer's correction reaches every one of them for free.
         say("Looking for chapter starts\u2026")
-        r.chapters=analyze_book_chapters(book)
-        if not r.chapters.confirmed_boundaries:
-            # "1. TITLE" chapters the book's own contents page confirms: not
-            # trusted for splitting, but safe to recognize as chapter headers.
-            try:
-                r.chapters.corroborated_titles=find_corroborated_titles(book)[0]
-            except Exception:
-                r.chapters.corroborated_titles=[]
+        r.chapters=store.findings("chapters",book)
         say("Finding front and back matter\u2026")
-        r.frontmatter=analyze_book_frontmatter(book,chapter_summary=r.chapters,overrides=frontmatter_overrides)
+        r.frontmatter=store.findings("frontmatter",book)
         matter_by_href={m.href:m for m in r.frontmatter.chapters}
 
         total_chapters=len(book.chapters)
@@ -350,19 +343,18 @@ class EPUBAnalyzer:
         r.typography=summarize_book([(c.href,c.typography) for c in r.chapter_reports])
         say("Checking styles, colors and fonts\u2026")
         r.css=analyze_book_css(book,r.chapter_reports)
-        r.color=analyze_book_color(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
-        r.fonts=analyze_book_font_usage(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
+        r.color=store.findings("color",book)
+        r.fonts=store.findings("fonts",book)
         say("Checking images and packaging\u2026")
         r.images=analyze_book_images(book)
         r.packaging=analyze_book_packaging(book)
-        header_markers=chapter_marker_elements(r.chapters)
         say("Checking paragraphs, line breaks and spacing\u2026")
-        r.paragraphs=analyze_book_paragraphs(book,frontmatter_summary=r.frontmatter,chapter_markers=header_markers)
-        r.linebreaks=analyze_book_linebreaks(book,frontmatter_summary=r.frontmatter,chapter_markers=header_markers)
+        r.paragraphs=store.findings("paragraphs",book)
+        r.linebreaks=store.findings("linebreaks",book)
         r.whitespace=store.findings("whitespace",book)
         r.ellipsis=store.findings("ellipsis",book)
         say("Checking scene breaks, quotes and apostrophes\u2026")
-        r.scene_breaks=analyze_book_scene_breaks(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
+        r.scene_breaks=store.findings("scene_breaks",book)
         r.apostrophes=store.findings("apostrophes",book)
         r.possessives=store.findings("possessives",book)
         say("Checking the table of contents\u2026")

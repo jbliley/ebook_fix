@@ -145,7 +145,12 @@ ships as a working ZIP.
   findings first, so their inputs include those.
 - Remove `_REFRESH_BEFORE`, `_SETTLE_REFRESH` and `_fresh_findings` once the
   store does the same job.
-- Split point: chapters and front matter first (2a), then the rest (2b).
+- Split point: chapters and front matter first (2a, done 2026-11-06), then
+  the rest (2b, done 2026-11-06: paragraphs, line breaks, scene breaks,
+  color, fonts). 2a keeps
+  whole-book findings behind a whole-book fingerprint, which is coarse on
+  purpose (any change anywhere makes them again). 2b adds the finer inputs
+  where a finding gains from them, and removes the refresh tables.
 - Done when: examples identical, same or fewer passes, no hand-written
   refresh left in `engine.py`.
 
@@ -375,3 +380,5 @@ Open: nothing right now.
 | Plan written | 2026-11-05 | This file |
 | Open decisions answered | 2026-11-05 | Decisions section updated. Bite Back box set added to the examples (a Fix runs cleanly in 12.6s and 2 passes before any of this work starts) |
 | Stretch 1: Store and inventory | 2026-11-06 | `analysis_store.py` added; whitespace, ellipsis, apostrophe and possessive findings read through it, and the analysis report carries it. Examples identical (26 books, only the OPF modified time differs), second run changes nothing, 17 direct store tests pass. Checklist filled in |
+| Stretch 2a: Chapters and front matter on the store | 2026-11-06 | `chapters` and `frontmatter` come from `AnalysisStore.findings`, reused only while the book's state, the findings they are made from and the person's front matter choices are unchanged and every element they point at is still on a page. `_refresh_chapters` removed from `engine.py`. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Direct tests found and fixed one flaw before delivery (front matter choices were wrongly counted as an input to chapters) |
+| Stretch 2b: The rest on the store | 2026-11-06 | `paragraphs`, `linebreaks`, `scene_breaks`, `color` and `fonts` come from the store, always made from the chapters and front matter as the book is now. The engine's refresh tables now only name which finding to ask the store for (`_refresh_paragraphs` and `_fresh_findings` removed). Examples identical (26 books, only the OPF modified time differs), second run changes nothing, direct tests pass. Not faster yet: Tarzan 34 to 35s, within the run-to-run noise (a whole-book fingerprint is taken for each request). The savings come from Stretches 4 to 10 |
