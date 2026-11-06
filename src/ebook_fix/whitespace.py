@@ -86,6 +86,8 @@ from dataclasses import dataclass, field
 
 from lxml import etree
 
+from ebook_fix.finding_cache import analyze_pages
+
 # ---------------------------------------------------------------------
 # Tag classification
 # ---------------------------------------------------------------------
@@ -731,10 +733,7 @@ def _primary_category(result: NormalizeResult) -> str:
     return "Whitespace normalized"
 
 
-def analyze_book_whitespace(book) -> BookWhitespaceSummary:
-    summary = BookWhitespaceSummary()
-    for chapter in book.chapters:
-        summary.chapters.append(
-            analyze_chapter_whitespace(getattr(chapter, "href", ""), getattr(chapter, "document", None))
-        )
-    return summary
+def analyze_book_whitespace(book, cache=None) -> BookWhitespaceSummary:
+    """`cache`, if given (see ebook_fix.finding_cache), lets a page that has
+    not changed since it was last read keep its earlier findings."""
+    return analyze_pages(book, "whitespace", analyze_chapter_whitespace, BookWhitespaceSummary(), cache)

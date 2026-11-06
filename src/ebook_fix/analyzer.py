@@ -168,10 +168,15 @@ class AnalysisReport:
     merged_core_fields:MergedCoreFields=field(default_factory=MergedCoreFields)
 
 class EPUBAnalyzer:
-    def analyze(self,book,frontmatter_overrides=None,progress=None):
+    def analyze(self,book,frontmatter_overrides=None,progress=None,cache=None):
         """`progress`, if given, is called with a short plain-English line
         ("Looking for chapters...") as each stage starts, so the GUI can
-        show that a large book is being worked on and not frozen."""
+        show that a large book is being worked on and not frozen.
+
+        `cache`, if given (a PageFindingCache, see ebook_fix.finding_cache),
+        lets the whitespace, ellipsis and apostrophe findings of a page that
+        has not changed since an earlier analysis in the same repair run be
+        reused instead of worked out again."""
         say=progress or (lambda _text: None)
         r=AnalysisReport()
 
@@ -347,11 +352,11 @@ class EPUBAnalyzer:
         say("Checking paragraphs, line breaks and spacing\u2026")
         r.paragraphs=analyze_book_paragraphs(book,frontmatter_summary=r.frontmatter,chapter_markers=header_markers)
         r.linebreaks=analyze_book_linebreaks(book,frontmatter_summary=r.frontmatter,chapter_markers=header_markers)
-        r.whitespace=analyze_book_whitespace(book)
-        r.ellipsis=analyze_book_ellipsis(book)
+        r.whitespace=analyze_book_whitespace(book,cache=cache)
+        r.ellipsis=analyze_book_ellipsis(book,cache=cache)
         say("Checking scene breaks, quotes and apostrophes\u2026")
         r.scene_breaks=analyze_book_scene_breaks(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
-        r.apostrophes=analyze_book_apostrophes(book)
+        r.apostrophes=analyze_book_apostrophes(book,cache=cache)
         r.possessives=analyze_book_possessives(book)
         say("Checking the table of contents\u2026")
         r.toc=analyze_book_toc(book,chapter_reports=r.chapter_reports)

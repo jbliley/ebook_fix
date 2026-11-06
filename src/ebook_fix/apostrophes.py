@@ -29,6 +29,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from ebook_fix.finding_cache import analyze_pages
 from ebook_fix.whitespace import iter_text_slots
 
 STRAIGHT_APOSTROPHE = "'"
@@ -267,13 +268,10 @@ def analyze_chapter_apostrophes(href: str, tree) -> ChapterApostropheSummary:
     return summary
 
 
-def analyze_book_apostrophes(book) -> BookApostropheSummary:
-    summary = BookApostropheSummary()
-    for chapter in book.chapters:
-        summary.chapters.append(
-            analyze_chapter_apostrophes(getattr(chapter, "href", ""), getattr(chapter, "document", None))
-        )
-    return summary
+def analyze_book_apostrophes(book, cache=None) -> BookApostropheSummary:
+    """`cache`, if given (see ebook_fix.finding_cache), lets a page that has
+    not changed since it was last read keep its earlier findings."""
+    return analyze_pages(book, "apostrophes", analyze_chapter_apostrophes, BookApostropheSummary(), cache)
 
 
 # ---------------------------------------------------------------------

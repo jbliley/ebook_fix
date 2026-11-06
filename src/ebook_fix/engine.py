@@ -14,6 +14,7 @@ from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.whitespace import analyze_book_whitespace
+from ebook_fix.finding_cache import PageFindingCache
 from ebook_fix.ellipsis import analyze_book_ellipsis
 from ebook_fix.apostrophes import analyze_book_apostrophes
 from ebook_fix.paragraphs import analyze_book_paragraphs
@@ -218,6 +219,15 @@ _SETTLE_REFRESH = dict(_REFRESH_BEFORE, **{
     "Chapter Header Spacing": ("chapters", _refresh_chapters),
 })
 _NEEDS_REPORT = (_refresh_paragraphs, _refresh_chapters)
+
+
+def _fresh_findings(compute, book, analysis_report, cache):
+    """One of the refreshes above, made for the book as it is now. The
+    per-page checks (ellipsis, apostrophes, whitespace) reuse a page's earlier
+    findings through `cache` when that page has not changed since."""
+    if compute in _NEEDS_REPORT:
+        return compute(book, analysis_report)
+    return compute(book, cache=cache)
 
 
 class Engine:
@@ -2258,13 +2268,18 @@ class Engine:
         Returns (reports_by_module, pass_num).
         """
         reports_by_module = {}
+        # Pages whose markup has not changed since a per-page check last
+        # read them keep that check's findings (see ebook_fix.finding_cache),
+        # so the settling step and the confirming analysis only read the
+        # pages a repair has touched since.
+        cache = PageFindingCache()
         pass_num = 1
         while True:
             if pass_num > 1:
                 self.log(f"\n[Pass {pass_num}] Re-analyzing for anything the previous pass's own edits uncovered...")
                 if self.progress is not None:
                     self.progress(f"Checking the book again (pass {pass_num})\u2026")
-                analysis_report = analyzer.analyze(book)
+                analysis_report = analyzer.analyze(book, cache=cache)
 
             changes_this_pass = 0
 
@@ -2285,7 +2300,7 @@ class Engine:
                     self.progress(f"Fixing: {module.name} ({module_number} of {len(modules)})")
                 refresh = _REFRESH_BEFORE.get(module.name)
                 if refresh is not None and changes_this_pass:
-                    setattr(analysis_report, refresh[0], refresh[1](book))
+                    setattr(analysis_report, refresh[0], _fresh_findings(refresh[1], book, analysis_report, cache))
                 _record(module, module.repair(book, analysis_report))
 
             # Settle: what the repairs after them left for these.
@@ -2295,7 +2310,7 @@ class Engine:
                         self.log(f"Repairing: {module.name} (settling)")
                         refresh = _SETTLE_REFRESH.get(module.name)
                         if refresh is not None:
-                            setattr(analysis_report, refresh[0], refresh[1](book, analysis_report) if refresh[1] in _NEEDS_REPORT else refresh[1](book))
+                            setattr(analysis_report, refresh[0], _fresh_findings(refresh[1], book, analysis_report, cache))
                         _record(module, module.repair(book, analysis_report))
 
             if changes_this_pass == 0:

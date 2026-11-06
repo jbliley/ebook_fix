@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from ebook_fix.finding_cache import analyze_pages
 from ebook_fix.whitespace import iter_text_slots
 
 UNICODE_ELLIPSIS = "\u2026"    # …
@@ -178,10 +179,7 @@ def analyze_chapter_ellipsis(href: str, tree) -> ChapterEllipsisSummary:
     return summary
 
 
-def analyze_book_ellipsis(book) -> BookEllipsisSummary:
-    summary = BookEllipsisSummary()
-    for chapter in book.chapters:
-        summary.chapters.append(
-            analyze_chapter_ellipsis(getattr(chapter, "href", ""), getattr(chapter, "document", None))
-        )
-    return summary
+def analyze_book_ellipsis(book, cache=None) -> BookEllipsisSummary:
+    """`cache`, if given (see ebook_fix.finding_cache), lets a page that has
+    not changed since it was last read keep its earlier findings."""
+    return analyze_pages(book, "ellipsis", analyze_chapter_ellipsis, BookEllipsisSummary(), cache)
