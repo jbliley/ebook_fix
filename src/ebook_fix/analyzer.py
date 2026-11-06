@@ -23,13 +23,11 @@ from ebook_fix.packaging import BookPackagingSummary, analyze_book_packaging
 from ebook_fix.headings import chapter_marker_elements
 from ebook_fix.paragraphs import BookParagraphSummary, analyze_book_paragraphs
 from ebook_fix.linebreaks import BookLineBreakSummary, analyze_book_linebreaks
-from ebook_fix.whitespace import BookWhitespaceSummary, analyze_book_whitespace
-from ebook_fix.ellipsis import BookEllipsisSummary, analyze_book_ellipsis
+from ebook_fix.analysis_store import AnalysisStore
+from ebook_fix.whitespace import BookWhitespaceSummary
+from ebook_fix.ellipsis import BookEllipsisSummary
 from ebook_fix.scene_breaks import BookSceneBreakSummary, analyze_book_scene_breaks
-from ebook_fix.apostrophes import (
-    BookApostropheSummary, analyze_book_apostrophes,
-    BookPossessiveSummary, analyze_book_possessives,
-)
+from ebook_fix.apostrophes import BookApostropheSummary, BookPossessiveSummary
 from ebook_fix.frontmatter import (
     BookFrontMatterSummary, analyze_book_frontmatter, FRONT_ZONE, BACK_ZONE,
 )
@@ -166,19 +164,28 @@ class AnalysisReport:
     calibre_context:CalibreContext=field(default_factory=CalibreContext)
     merged_identifiers:MergedIdentifierSummary=field(default_factory=MergedIdentifierSummary)
     merged_core_fields:MergedCoreFields=field(default_factory=MergedCoreFields)
+    # The AnalysisStore this report was made with (see ebook_fix.analysis_store).
+    # Left without a type on purpose, so it is not one of the report's saved
+    # fields: it holds live pages and is never written to the JSON cache.
+    store=None
 
 class EPUBAnalyzer:
-    def analyze(self,book,frontmatter_overrides=None,progress=None,cache=None):
+    def analyze(self,book,frontmatter_overrides=None,progress=None,store=None):
         """`progress`, if given, is called with a short plain-English line
         ("Looking for chapters...") as each stage starts, so the GUI can
         show that a large book is being worked on and not frozen.
 
-        `cache`, if given (a PageFindingCache, see ebook_fix.finding_cache),
-        lets the whitespace, ellipsis and apostrophe findings of a page that
-        has not changed since an earlier analysis in the same repair run be
-        reused instead of worked out again."""
+        `store`, if given (an AnalysisStore, see ebook_fix.analysis_store),
+        is the one an earlier analysis of this same book left behind: the
+        whitespace, ellipsis, apostrophe and possessive findings of a page
+        that has not changed since are reused instead of worked out again.
+        Without one a new store is made. Either way the report carries its
+        store as `report.store`."""
         say=progress or (lambda _text: None)
         r=AnalysisReport()
+        if store is None:
+            store=AnalysisStore()
+        r.store=store
 
         # Computed ahead of the per-chapter loop below (rather than at
         # the end, alongside css/images/paragraphs/whitespace) because
@@ -352,12 +359,12 @@ class EPUBAnalyzer:
         say("Checking paragraphs, line breaks and spacing\u2026")
         r.paragraphs=analyze_book_paragraphs(book,frontmatter_summary=r.frontmatter,chapter_markers=header_markers)
         r.linebreaks=analyze_book_linebreaks(book,frontmatter_summary=r.frontmatter,chapter_markers=header_markers)
-        r.whitespace=analyze_book_whitespace(book,cache=cache)
-        r.ellipsis=analyze_book_ellipsis(book,cache=cache)
+        r.whitespace=store.findings("whitespace",book)
+        r.ellipsis=store.findings("ellipsis",book)
         say("Checking scene breaks, quotes and apostrophes\u2026")
         r.scene_breaks=analyze_book_scene_breaks(book,chapter_summary=r.chapters,frontmatter_summary=r.frontmatter)
-        r.apostrophes=analyze_book_apostrophes(book,cache=cache)
-        r.possessives=analyze_book_possessives(book)
+        r.apostrophes=store.findings("apostrophes",book)
+        r.possessives=store.findings("possessives",book)
         say("Checking the table of contents\u2026")
         r.toc=analyze_book_toc(book,chapter_reports=r.chapter_reports)
         r.summary.toc_entry_count=r.toc.entry_count

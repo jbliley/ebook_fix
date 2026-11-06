@@ -75,9 +75,12 @@ the rule that a second run changes nothing.
 One analysis that keeps track of which pages have changed.
 
 - Each finding is stored with what it reads: a single page or the whole book,
-  and which aspect of the page (its text, its structure and classes, its
-  styles, the package files).
-- Pages are fingerprinted by aspect when a finding is asked for. Repairs edit
+  and which part of the book (the text of a page, its structure and classes,
+  the styles, the package files). Stretch 1 stores the page findings by the
+  whole page only. Finer fingerprints per part are added in the stretch that
+  first needs them (Stretch 2 or later), because today's four findings all
+  depend on the page's whole markup.
+- Pages are fingerprinted when a finding is asked for. Repairs edit
   the pages directly, so there is no place to hook a "page changed" signal;
   fingerprinting every page costs about 0.04s on Tarzan (659 pages).
 - Asking for a finding whose inputs changed makes just that finding again,
@@ -124,9 +127,10 @@ ships as a working ZIP.
 
 ### Stretch 1: Store and inventory (M)
 
-- Build the store: findings declared with their scope and aspects, aspect
-  fingerprints per page, refresh on read. It replaces `PageFindingCache` with
-  the same behavior.
+- Build the store: findings declared with their scope, refresh on read, one
+  whole-page fingerprint per page (part-by-part fingerprints wait until a
+  finding needs them). It is built on `PageFindingCache` with the same
+  behavior.
 - Move whitespace, ellipsis, apostrophe and possessive findings onto it.
 - Fill in the checklist below for all 42 steps: what each reads, what it
   changes, and which shared finding could replace its own scan. This fixes
@@ -251,53 +255,64 @@ Group is today's group (A already reads the analysis, B uses only the
 summary and scans for its subject, C scans on its own). A tick means the
 step reads only the store and the checks above passed.
 
-| Step | Group | Planned stretch | Done |
-| --- | --- | --- | --- |
-| Gutenberg Boilerplate Removal | A | 2, 10 | |
-| Extra Content Removal | B | 9 | |
-| Running Title Removal | A | 2, 10 | |
-| Div Paragraphs | C | 8 | |
-| Stray Line Break Removal | A | 2, 10 | |
-| Paragraph Repair | A | 2 | |
-| Chapter Markup | A | 2 | |
-| Chapter Title Cleanup | C | 8 | |
-| TOC Cleanup | C | 7 | |
-| Dead Link Cleanup | C | 7 | |
-| EPUB 3 Upgrade | A | 10 | |
-| TOC Generation | A | 2, 10 | |
-| Chapter Header Spacing | B | 9 | |
-| Scene Break Normalizer | A | 2 | |
-| Scene Opener Markers | B | 9 | |
-| Scene Break Markers | B | 9 | |
-| Body Paragraph Look | B | 5 | |
-| Paragraph Spacing | B | 6 | |
-| Line Height | C | 5 | |
-| Reader Settings | B | 6 | |
-| Text Size | C | 5 | |
-| Extra Page Break Removal | C | 8 | |
-| Image Repair | A | 10 | |
-| Cover Repair | A | 7, 10 | |
-| Color Strip | A | 2 | |
-| Font Strip | A | 2 | |
-| Embedded Stylesheet Consolidation | C | 5 | |
-| Class Cleanup | C | 4 | |
-| Span Cleanup | C | 4 | |
-| Unused CSS | C | 4 | |
-| Junk File Removal | C | 10 | |
-| Mid-Word Hyphen Repair | C | 8 | |
-| Ellipsis Normalizer | A | 1 | |
-| Apostrophe Repair | A | 1 | |
-| Quote Style | C | 8 | |
-| Page Titles | C | 7 | |
-| Whitespace Normalizer | A | 1 | |
-| Title Cleanup | C | 10 | |
-| Metadata Sync | A | 10 | |
-| Identifier Standardize | C | 10 | |
-| Author Initials | C | 10 | |
-| Class Standardize (automatic mapping) | B | 6 | |
+| Step | Group | Planned stretch | Reads | Changes | Done |
+| --- | --- | --- | --- | --- | --- |
+| Gutenberg Boilerplate Removal | A | 2, 10 | 1.0 | classes, files removed, links/ids, attributes, package, page list, tags, text | |
+| Extra Content Removal | B | 9 | 5.7 | files removed, package, page list, resources | |
+| Running Title Removal | A | 2, 10 | 0.9 | classes, links/ids, attributes, tags, text | |
+| Div Paragraphs | C | 8 | 4.0 | tags, CSS | |
+| Stray Line Break Removal | A | 2, 10 | 0.0 | classes, links/ids, attributes, tags, text | |
+| Paragraph Repair | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
+| Chapter Markup | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
+| Chapter Title Cleanup | C | 8 | 8.0 | nothing seen | |
+| TOC Cleanup | C | 7 | 3.0 | nothing seen | |
+| Dead Link Cleanup | C | 7 | 9.7 | classes, links/ids, attributes, tags, text | |
+| EPUB 3 Upgrade | A | 10 | 7.5 | files edited, package | |
+| TOC Generation | A | 2, 10 | 4.0 | NCX, links/ids, files edited | |
+| Chapter Header Spacing | B | 9 | 9.0 | classes, links/ids, attributes, tags, text | |
+| Scene Break Normalizer | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
+| Scene Opener Markers | B | 9 | 4.0 | nothing seen | |
+| Scene Break Markers | B | 9 | 4.0 | classes, links/ids, attributes, tags, text | |
+| Body Paragraph Look | B | 5 | 7.0 | classes | |
+| Paragraph Spacing | B | 6 | 3.0 | CSS | |
+| Line Height | C | 5 | 4.0 | CSS | |
+| Reader Settings | B | 6 | 15.0 | classes, text, CSS | |
+| Text Size | C | 5 | 10.0 | nothing seen | |
+| Extra Page Break Removal | C | 8 | 2.0 | nothing seen | |
+| Image Repair | A | 10 | 0.0 | classes, links/ids, attributes, tags, text | |
+| Cover Repair | A | 7, 10 | 9.2 | files removed, links/ids, files edited, package | |
+| Color Strip | A | 2 | 4.0 | CSS | |
+| Font Strip | A | 2 | 5.0 | files removed, attributes, package, resources, CSS | |
+| Embedded Stylesheet Consolidation | C | 5 | 2.0 | nothing seen | |
+| Class Cleanup | C | 4 | 6.0 | classes | |
+| Span Cleanup | C | 4 | 8.0 | classes, links/ids, attributes, tags, text | |
+| Unused CSS | C | 4 | 7.0 | classes, files removed, links/ids, attributes, package, tags, text, resources, CSS | |
+| Junk File Removal | C | 10 | 3.0 | files removed, links/ids, package, resources | |
+| Mid-Word Hyphen Repair | C | 8 | 2.0 | text | |
+| Ellipsis Normalizer | A | 1 | 0.0 | text | |
+| Apostrophe Repair | A | 1 | 0.0 | text | |
+| Quote Style | C | 8 | 5.7 | text | |
+| Page Titles | C | 7 | 2.0 | text | |
+| Whitespace Normalizer | A | 1 | 0.0 | text | |
+| Title Cleanup | C | 10 | 0.0 | package | |
+| Metadata Sync | A | 10 | 0.0 | nothing seen | |
+| Identifier Standardize | C | 10 | 0.0 | package | |
+| Author Initials | C | 10 | 0.0 | package | |
+| Class Standardize (automatic mapping) | B | 6 | 4.0 | classes, CSS | |
 
-Stretch 1 adds two columns to this table, "reads" and "changes", and may
-move steps between stretches.
+"Reads" is the most page accesses per page the step made itself, over the
+26 example books (it ranks the steps and is not an exact scan count; steps
+that use a shared finding show 0 or 1). "Changes" lists what the step edited
+anywhere in those books ("nothing seen" means no example triggered it, so
+Stretch 11 still has to treat it as unknown). The inventory moved no steps
+between stretches. It showed the real page readers are heavier than the
+first estimate: Reader Settings 15, Text Size 10, Dead Link Cleanup 9.7,
+Cover Repair 9.2, Chapter Header Spacing 9.0, Chapter Title Cleanup 8.0,
+Span Cleanup 8.0. Seven steps changed nothing on any example: Chapter Title Cleanup, TOC
+Cleanup, Scene Opener Markers, Text Size, Extra Page Break Removal, Embedded
+Stylesheet Consolidation and Metadata Sync. Six of them do their own
+scanning, so the examples cannot check their move onto the shared index and
+Stretches 4 to 9 need synthetic tests for them.
 
 ## Measures
 
@@ -359,3 +374,4 @@ Open: nothing right now.
 | --- | --- | --- |
 | Plan written | 2026-11-05 | This file |
 | Open decisions answered | 2026-11-05 | Decisions section updated. Bite Back box set added to the examples (a Fix runs cleanly in 12.6s and 2 passes before any of this work starts) |
+| Stretch 1: Store and inventory | 2026-11-06 | `analysis_store.py` added; whitespace, ellipsis, apostrophe and possessive findings read through it, and the analysis report carries it. Examples identical (26 books, only the OPF modified time differs), second run changes nothing, 17 direct store tests pass. Checklist filled in |

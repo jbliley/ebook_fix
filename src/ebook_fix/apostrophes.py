@@ -406,13 +406,10 @@ def analyze_chapter_possessives(href: str, tree) -> ChapterPossessiveSummary:
     return summary
 
 
-def analyze_book_possessives(book) -> BookPossessiveSummary:
-    summary = BookPossessiveSummary()
-    for chapter in book.chapters:
-        summary.chapters.append(
-            analyze_chapter_possessives(getattr(chapter, "href", ""), getattr(chapter, "document", None))
-        )
-    return summary
+def analyze_book_possessives(book, cache=None) -> BookPossessiveSummary:
+    """`cache`, if given (see ebook_fix.finding_cache), lets a page that has
+    not changed since it was last read keep its earlier candidates."""
+    return analyze_pages(book, "possessives", analyze_chapter_possessives, BookPossessiveSummary(), cache)
 
 
 def apply_possessive_resolutions(book, resolutions: dict) -> int:

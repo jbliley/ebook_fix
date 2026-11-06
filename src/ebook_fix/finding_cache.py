@@ -52,8 +52,9 @@ def page_fingerprint(document) -> bytes:
 
 def _all_elements_attached(summary, root) -> bool:
     """True when every element one of the findings points at still belongs to
-    this page's document."""
-    for issue in getattr(summary, "issues", ()):
+    this page's document. Whitespace, ellipsis and apostrophe findings list
+    their findings as `issues`; possessive candidates are `candidates`."""
+    for issue in (*getattr(summary, "issues", ()), *getattr(summary, "candidates", ())):
         element = getattr(issue, "element", None)
         if element is None:
             return False

@@ -13,10 +13,7 @@ from ebook_fix.report import print_header
 from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
-from ebook_fix.whitespace import analyze_book_whitespace
-from ebook_fix.finding_cache import PageFindingCache
-from ebook_fix.ellipsis import analyze_book_ellipsis
-from ebook_fix.apostrophes import analyze_book_apostrophes
+from ebook_fix.analysis_store import AnalysisStore
 from ebook_fix.paragraphs import analyze_book_paragraphs
 from ebook_fix.chapters import analyze_book_chapters
 from ebook_fix.toc_corroborated import find_corroborated_titles
@@ -173,10 +170,12 @@ class _AutoClassStandardize:
 # - These three read per-text findings. When something has already changed
 #   the book this pass, their own findings are worked out again from the
 #   current text just before they run (one check, not the whole analysis).
+#   A refresh of None means the analysis store makes the finding (it keeps
+#   the answer for every page that has not changed since).
 _REFRESH_BEFORE = {
-    "Ellipsis Normalizer": ("ellipsis", analyze_book_ellipsis),
-    "Apostrophe Repair": ("apostrophes", analyze_book_apostrophes),
-    "Whitespace Normalizer": ("whitespace", analyze_book_whitespace),
+    "Ellipsis Normalizer": ("ellipsis", None),
+    "Apostrophe Repair": ("apostrophes", None),
+    "Whitespace Normalizer": ("whitespace", None),
 }
 # - These read the live book (not the findings), so running them once more
 #   when the pass is over picks up what the repairs after them left behind,
@@ -212,22 +211,23 @@ def _refresh_chapters(book, analysis_report):
     return chapters
 
 
-# Refreshes that need the whole analysis report get it as a second argument.
+# The refreshes that are functions get the whole analysis report as a second
+# argument.
 _SETTLE_REFRESH = dict(_REFRESH_BEFORE, **{
     "Paragraph Repair": ("paragraphs", _refresh_paragraphs),
     "Chapter Markup": ("chapters", _refresh_chapters),
     "Chapter Header Spacing": ("chapters", _refresh_chapters),
 })
-_NEEDS_REPORT = (_refresh_paragraphs, _refresh_chapters)
 
 
-def _fresh_findings(compute, book, analysis_report, cache):
+def _fresh_findings(name, compute, book, analysis_report, store):
     """One of the refreshes above, made for the book as it is now. The
-    per-page checks (ellipsis, apostrophes, whitespace) reuse a page's earlier
-    findings through `cache` when that page has not changed since."""
-    if compute in _NEEDS_REPORT:
-        return compute(book, analysis_report)
-    return compute(book, cache=cache)
+    per-page checks (ellipsis, apostrophes, whitespace) come from the analysis
+    store, which keeps a page's earlier findings when that page has not
+    changed since."""
+    if compute is None:
+        return store.findings(name, book)
+    return compute(book, analysis_report)
 
 
 class Engine:
@@ -2268,18 +2268,22 @@ class Engine:
         Returns (reports_by_module, pass_num).
         """
         reports_by_module = {}
-        # Pages whose markup has not changed since a per-page check last
-        # read them keep that check's findings (see ebook_fix.finding_cache),
-        # so the settling step and the confirming analysis only read the
-        # pages a repair has touched since.
-        cache = PageFindingCache()
+        # The analysis store keeps each page's per-page findings for as long as
+        # the page is unchanged (see ebook_fix.analysis_store), so the
+        # settling step and the confirming analysis only read the pages a
+        # repair has touched since. An analysis made earlier, such as the
+        # Overview's, brings its store along; a report without one gets a new
+        # store.
+        store = getattr(analysis_report, "store", None)
+        if store is None:
+            store = AnalysisStore()
         pass_num = 1
         while True:
             if pass_num > 1:
                 self.log(f"\n[Pass {pass_num}] Re-analyzing for anything the previous pass's own edits uncovered...")
                 if self.progress is not None:
                     self.progress(f"Checking the book again (pass {pass_num})\u2026")
-                analysis_report = analyzer.analyze(book, cache=cache)
+                analysis_report = analyzer.analyze(book, store=store)
 
             changes_this_pass = 0
 
@@ -2300,7 +2304,7 @@ class Engine:
                     self.progress(f"Fixing: {module.name} ({module_number} of {len(modules)})")
                 refresh = _REFRESH_BEFORE.get(module.name)
                 if refresh is not None and changes_this_pass:
-                    setattr(analysis_report, refresh[0], _fresh_findings(refresh[1], book, analysis_report, cache))
+                    setattr(analysis_report, refresh[0], _fresh_findings(refresh[0], refresh[1], book, analysis_report, store))
                 _record(module, module.repair(book, analysis_report))
 
             # Settle: what the repairs after them left for these.
@@ -2310,7 +2314,7 @@ class Engine:
                         self.log(f"Repairing: {module.name} (settling)")
                         refresh = _SETTLE_REFRESH.get(module.name)
                         if refresh is not None:
-                            setattr(analysis_report, refresh[0], _fresh_findings(refresh[1], book, analysis_report, cache))
+                            setattr(analysis_report, refresh[0], _fresh_findings(refresh[0], refresh[1], book, analysis_report, store))
                         _record(module, module.repair(book, analysis_report))
 
             if changes_this_pass == 0:
