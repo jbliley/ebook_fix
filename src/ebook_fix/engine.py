@@ -14,6 +14,7 @@ from ebook_fix.validation import validate_epub
 from ebook_fix.container_repair import attempt_repair
 from ebook_fix.analyzer import EPUBAnalyzer
 from ebook_fix.analysis_store import AnalysisStore
+from ebook_fix.dirty_check import DirtyTracker
 from metadata import review
 from metadata import calibre_write
 from metadata import calibredb_write
@@ -2240,6 +2241,10 @@ class Engine:
         store = getattr(analysis_report, "store", None)
         if store is None:
             store = AnalysisStore()
+        # The shadow check (see ebook_fix.dirty_check): watches which repair
+        # runs a dirty check could skip and writes what it finds to the log.
+        # It changes nothing a repair does.
+        tracker = DirtyTracker(book)
         pass_num = 1
         while True:
             if pass_num > 1:
@@ -2261,6 +2266,14 @@ class Engine:
                 else:
                     existing.issues.extend(repair_report.issues)
 
+            def _shadow(name, repair_report, was_clean):
+                count = repair_report.count if repair_report is not None else 0
+                if tracker.ran(name, count, was_clean):
+                    self.log(
+                        f"[Shadow check] {name} changed {count} thing(s) in pass {pass_num} "
+                        "although the dirty check expected nothing to do."
+                    )
+
             for module_number, module in enumerate(modules, start=1):
                 self.log(f"Repairing: {module.name}")
                 if self.progress is not None:
@@ -2268,7 +2281,10 @@ class Engine:
                 refresh = _REFRESH_BEFORE.get(module.name)
                 if refresh is not None and changes_this_pass:
                     setattr(analysis_report, refresh, store.findings(refresh, book))
-                _record(module, module.repair(book, analysis_report))
+                was_clean = tracker.is_clean(module.name)
+                repair_report = module.repair(book, analysis_report)
+                _record(module, repair_report)
+                _shadow(module.name, repair_report, was_clean)
 
             # Settle: what the repairs after them left for these.
             if changes_this_pass:
@@ -2278,7 +2294,13 @@ class Engine:
                         refresh = _SETTLE_REFRESH.get(module.name)
                         if refresh is not None:
                             setattr(analysis_report, refresh, store.findings(refresh, book))
-                        _record(module, module.repair(book, analysis_report))
+                        was_clean = tracker.is_clean(module.name)
+                        repair_report = module.repair(book, analysis_report)
+                        _record(module, repair_report)
+                        _shadow(module.name, repair_report, was_clean)
+
+            if tracker.end_of_pass():
+                self.log(f"[Shadow check] Pass {pass_num}: the book changed although no repair reported a change.")
 
             if changes_this_pass == 0:
                 break
@@ -2290,6 +2312,7 @@ class Engine:
                 break
             pass_num += 1
 
+        self.log(f"[Shadow check] {tracker.summary()}")
         return reports_by_module, pass_num
 
     def _build_auto_class_mapping(self, profiles: dict) -> list[ClassMappingEntry]:
@@ -2597,7 +2620,7 @@ class Engine:
                 # pass, not the one from before the split happened
                 # (_run_repair_passes only re-analyzes starting at pass 2 --
                 # see its own docstring).
-                analysis_report = analyzer.analyze(book)
+                analysis_report = analyzer.analyze(book, store=getattr(analysis_report, "store", None))
 
             if not dry_run and not self._check_output_path(output, overwrite):
                 return

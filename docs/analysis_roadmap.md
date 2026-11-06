@@ -4072,3 +4072,15 @@ Stretch 2b of `docs/single_analysis_plan.md`. Together with 2a, every finding th
 - Speed: no gain yet, as planned (Tarzan 34s to 35s, within the noise of repeated runs). Whole-book findings are reused only when nothing in the book changed since they were made, which a Fix rarely allows. The savings come when the self-scanning repairs move onto shared indexes (Stretches 4 to 10) and the confirming pass is replaced (Stretch 11).
 
 Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; direct tests on three books (reuse when nothing changed, a made-again finding when a page, the package, an added file or a front matter choice changes, a detached element, and a kept paragraph finding equal to a fresh one).
+
+### Changed: shadow check for the confirming pass (2026-11-06)
+
+Stretch 3 of `docs/single_analysis_plan.md`. The Fix ends by running every repair once more to see whether anything is left. Before that pass can be replaced by a check of what is dirty, the check has to prove it predicts correctly, so it now runs beside the real pass and writes only to the Fix log.
+
+- New `dirty_check.py`, `DirtyTracker`: remembers, for each repair, the book state at which it last found nothing to do. Before each run it predicts "clean" when the book is unchanged since then. After the run it compares: a clean-predicted run that found nothing is an agreement (a run a skip would have saved), and a clean-predicted run that changed something is a disagreement. At the end of each pass it also checks that the book did not change without a repair reporting it, which would make every prediction unsafe.
+- `engine.py`, `_run_repair_passes`: runs the tracker next to every repair, settling runs included, and writes `[Shadow check]` lines to the log (one per disagreement, and one summary line at the end). Nothing a repair sees or does depends on it. The command line `repair` also keeps the analysis store when it analyzes again after applying splits.
+- The Overview, Fix This Book, Fix a Folder and the command line already share one store through the report they pass along (earlier stretches). Front matter choices from the Review tab reach every finding through `store.overrides`.
+
+Result on all 26 example books: 2,356 repair runs, 0 wrong predictions, 0 passes where the book changed without a repair reporting it. Only 4.7% of runs (110) were skippable. The check is correct but cautious: it fingerprints the whole book, so any change anywhere makes every repair dirty. The savings need each repair to have its own inputs, which is what Phase 2 builds (Stretches 4 to 10).
+
+Checks: auto-fix of all 26 example EPUBs, identical to the previous version apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; direct tests of the tracker (clean and dirty, a wrong prediction, an unreported change, no false alarm). The tracker adds about 1 second to a Fix of Tarzan (35.6s against 34.5s).

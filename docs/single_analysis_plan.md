@@ -327,12 +327,13 @@ the "now" column at Stretches 3, 6, 9 and 11.
 
 | Measure | Baseline | Target | Now |
 | --- | --- | --- | --- |
-| Full analyses per Fix (book settling in 2 passes) | 2 | 1 | |
-| Whole-book repair runs per Fix | every step twice, 9 steps a third time (settling) | once each | |
-| Fix time, Tarzan | 33.4s | measure, no promise | |
-| Fix time, War and Peace | 13.7s | measure, no promise | |
-| Fix time, Images-PageNumbers | 6.5s | measure, no promise | |
-| Steps that detect on their own | 26 of 42 | 0 | |
+| Full analyses per Fix (book settling in 2 passes) | 2 | 1 | 2 (Stretch 3) |
+| Whole-book repair runs per Fix | every step twice, 9 steps a third time (settling) | once each | 93 runs of 42 steps, the same (Stretch 3) |
+| Fix time, Tarzan | 33.4s | measure, no promise | 35.6s (same machine and day: 34.5s before Stretch 3) |
+| Fix time, War and Peace | 13.7s | measure, no promise | 13.9s (13.4s before Stretch 3) |
+| Fix time, Images-PageNumbers | 6.5s | measure, no promise | 6.6s (6.5s before Stretch 3) |
+| Steps that detect on their own | 26 of 42 | 0 | 26 of 42 (Stretch 3) |
+| Repair runs a dirty check could skip, with one whole-book fingerprint | 0% | most of the confirming pass | 4.7% (110 of 2,356 runs on 26 books; 0 wrong predictions) |
 
 ## Risks and how each is handled
 
@@ -382,3 +383,4 @@ Open: nothing right now.
 | Stretch 1: Store and inventory | 2026-11-06 | `analysis_store.py` added; whitespace, ellipsis, apostrophe and possessive findings read through it, and the analysis report carries it. Examples identical (26 books, only the OPF modified time differs), second run changes nothing, 17 direct store tests pass. Checklist filled in |
 | Stretch 2a: Chapters and front matter on the store | 2026-11-06 | `chapters` and `frontmatter` come from `AnalysisStore.findings`, reused only while the book's state, the findings they are made from and the person's front matter choices are unchanged and every element they point at is still on a page. `_refresh_chapters` removed from `engine.py`. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Direct tests found and fixed one flaw before delivery (front matter choices were wrongly counted as an input to chapters) |
 | Stretch 2b: The rest on the store | 2026-11-06 | `paragraphs`, `linebreaks`, `scene_breaks`, `color` and `fonts` come from the store, always made from the chapters and front matter as the book is now. The engine's refresh tables now only name which finding to ask the store for (`_refresh_paragraphs` and `_fresh_findings` removed). Examples identical (26 books, only the OPF modified time differs), second run changes nothing, direct tests pass. Not faster yet: Tarzan 34 to 35s, within the run-to-run noise (a whole-book fingerprint is taken for each request). The savings come from Stretches 4 to 10 |
+| Stretch 3: Shadow check | 2026-11-06 | New `dirty_check.py`, `DirtyTracker`, watched by `_run_repair_passes`; every repair run is compared with the prediction "nothing changed since this repair last found nothing to do". Results go to the Fix log only (`[Shadow check]` lines). The command line `repair` keeps the store when it analyzes again after a split. Examples identical (26 books, only the OPF modified time differs), second run changes nothing, tracker tests pass. Over 26 books: 0 wrong predictions and 0 unreported book changes, but only 4.7% of runs skippable, because one fingerprint for the whole book makes every step dirty after any change anywhere. The skip rate is the number Phase 2 has to raise, by giving each step its own inputs |
