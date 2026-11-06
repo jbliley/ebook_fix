@@ -4,6 +4,13 @@ Everything that is still open, in one place. Finished work is written up
 in `docs/analysis_roadmap.md`. Nothing here is scheduled; Jacob picks
 what comes next.
 
+## In progress
+
+- **Single analysis.** One analysis of the whole book, with every repair
+  working from it and no repair scanning on its own. The phases, the
+  checklist of all 42 repair steps and the status log are in
+  `docs/single_analysis_plan.md`. This is Jacob's top priority.
+
 ## Decided, not built yet
 
 - **Auto-rename on save, from a filename pattern.** GUI only, off by
