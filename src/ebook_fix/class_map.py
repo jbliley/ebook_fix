@@ -231,6 +231,20 @@ def build_class_profiles(book, chapter_summary=None, frontmatter_summary=None) -
     return profiles
 
 
+def class_profiles_for(book, analysis=None) -> dict:
+    """The class profiles for `book`, made from the chapter and front matter
+    findings of `analysis` (the report a repair is given). When the report
+    carries an analysis store, the profiles are kept there, so repairs and
+    analyses that ask in a row for the same book as it is now share one build.
+    Without a report or a store they are built exactly as before."""
+    chapters = getattr(analysis, "chapters", None) if analysis is not None else None
+    frontmatter = getattr(analysis, "frontmatter", None) if analysis is not None else None
+    store = getattr(analysis, "store", None)
+    if store is not None and chapters is not None and frontmatter is not None:
+        return store.class_profiles(book, chapters, frontmatter)
+    return build_class_profiles(book, chapter_summary=chapters, frontmatter_summary=frontmatter)
+
+
 # Classes this tool writes itself all start with this (ebookfix-header-gap,
 # ebookfix-chapter-wrapper); they are never part of a book's own styling.
 OWN_CLASS_PREFIX = "ebookfix-"

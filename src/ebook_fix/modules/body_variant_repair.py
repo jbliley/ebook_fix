@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import re
 
-from ebook_fix.class_map import build_class_profiles
+from ebook_fix.class_map import class_profiles_for
 from ebook_fix.class_usage import class_usage_for
 from ebook_fix.config import BodyVariantConfig
 from ebook_fix.report import Report
@@ -97,9 +97,7 @@ def _comparable(props: dict, reader_settings: bool) -> dict:
 
 def find_body_variants(book, analysis=None, reader_settings: bool = True) -> list:
     """[(variant_class, body_class, variant_usage, body_usage)]."""
-    chapters = getattr(analysis, "chapters", None) if analysis is not None else None
-    frontmatter = getattr(analysis, "frontmatter", None) if analysis is not None else None
-    profiles = build_class_profiles(book, chapter_summary=chapters, frontmatter_summary=frontmatter)
+    profiles = class_profiles_for(book, analysis)
     bodies = [p for p in profiles.values() if p.likely_role == "body-text" and p.role_confidence == "high"]
     if len(bodies) != 1:
         return []

@@ -44,6 +44,7 @@ from lxml import etree
 
 from ebook_fix.apostrophes import analyze_book_apostrophes, analyze_book_possessives
 from ebook_fix.chapters import analyze_book_chapters
+from ebook_fix.class_map import build_class_profiles
 from ebook_fix.class_usage import analyze_book_class_usage
 from ebook_fix.color import analyze_book_color
 from ebook_fix.ellipsis import analyze_book_ellipsis
@@ -114,18 +115,24 @@ def _make_scene_breaks(book, store, overrides):
 
 
 def _make_color(book, store, overrides):
+    chapters = store.findings("chapters", book)
+    frontmatter = store.findings("frontmatter", book)
     return analyze_book_color(
         book,
-        chapter_summary=store.findings("chapters", book),
-        frontmatter_summary=store.findings("frontmatter", book),
+        chapter_summary=chapters,
+        frontmatter_summary=frontmatter,
+        class_profiles=store.class_profiles(book, chapters, frontmatter),
     )
 
 
 def _make_fonts(book, store, overrides):
+    chapters = store.findings("chapters", book)
+    frontmatter = store.findings("frontmatter", book)
     return analyze_book_font_usage(
         book,
-        chapter_summary=store.findings("chapters", book),
-        frontmatter_summary=store.findings("frontmatter", book),
+        chapter_summary=chapters,
+        frontmatter_summary=frontmatter,
+        class_profiles=store.class_profiles(book, chapters, frontmatter),
     )
 
 
@@ -220,6 +227,8 @@ class AnalysisStore:
         self._serial = 0
         self.book_reused = 0
         self.book_recomputed = 0
+        self.profiles_reused = 0
+        self.profiles_recomputed = 0
         # The person's own front matter choices (Review tab) that the latest
         # analysis was asked to use; every finding made from front matter
         # uses them until an analysis is given others.
@@ -229,6 +238,10 @@ class AnalysisStore:
         # finding is being made).
         self._depth = 0
         self._state = None
+        # Class profiles kept by (book state, the chapter and front matter
+        # findings they were made from); a few are kept because a repair asks
+        # with the report's findings while the analysis asks with the store's.
+        self._profiles = {}
 
     def findings(self, name, book):
         """The finding called `name` for `book` as it is now. A page that has
@@ -268,6 +281,29 @@ class AnalysisStore:
         self._serial += 1
         self._books[name] = (wanted, self._serial, value)
         return value
+
+    def class_profiles(self, book, chapter_summary, frontmatter_summary):
+        """The class profiles (see ebook_fix.class_map) made from the given
+        chapter and front matter findings, for the book as it is now. Asked
+        again for the same book state and the same two finding objects, the
+        kept profiles are returned instead of walking every page again. The
+        profiles hold no elements and the repairs only read them."""
+        state = self._state if self._depth else book_state(book)
+        key = (state, id(chapter_summary), id(frontmatter_summary))
+        entry = self._profiles.get(key)
+        if entry is not None:
+            self.profiles_reused += 1
+            return entry[0]
+        self.profiles_recomputed += 1
+        profiles = build_class_profiles(
+            book, chapter_summary=chapter_summary, frontmatter_summary=frontmatter_summary
+        )
+        # The two findings are kept with the profiles so their ids cannot be
+        # given to other objects while the entry exists.
+        self._profiles[key] = (profiles, chapter_summary, frontmatter_summary)
+        while len(self._profiles) > 4:
+            self._profiles.pop(next(iter(self._profiles)))
+        return profiles
 
     @staticmethod
     def _still_attached(value, book) -> bool:

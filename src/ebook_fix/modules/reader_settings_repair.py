@@ -67,7 +67,8 @@ import re
 from collections import Counter
 from pathlib import PurePosixPath
 
-from ebook_fix.class_map import build_class_profiles
+from ebook_fix.class_map import class_profiles_for
+from ebook_fix.class_usage import PARAGRAPH_TAGS, class_usage_for
 from ebook_fix.config import ReaderSettingsConfig
 from ebook_fix.css import read_book_css
 from ebook_fix.modules.paragraph_spacing_repair import _HEADING_SELECTORS, _to_em
@@ -118,7 +119,7 @@ GENERIC_FONT_NAMES = frozenset({
     "verdana", "tahoma", "palatino", "palatino linotype", "book antiqua", "trebuchet ms",
     "calibri", "cambria",
 })
-_PARAGRAPH_TAGS = frozenset({"p", "div", "blockquote"})
+_PARAGRAPH_TAGS = PARAGRAPH_TAGS
 _SIMPLE_CLASS_SEL = re.compile(r"^(?:p|div|blockquote)?\.([\w-]+)$")
 
 
@@ -128,25 +129,17 @@ def _generic_font_only(value: str) -> bool:
     return bool(names) and all(n in GENERIC_FONT_NAMES for n in names)
 
 
-def _paragraph_like_classes(book) -> set:
+def _paragraph_like_classes(book, usage=None) -> set:
     """Classes whose every use is on a plain paragraph/div/blockquote that
-    is not inside a heading."""
-    tags = {}
-    for chapter in book.chapters:
-        doc = chapter.document
-        if doc is None:
-            continue
-        for el in doc.iter():
-            if not isinstance(el.tag, str):
-                continue
-            classes = (el.get("class") or "").split()
-            if not classes:
-                continue
-            ok = _local(el) in _PARAGRAPH_TAGS and not any(
-                isinstance(a.tag, str) and _local(a) in _HEADINGS for a in el.iterancestors())
-            for c in classes:
-                tags[c] = tags.get(c, True) and ok
-    return {c for c, ok in tags.items() if ok}
+    is not inside a heading. `usage` is the page class-usage records (see
+    ebook_fix.class_usage)."""
+    if usage is None:
+        usage = class_usage_for(book)
+    used, other = set(), set()
+    for record in usage:
+        used.update(record.classes)
+        other.update(record.non_paragraph_classes)
+    return used - other
 
 
 def _is_any_rule_prop(name: str) -> bool:
@@ -180,32 +173,24 @@ def _strip(body: str, should_remove):
     return "".join(out), removed
 
 
-def find_body_classes(book, analysis=None):
+def find_body_classes(book, analysis=None, usage=None):
     """(body_text_classes, body_element_classes)."""
-    chapters = getattr(analysis, "chapters", None) if analysis is not None else None
-    frontmatter = getattr(analysis, "frontmatter", None) if analysis is not None else None
-    profiles = build_class_profiles(book, chapter_summary=chapters, frontmatter_summary=frontmatter)
+    profiles = class_profiles_for(book, analysis)
     body_text = {p.class_name for p in profiles.values() if p.likely_role == "body-text" and p.role_confidence == "high"}
+    if usage is None:
+        usage = class_usage_for(book, analysis)
     body_el = set()
-    for chapter in book.chapters:
-        doc = chapter.document
-        if doc is None:
-            continue
-        for el in doc.iter("{*}body", "{*}html"):
-            body_el.update((el.get("class") or "").split())
+    for record in usage:
+        body_el.update(record.body_classes)
     return body_text, body_el
 
 
-def _heading_classes(book) -> set:
+def _heading_classes(book, usage=None) -> set:
+    if usage is None:
+        usage = class_usage_for(book)
     found = set()
-    for chapter in book.chapters:
-        doc = chapter.document
-        if doc is None:
-            continue
-        for h in doc.iter(*[f"{{*}}{t}" for t in _HEADINGS]):
-            for el in h.iter():
-                if isinstance(el.tag, str):
-                    found.update((el.get("class") or "").split())
+    for record in usage:
+        found.update(record.heading_classes)
     return found
 
 
@@ -330,9 +315,10 @@ class ReaderSettingsRepair:
         self.config = config or ReaderSettingsConfig()
 
     def _scan(self, book, analysis, write: bool) -> Counter:
-        body_text, body_el = find_body_classes(book, analysis)
-        skip = _heading_classes(book)
-        para_like = _paragraph_like_classes(book)
+        usage = class_usage_for(book, analysis)
+        body_text, body_el = find_body_classes(book, analysis, usage)
+        skip = _heading_classes(book, usage)
+        para_like = _paragraph_like_classes(book, usage)
         counts = Counter()
         base = PurePosixPath(getattr(book, "package_path", "") or "").parent
 
@@ -349,9 +335,11 @@ class ReaderSettingsRepair:
                 if write:
                     book.new_files[zpath] = new_text.encode("utf-8")
 
-        for chapter in book.chapters:
+        for chapter, record in zip(book.chapters, usage):
             doc = chapter.document
-            if doc is None:
+            # A page with no style block, no inline style on a paragraph or the
+            # body and no inline font-family has nothing in it for these loops.
+            if doc is None or not (record.style_texts or record.p_body_style or record.font_family_inline):
                 continue
             touched = False
             for style in doc.iter("{*}style"):

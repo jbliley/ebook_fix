@@ -26,6 +26,8 @@ HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 # Line Height: a class used only on these inline elements does not protect its
 # line height.
 INLINE_TAGS = frozenset({"a", "span", "em", "i", "b", "strong", "u", "small", "font", "sup", "sub"})
+# Reader Settings: the tags a "paragraph-like" class may sit on.
+PARAGRAPH_TAGS = frozenset({"p", "div", "blockquote"})
 # Text Size: text inside these tags has a size of its own and is not counted.
 TEXT_SIZE_SKIP_TAGS = frozenset({
     "sup", "sub", "small", "big", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -71,6 +73,14 @@ class PageClassUsage:
     # Body Paragraph Look: the class of every <p> that carries exactly one class
     # name and has text of its own.
     single_class_paragraphs: frozenset = frozenset()
+    # Reader Settings: classes that have at least one use that is not on a plain
+    # p, div or blockquote outside any heading; classes on the page body or
+    # html element; an inline style on a p or the body; and an inline
+    # font-family on any other element.
+    non_paragraph_classes: frozenset = frozenset()
+    body_classes: frozenset = frozenset()
+    p_body_style: bool = False
+    font_family_inline: bool = False
 
 
 @dataclass
@@ -87,6 +97,9 @@ def analyze_class_usage_page(href, document) -> PageClassUsage:
         return PageClassUsage(href=href, loaded=False)
     classes, span_classes, style_texts = set(), set(), []
     block_classes, heading_classes, single_paragraphs = set(), set(), set()
+    non_paragraph, body_classes = set(), set()
+    p_body_style = font_family_inline = False
+    in_heading = {}  # element -> True when a heading is above it
     plain_spans = text_elements = text_chars = unit_count = unit_chars = 0
     empty_class = has_script = has_style = False
     inline_line_height = inline_font_size_text = False
@@ -106,6 +119,20 @@ def analyze_class_usage_page(href, document) -> PageClassUsage:
                 empty_class = True
         if names and lowered not in INLINE_TAGS:
             block_classes.update(names)
+        parent = el.getparent()
+        under_heading = parent is not None and (
+            (isinstance(parent.tag, str) and parent.tag.rsplit("}", 1)[-1].lower() in HEADING_TAGS)
+            or in_heading.get(parent, False)
+        )
+        in_heading[el] = under_heading
+        if names and not (lowered in PARAGRAPH_TAGS and not under_heading):
+            non_paragraph.update(names)
+        if local in ("body", "html") and names:
+            body_classes.update(names)
+        if local in ("p", "body") and el.get("style"):
+            p_body_style = True
+        if lowered not in ("p", "body") and "font-family" in style:
+            font_family_inline = True
         if local in HEADING_TAGS:
             for inner in el.iter():
                 if isinstance(inner.tag, str):
@@ -159,6 +186,10 @@ def analyze_class_usage_page(href, document) -> PageClassUsage:
         unit_count=unit_count,
         unit_chars=unit_chars,
         single_class_paragraphs=frozenset(single_paragraphs),
+        non_paragraph_classes=frozenset(non_paragraph),
+        body_classes=frozenset(body_classes),
+        p_body_style=p_body_style,
+        font_family_inline=font_family_inline,
     )
 
 

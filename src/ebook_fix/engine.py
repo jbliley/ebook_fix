@@ -21,6 +21,7 @@ from metadata import calibredb_write
 from ebook_fix.serialize import save_report
 from ebook_fix.class_map import (
     build_class_profiles,
+    class_profiles_for,
     format_class_map,
     write_mapping_file,
     MAPPABLE_ROLES,
@@ -145,11 +146,7 @@ class _AutoClassStandardize:
     def repair(self, book, analysis=None):
         if analysis is None:
             return None
-        profiles = build_class_profiles(
-            book,
-            chapter_summary=analysis.chapters,
-            frontmatter_summary=analysis.frontmatter,
-        )
+        profiles = class_profiles_for(book, analysis)
         entries = self._engine._build_auto_class_mapping(profiles)
         if not entries:
             return None
@@ -2410,11 +2407,7 @@ class Engine:
                     "candidates for this book instead."
                 )
             else:
-                profiles = build_class_profiles(
-                    book,
-                    chapter_summary=analysis_report.chapters,
-                    frontmatter_summary=analysis_report.frontmatter,
-                )
+                profiles = class_profiles_for(book, analysis_report)
                 auto_entries = self._build_auto_class_mapping(profiles)
                 if auto_entries:
                     names = ", ".join(f".{e.old_name}" for e in auto_entries)

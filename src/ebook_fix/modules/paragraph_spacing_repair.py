@@ -42,7 +42,8 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
-from ebook_fix.class_map import build_class_profiles
+from ebook_fix.class_map import class_profiles_for
+from ebook_fix.class_usage import class_usage_for
 from ebook_fix.config import ParagraphSpacingConfig
 from ebook_fix.css import read_book_css
 from ebook_fix.report import Report
@@ -82,9 +83,7 @@ def _to_em(value):
 def find_spaced_indented_body_classes(book, analysis=None) -> list:
     """[{class_name, indent, margin_top, margin_bottom, usage}] for each
     dominant body-text class that has both an indent and a gap."""
-    chapters = getattr(analysis, "chapters", None) if analysis is not None else None
-    frontmatter = getattr(analysis, "frontmatter", None) if analysis is not None else None
-    profiles = build_class_profiles(book, chapter_summary=chapters, frontmatter_summary=frontmatter)
+    profiles = class_profiles_for(book, analysis)
     found = []
     for profile in profiles.values():
         if profile.likely_role != "body-text" or profile.role_confidence != "high":
@@ -177,9 +176,10 @@ class ParagraphSpacingRepair:
                     book.new_files[zpath] = new_text.encode("utf-8")
                     total += n
 
-            for chapter in book.chapters:
+            for chapter, record in zip(book.chapters, class_usage_for(book, analysis)):
                 doc = chapter.document
-                if doc is None:
+                # Only a page with a style block can change.
+                if doc is None or not record.style_texts:
                     continue
                 touched = False
                 for style in doc.iter("{*}style"):

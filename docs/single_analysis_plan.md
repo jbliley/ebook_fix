@@ -208,6 +208,15 @@ automatic class mapping (its class profiles are rebuilt every pass today).
 Split point: Reader Settings and Paragraph Spacing first, then Class
 Standardize.
 
+Stretch 6a (done): the page records also hold the classes on elements that are
+not paragraphs or inside a heading, the classes on the body, whether a
+paragraph or body has an inline style, and whether another element sets a
+font family inline. The class profiles (`class_map.py`) are built once per book
+state by the store and shared by the color finding, the font finding, Reader
+Settings, Paragraph Spacing, Body Paragraph Look and the automatic Class
+Standardize, through `class_profiles_for`. Reader Settings and Paragraph
+Spacing open only pages whose record says something can change.
+
 ### Stretch 7: Links and ids (M)
 
 Index of links, ids and targets per page. Moves Dead Link Cleanup, TOC
@@ -298,9 +307,9 @@ step reads only the store and the checks above passed.
 | Scene Opener Markers | B | 9 | 4.0 | nothing seen | |
 | Scene Break Markers | B | 9 | 4.0 | classes, links/ids, attributes, tags, text | |
 | Body Paragraph Look | B | 5 | 7.0 | classes | ✓ |
-| Paragraph Spacing | B | 6 | 3.0 | CSS | |
+| Paragraph Spacing | B | 6 | 3.0 | CSS | ✓ |
 | Line Height | C | 5 | 4.0 | CSS | ✓ |
-| Reader Settings | B | 6 | 15.0 | classes, text, CSS | |
+| Reader Settings | B | 6 | 15.0 | classes, text, CSS | ✓ |
 | Text Size | C | 5 | 10.0 | nothing seen | ✓ |
 | Extra Page Break Removal | C | 8 | 2.0 | nothing seen | |
 | Image Repair | A | 10 | 0.0 | classes, links/ids, attributes, tags, text | |
@@ -405,3 +414,4 @@ Open: nothing right now.
 | Stretch 3: Shadow check | 2026-11-06 | New `dirty_check.py`, `DirtyTracker`, watched by `_run_repair_passes`; every repair run is compared with the prediction "nothing changed since this repair last found nothing to do". Results go to the Fix log only (`[Shadow check]` lines). The command line `repair` keeps the store when it analyzes again after a split. Examples identical (26 books, only the OPF modified time differs), second run changes nothing, tracker tests pass. Over 26 books: 0 wrong predictions and 0 unreported book changes, but only 4.7% of runs skippable, because one fingerprint for the whole book makes every step dirty after any change anywhere. The skip rate is the number Phase 2 has to raise, by giving each step its own inputs |
 | Stretch 4: Class and style usage, part 1 | 2026-11-06 | New `class_usage.py` and a per-page `class_usage` finding in the store. Class Cleanup, Span Cleanup and Unused CSS read it instead of walking every page, and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. A direct comparison of the old and new steps on 48 cases (24 books, each with injected edge cases: empty `class=""`, a span with an id, empty spans, a style block, a script) gave identical pages, files and counts. Shadow check unchanged: 0 wrong predictions in 2,356 runs |
 | Stretch 5: Class and style usage, part 2 | 2026-11-06 | `class_usage.py` records extended; Line Height, Text Size, Embedded Stylesheet Consolidation and Body Paragraph Look read them. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 24 books in 5 variants each (120 cases, including books made to trigger Text Size's two findings, a repeated embedded stylesheet, inline line heights and body paragraph variants): identical pages, files and counts. Shadow check unchanged: 0 wrong predictions in 2,356 runs |
+| Stretch 6a: Reader Settings and Paragraph Spacing | 2026-11-07 | Page records extended; class profiles built once and shared (`class_profiles_for`). Reader Settings, Paragraph Spacing and Body Paragraph Look read them. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 120 cases (24 books, 5 variants, including one that triggers Paragraph Spacing): identical. Shadow check unchanged: 0 wrong predictions in 2,356 runs. Tarzan time unchanged (within noise) |

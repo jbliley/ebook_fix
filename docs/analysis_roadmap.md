@@ -4109,3 +4109,15 @@ Stretch 5 of `docs/single_analysis_plan.md`. The page record added in the last s
 - `paragraph_indent_repair.py`: `_book_rules`, which Text Size, Header Spacing and Paragraph Indent share, can take the records for the style blocks. Only Text Size passes them for now.
 
 Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; the four repairs and Text Size's two findings, old against new, on 24 example books in five variants (plain, text in a big-sized class on every page, small-cap runs in a small-sized class, the same embedded stylesheet on every page, inline line heights): 120 cases identical (pages, files, counts), including 16 where Text Size changed a book, 23 where the repeated stylesheet was moved and every one of the line height and body paragraph variants; direct tests of the new record fields. Time on Tarzan is unchanged (38.7s against 38.6s).
+
+### Changed: Reader Settings, Paragraph Spacing and the class profiles read the shared index (2026-11-07)
+
+Stretch 6a of `docs/single_analysis_plan.md`. The class profiles (which classes are paragraphs, headings, and so on) used to be rebuilt by each step that needed them. The analysis store now builds them once for the book as it is and hands the same copy to every step that asks (`class_profiles_for` in `class_map.py`).
+
+- `class_usage.py`: each page's record also holds the classes on elements that are not paragraphs or inside a heading, the classes on the body, whether a paragraph or the body has an inline style, and whether another element sets a font family inline.
+- `analysis_store.py`: the color and font findings share one profile build, and it is reused until the book changes.
+- `reader_settings_repair.py`: opens only pages that have a style block, an inline body or paragraph style, or an inline font family. The paragraph and heading class lists come from the records.
+- `paragraph_spacing_repair.py`: opens only pages that have a style block.
+- `body_variant_repair.py` and the automatic Class Standardize in `engine.py`: take the shared profiles.
+
+Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; Reader Settings, Paragraph Spacing, Body Paragraph Look and the cleanup steps, old against new, on 24 books in five variants (120 cases): identical pages, files and counts; direct tests of the new record fields and the shared profiles. Time on Tarzan is unchanged within noise.
