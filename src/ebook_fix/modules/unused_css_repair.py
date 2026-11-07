@@ -55,6 +55,7 @@ import zipfile
 from pathlib import PurePosixPath
 from urllib.parse import unquote
 
+from ebook_fix.class_usage import class_usage_for
 from ebook_fix.config import UnusedCssConfig
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.css import COMMENT_RE, CLASS_SELECTOR_RE, RULE_RE, read_book_css
@@ -72,30 +73,28 @@ def _root(doc):
     return doc.getroot() if hasattr(doc, "getroot") else doc
 
 
-def _used_classes(book):
-    """(set of class names used anywhere in the book, has_script)."""
+def _used_classes(book, usage=None):
+    """(set of class names used anywhere in the book, has_script). `usage` is
+    the page class-usage records (see ebook_fix.class_usage), read from the
+    analysis store, so a page that has not changed is not walked again."""
     used = set()
     has_script = False
     base = PurePosixPath(getattr(book, "package_path", "") or "").parent
     chapter_paths = set()
     unloaded = set()
-    for chapter in book.chapters:
+    if usage is None:
+        usage = class_usage_for(book)
+    for chapter, record in zip(book.chapters, usage):
         chapter_paths.add(str(base / chapter.href))
-        doc = chapter.document
-        if doc is None:
+        if not record.loaded:
             # A page that could not be loaded still uses classes. Its raw file
             # is read below instead of being skipped (skipping it made every
             # class only that page uses look unused).
             unloaded.add(str(base / chapter.href))
             continue
-        for el in _root(doc).iter():
-            if not isinstance(el.tag, str):
-                continue
-            if el.tag.rsplit("}", 1)[-1].lower() == "script":
-                has_script = True
-            raw = el.get("class")
-            if raw:
-                used.update(raw.split())
+        used.update(record.classes)
+        if record.has_script:
+            has_script = True
 
     def scan_bytes(data: bytes):
         nonlocal has_script
@@ -253,13 +252,16 @@ class UnusedCssRepair:
     # <style> blocks inside pages
     # -----------------------------------------------------
 
-    def _scan_embedded(self, book, used, write: bool):
+    def _scan_embedded(self, book, used, write: bool, usage=None):
         """Returns a list of (page href, rules_removed, selectors_removed,
-        block_removed). A block is removed when nothing is left in it."""
+        block_removed). A block is removed when nothing is left in it. Only
+        pages the page records say have a <style> block are looked through."""
         results = []
-        for chapter in book.chapters:
+        if usage is None:
+            usage = class_usage_for(book)
+        for chapter, record in zip(book.chapters, usage):
             doc = getattr(chapter, "document", None)
-            if doc is None:
+            if doc is None or not record.has_style:
                 continue
             for el in list(_root(doc).iter()):
                 if not isinstance(el.tag, str) or el.tag.rsplit("}", 1)[-1].lower() != "style":
@@ -350,12 +352,15 @@ class UnusedCssRepair:
 
     # -----------------------------------------------------
 
-    def _run(self, book, write: bool):
-        used, has_script = _used_classes(book)
+    def _run(self, book, write: bool, analysis=None):
+        usage = class_usage_for(book, analysis)
+        used, has_script = _used_classes(book, usage)
         if has_script:
             return [], [], []
         files, final_text = self._scan(book, used, write)
-        embedded = self._scan_embedded(book, used, write)
+        # Unused classes are judged first; _scan above edits stylesheet files
+        # only, so the page records stay valid for the embedded blocks.
+        embedded = self._scan_embedded(book, used, write, usage)
         empties = self._empty_sheets(book, final_text, write)
         return files, embedded, empties
 
@@ -380,7 +385,7 @@ class UnusedCssRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        files, embedded, empties = self._run(book, write=False)
+        files, embedded, empties = self._run(book, write=False, analysis=analysis)
         self._report(report, files, embedded, empties, done=False)
         return report
 
@@ -388,7 +393,7 @@ class UnusedCssRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        files, embedded, empties = self._run(book, write=True)
+        files, embedded, empties = self._run(book, write=True, analysis=analysis)
         self._report(report, files, embedded, empties, done=True)
         if (files or embedded or empties) and hasattr(book, "mark_modified"):
             book.mark_modified()

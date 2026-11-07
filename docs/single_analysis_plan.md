@@ -177,6 +177,14 @@ is the working guess from today's measurements; Stretch 1 settles it.
 Index of classes, inline styles and spans per page. Moves Class Cleanup,
 Unused CSS and Span Cleanup.
 
+Done 2026-11-06. The index is `class_usage.py` (`PageClassUsage`, one record
+per page, kept by the store). The three steps read it for the used classes,
+the span classes, the pages that have a span they could remove, the pages
+that have a style block and the book's scripts, and look through only the
+pages that can have something to do. Inline style counts are not in the
+index yet, because none of these three steps reads them. Stretch 5 adds them
+when Text Size and Line Height need them.
+
 ### Stretch 5: Class and style usage, part 2 (M)
 
 Moves Line Height, Text Size, Embedded Stylesheet Consolidation and Body
@@ -289,9 +297,9 @@ step reads only the store and the checks above passed.
 | Color Strip | A | 2 | 4.0 | CSS | |
 | Font Strip | A | 2 | 5.0 | files removed, attributes, package, resources, CSS | |
 | Embedded Stylesheet Consolidation | C | 5 | 2.0 | nothing seen | |
-| Class Cleanup | C | 4 | 6.0 | classes | |
-| Span Cleanup | C | 4 | 8.0 | classes, links/ids, attributes, tags, text | |
-| Unused CSS | C | 4 | 7.0 | classes, files removed, links/ids, attributes, package, tags, text, resources, CSS | |
+| Class Cleanup | C | 4 | 6.0 | classes | ✓ |
+| Span Cleanup | C | 4 | 8.0 | classes, links/ids, attributes, tags, text | ✓ |
+| Unused CSS | C | 4 | 7.0 | classes, files removed, links/ids, attributes, package, tags, text, resources, CSS | ✓ |
 | Junk File Removal | C | 10 | 3.0 | files removed, links/ids, package, resources | |
 | Mid-Word Hyphen Repair | C | 8 | 2.0 | text | |
 | Ellipsis Normalizer | A | 1 | 0.0 | text | |
@@ -384,3 +392,4 @@ Open: nothing right now.
 | Stretch 2a: Chapters and front matter on the store | 2026-11-06 | `chapters` and `frontmatter` come from `AnalysisStore.findings`, reused only while the book's state, the findings they are made from and the person's front matter choices are unchanged and every element they point at is still on a page. `_refresh_chapters` removed from `engine.py`. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Direct tests found and fixed one flaw before delivery (front matter choices were wrongly counted as an input to chapters) |
 | Stretch 2b: The rest on the store | 2026-11-06 | `paragraphs`, `linebreaks`, `scene_breaks`, `color` and `fonts` come from the store, always made from the chapters and front matter as the book is now. The engine's refresh tables now only name which finding to ask the store for (`_refresh_paragraphs` and `_fresh_findings` removed). Examples identical (26 books, only the OPF modified time differs), second run changes nothing, direct tests pass. Not faster yet: Tarzan 34 to 35s, within the run-to-run noise (a whole-book fingerprint is taken for each request). The savings come from Stretches 4 to 10 |
 | Stretch 3: Shadow check | 2026-11-06 | New `dirty_check.py`, `DirtyTracker`, watched by `_run_repair_passes`; every repair run is compared with the prediction "nothing changed since this repair last found nothing to do". Results go to the Fix log only (`[Shadow check]` lines). The command line `repair` keeps the store when it analyzes again after a split. Examples identical (26 books, only the OPF modified time differs), second run changes nothing, tracker tests pass. Over 26 books: 0 wrong predictions and 0 unreported book changes, but only 4.7% of runs skippable, because one fingerprint for the whole book makes every step dirty after any change anywhere. The skip rate is the number Phase 2 has to raise, by giving each step its own inputs |
+| Stretch 4: Class and style usage, part 1 | 2026-11-06 | New `class_usage.py` and a per-page `class_usage` finding in the store. Class Cleanup, Span Cleanup and Unused CSS read it instead of walking every page, and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. A direct comparison of the old and new steps on 48 cases (24 books, each with injected edge cases: empty `class=""`, a span with an id, empty spans, a style block, a script) gave identical pages, files and counts. Shadow check unchanged: 0 wrong predictions in 2,356 runs |

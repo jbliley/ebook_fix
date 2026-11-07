@@ -44,6 +44,7 @@ from lxml import etree
 
 from ebook_fix.apostrophes import analyze_book_apostrophes, analyze_book_possessives
 from ebook_fix.chapters import analyze_book_chapters
+from ebook_fix.class_usage import analyze_book_class_usage
 from ebook_fix.color import analyze_book_color
 from ebook_fix.ellipsis import analyze_book_ellipsis
 from ebook_fix.finding_cache import PageFindingCache, _root_of, page_fingerprint
@@ -65,6 +66,7 @@ PAGE_FINDINGS = {
     "ellipsis": analyze_book_ellipsis,
     "apostrophes": analyze_book_apostrophes,
     "possessives": analyze_book_possessives,
+    "class_usage": analyze_book_class_usage,
 }
 
 

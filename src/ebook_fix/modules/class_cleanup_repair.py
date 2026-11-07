@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 
+from ebook_fix.class_usage import class_usage_for
 from ebook_fix.config import ClassCleanupConfig
 from ebook_fix.modules.span_cleanup_repair import _CLASS_TOKEN, _css_text, _root
 from ebook_fix.report import Report
@@ -38,15 +39,22 @@ def _protected(name: str) -> bool:
     return "ebookfix" in name.lower()
 
 
-def _scan(book, write: bool):
-    css = _css_text(book)
+def _scan(book, write: bool, analysis=None):
+    usage = class_usage_for(book, analysis)
+    css = _css_text(book, usage)
     if re.search(r"\[\s*class\b", css, re.IGNORECASE):
         return []
     mentioned = set(_CLASS_TOKEN.findall(css))
     results = []
-    for chapter in book.chapters:
+    for chapter, record in zip(book.chapters, usage):
         doc = chapter.document
         if doc is None:
+            continue
+        # The page's own record says whether any class on it is unused; a page
+        # where every class has a rule (and none is empty) has nothing to do.
+        if not record.empty_class_attribute and all(
+            c in mentioned or _protected(c) for c in record.classes
+        ):
             continue
         root = _root(doc)
         removed_names = set()
@@ -85,7 +93,7 @@ class ClassCleanupRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        for href, n, names in _scan(book, write=False):
+        for href, n, names in _scan(book, write=False, analysis=analysis):
             report.add(href, "Class names with no style behind them",
                        f"{n} element(s) carry {len(names)} unused class name(s) that will be removed")
         return report
@@ -94,7 +102,7 @@ class ClassCleanupRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        results = _scan(book, write=True)
+        results = _scan(book, write=True, analysis=analysis)
         for href, n, names in results:
             report.add(href, "Unused class names removed",
                        f"{n} element(s) lost {len(names)} unused class name(s)")

@@ -35,6 +35,7 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
+from ebook_fix.class_usage import class_usage_for
 from ebook_fix.config import SpanCleanupConfig
 from ebook_fix.css import COMMENT_RE, read_book_css
 from ebook_fix.report import Report
@@ -48,9 +49,11 @@ def _local(el) -> str:
     return tag.rsplit("}", 1)[-1].lower()
 
 
-def _css_text(book) -> str:
+def _css_text(book, usage=None) -> str:
     """All CSS in the book, taking rewritten stylesheets (book.new_files) in
-    place of the originals they replace."""
+    place of the originals they replace. `usage` (the page class-usage records,
+    see ebook_fix.class_usage) supplies the text of the <style> blocks in the
+    pages, so the pages are not walked again."""
     base = PurePosixPath(getattr(book, "package_path", "") or "").parent
     new_files = getattr(book, "new_files", None) or {}
     parts = []
@@ -65,6 +68,10 @@ def _css_text(book) -> str:
     for path, data in new_files.items():
         if path.lower().endswith(".css") and path not in used_paths:
             parts.append(data.decode("utf-8", "replace"))
+    if usage is not None:
+        for record in usage:
+            parts.extend(record.style_texts)
+        return COMMENT_RE.sub("", "\n".join(parts))
     for chapter in book.chapters:
         doc = chapter.document
         if doc is None:
@@ -94,10 +101,10 @@ def _no_op_classes(css: str) -> set:
     return no_op
 
 
-def purposeless_classes(book, used: set):
+def purposeless_classes(book, used: set, usage=None):
     """The classes (of those used on spans) that no rule can be reaching, or
     None when the CSS has an attribute selector on class."""
-    css = _css_text(book)
+    css = _css_text(book, usage)
     if re.search(r"\[\s*class\b", css, re.IGNORECASE):
         return None
     mentioned = set(_CLASS_TOKEN.findall(css))
@@ -171,23 +178,25 @@ class SpanCleanupRepair:
     def __init__(self, config: SpanCleanupConfig | None = None):
         self.config = config or SpanCleanupConfig()
 
-    def _used_span_classes(self, book) -> set:
+    @staticmethod
+    def _used_span_classes(usage) -> set:
         used = set()
-        for chapter in book.chapters:
-            doc = chapter.document
-            if doc is None:
-                continue
-            for el in doc.iter("{*}span"):
-                used.update((el.get("class") or "").split())
+        for record in usage:
+            used.update(record.span_classes)
         return used
 
-    def _scan(self, book, write: bool):
-        """[(href, unwrapped, removed)] per page."""
-        purposeless = purposeless_classes(book, self._used_span_classes(book))
+    def _scan(self, book, write: bool, analysis=None):
+        """[(href, unwrapped, removed)] per page. The page records say which
+        classes sit on spans and which pages have a span that could go at all,
+        so only those pages are looked through."""
+        usage = class_usage_for(book, analysis)
+        purposeless = purposeless_classes(book, self._used_span_classes(usage), usage)
         results = []
         if purposeless is None:
             return results
-        for chapter in book.chapters:
+        for chapter, record in zip(book.chapters, usage):
+            if not record.plain_spans:
+                continue
             unwrap, remove = _candidates(chapter, purposeless)
             if not (unwrap or remove):
                 continue
@@ -230,7 +239,7 @@ class SpanCleanupRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        for href, n_unwrap, n_remove in self._scan(book, write=False):
+        for href, n_unwrap, n_remove in self._scan(book, write=False, analysis=analysis):
             report.add(href, "Purposeless <span> wrappers", self._describe(n_unwrap, n_remove, will=True))
         return report
 
@@ -238,7 +247,7 @@ class SpanCleanupRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        results = self._scan(book, write=True)
+        results = self._scan(book, write=True, analysis=analysis)
         for href, n_unwrap, n_remove in results:
             report.add(href, "Purposeless <span> wrappers removed", self._describe(n_unwrap, n_remove, will=False))
         if results and hasattr(book, "mark_modified"):
