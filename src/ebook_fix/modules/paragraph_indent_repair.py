@@ -230,10 +230,12 @@ def resolve_style(rules: list, classes: frozenset, ancestor_tags: set, ancestor_
 # Reading the book
 # ---------------------------------------------------------------------
 
-def _book_rules(book):
+def _book_rules(book, usage=None):
     """(rules, sources) where sources lists every place the stylesheet text
     lives: ("css", href) for an external file, ("style", chapter) for a
-    <style> block in a chapter."""
+    <style> block in a chapter. `usage` (the page class-usage records, see
+    ebook_fix.class_usage) supplies the <style> blocks so the pages are not
+    walked again."""
     rules = []
     sources = []
     contents = read_book_css(book)
@@ -245,6 +247,12 @@ def _book_rules(book):
         if text:
             sources.append(("css", res.href, text))
             rules.extend(_parse_rules(text))
+    if usage is not None:
+        for chapter, record in zip(book.chapters, usage):
+            for text in record.style_texts:
+                sources.append(("style", chapter, text))
+                rules.extend(_parse_rules(text))
+        return rules, sources
     for chapter in book.chapters:
         doc = getattr(chapter, "document", None)
         if doc is None:

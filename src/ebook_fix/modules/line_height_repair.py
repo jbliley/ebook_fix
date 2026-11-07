@@ -38,6 +38,7 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
+from ebook_fix.class_usage import HEADING_TAGS, INLINE_TAGS, class_usage_for
 from ebook_fix.config import LineHeightConfig
 from ebook_fix.css import read_book_css
 from ebook_fix.report import Report
@@ -45,7 +46,7 @@ from ebook_fix.report import Report
 _RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 _DECL_LH = re.compile(r"^\s*line-height\s*:\s*(.+?)\s*$", re.IGNORECASE | re.DOTALL)
 _LENGTH = re.compile(r"^\s*(-?\d*\.?\d+)\s*(em|rem|%)?\s*$", re.IGNORECASE)
-_HEADINGS = ("h1", "h2", "h3", "h4", "h5", "h6")
+_HEADINGS = HEADING_TAGS
 _SKIP_TAGS = frozenset(_HEADINGS) | {"pre", "code", "table", "td", "th", "tr", "caption"}
 _SELECTOR_TAG = re.compile(r"(?<![\w.#-])([a-zA-Z][a-zA-Z0-9]*)")
 _CLASS = re.compile(r"\.([A-Za-z_][\w-]*)")
@@ -78,27 +79,22 @@ def _local(el) -> str:
     return tag.rsplit("}", 1)[-1].lower()
 
 
-_INLINE_TAGS = frozenset({"a", "span", "em", "i", "b", "strong", "u", "small", "font", "sup", "sub"})
+_INLINE_TAGS = INLINE_TAGS
 
 
-def heading_classes(book) -> set:
+def heading_classes(book, usage=None) -> set:
     """Classes whose line height must be left alone: used on a heading or on
     anything inside one, except a class that is only ever used on inline
     elements (a link or span). A line height on an inline element can only
     tighten the lines it sits on, so it is removed even when a chapter title
-    happens to use the same class."""
+    happens to use the same class. `usage` is the page class-usage records
+    (see ebook_fix.class_usage)."""
+    if usage is None:
+        usage = class_usage_for(book)
     found, block_use = set(), set()
-    for chapter in book.chapters:
-        doc = chapter.document
-        if doc is None:
-            continue
-        for el in doc.iter():
-            if isinstance(el.tag, str) and _local(el) not in _INLINE_TAGS:
-                block_use.update((el.get("class") or "").split())
-        for h in doc.iter(*[f"{{*}}{t}" for t in _HEADINGS]):
-            for el in h.iter():
-                if isinstance(el.tag, str):
-                    found.update((el.get("class") or "").split())
+    for record in usage:
+        block_use.update(record.block_classes)
+        found.update(record.heading_classes)
     return {c for c in found if c in block_use}
 
 
@@ -161,9 +157,10 @@ class LineHeightRepair:
 
     # -----------------------------------------------------
 
-    def _scan(self, book, write: bool) -> int:
+    def _scan(self, book, write: bool, analysis=None) -> int:
         min_ratio = float(self.config.min_line_height)
-        skip = heading_classes(book)
+        usage = class_usage_for(book, analysis)
+        skip = heading_classes(book, usage)
         base = PurePosixPath(getattr(book, "package_path", "") or "").parent
         total = 0
 
@@ -180,9 +177,10 @@ class LineHeightRepair:
                 if write:
                     book.new_files[zpath] = new_text.encode("utf-8")
 
-        for chapter in book.chapters:
+        for chapter, record in zip(book.chapters, usage):
             doc = chapter.document
-            if doc is None:
+            # Only a page with a style block or an inline line height can change.
+            if doc is None or not (record.style_texts or record.inline_line_height):
                 continue
             touched = False
             for style in doc.iter("{*}style"):
@@ -216,7 +214,7 @@ class LineHeightRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        n = self._scan(book, write=False)
+        n = self._scan(book, write=False, analysis=analysis)
         if n:
             report.add("stylesheet", "Tight fixed line height", self._describe(n, will=True))
         return report
@@ -225,7 +223,7 @@ class LineHeightRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        n = self._scan(book, write=True)
+        n = self._scan(book, write=True, analysis=analysis)
         if n:
             report.add("stylesheet", "Tight fixed line height removed", self._describe(n, will=False))
             if hasattr(book, "mark_modified"):

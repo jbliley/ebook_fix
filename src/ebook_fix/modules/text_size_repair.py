@@ -55,6 +55,7 @@ import re
 from collections import Counter
 from pathlib import PurePosixPath
 
+from ebook_fix.class_usage import TEXT_SIZE_SKIP_TAGS, class_usage_for
 from ebook_fix.config import TextSizeConfig
 from ebook_fix.modules.paragraph_indent_repair import _book_rules
 from ebook_fix.report import Report
@@ -107,11 +108,15 @@ def _class_sizes(rules):
     return sizes, True
 
 
-def find_text_size_problem(book):
+def find_text_size_problem(book, usage=None):
     """None, or {body_classes, body_factor, inner_factor, combined,
     overrides: {class: new_em}} when the text size depends on a
-    body-level factor cancelling an inner one."""
-    rules, sources = _book_rules(book)
+    body-level factor cancelling an inner one. `usage` is the page
+    class-usage records (see ebook_fix.class_usage); without them they are
+    worked out here."""
+    if usage is None:
+        usage = class_usage_for(book)
+    rules, sources = _book_rules(book, usage)
     if any(kind == "style" for kind, _w, _t in sources):
         for kind, _w, text in sources:
             if kind == "style" and "font-size" in text.lower():
@@ -124,9 +129,17 @@ def find_text_size_problem(book):
     nested_sizes = False
     body_classes = set()
     other_use = Counter()
-    for chapter in book.chapters:
+    for chapter, record in zip(book.chapters, usage):
         doc = getattr(chapter, "document", None)
         if doc is None:
+            continue
+        if record.inline_font_size_text:
+            return None
+        if record.classes.isdisjoint(sizes):
+            # No sized class anywhere on the page: every piece of text on it
+            # sits in the plain 1 x 1 chain, which the record already counted.
+            if record.text_elements:
+                chains[(1.0, 1.0)] += record.text_chars
             continue
         for el in doc.iter():
             if not isinstance(el.tag, str):
@@ -200,10 +213,7 @@ def find_text_size_problem(book):
 
 
 _BLOCKS = {"p", "div", "li", "blockquote", "td", "th", "dd", "dt"}
-_SKIP_TAGS = {
-    "sup", "sub", "small", "big", "h1", "h2", "h3", "h4", "h5", "h6",
-    "head", "title", "script", "style", "pre", "code", "svg", "math",
-}
+_SKIP_TAGS = TEXT_SIZE_SKIP_TAGS
 INLINE_NEIGHBOR_CHARS = 20
 
 
@@ -260,7 +270,7 @@ def _chain(owner, sizes):
     return block, below, above
 
 
-def find_inline_size_problem(book, sizes, lo, hi):
+def find_inline_size_problem(book, sizes, lo, hi, records=None):
     """None, or {overrides: {class: new_em}, runs, chars, ratio, target}
     for classes whose text is a run inside normal-sized paragraphs shown
     at less than `lo` or more than `hi` times the normal text size.
@@ -268,16 +278,25 @@ def find_inline_size_problem(book, sizes, lo, hi):
     size fix."""
     if not sizes:
         return None
-    rules, sources = _book_rules(book)
+    if records is None:
+        records = class_usage_for(book)
+    rules, sources = _book_rules(book, records)
     for kind, _w, text in sources:
         if kind == "style" and "font-size" in text.lower():
             return None
 
     units = []
     weight = Counter()
-    for chapter in book.chapters:
+    for chapter, record in zip(book.chapters, records):
         doc = getattr(chapter, "document", None)
         if doc is None:
+            continue
+        if record.classes.isdisjoint(sizes):
+            # No sized class on the page: all its text is at the normal size,
+            # and the record has already counted it. (It can neither be a run
+            # at another size nor change what counts as a neighbour.)
+            if record.unit_count:
+                weight[1.0] += record.unit_chars
             continue
         for owner, text in _units(doc, sizes):
             info = _chain(owner, sizes)
@@ -411,15 +430,16 @@ class TextSizeRepair:
     def __init__(self, config: TextSizeConfig | None = None):
         self.config = config or TextSizeConfig()
 
-    def _plan(self, book):
+    def _plan(self, book, analysis=None):
         """(problem, inline, overrides): the body-size problem (or None),
         the in-paragraph size runs found once that fix is applied (or
         None), and every class size to write."""
-        problem = find_text_size_problem(book)
+        usage = class_usage_for(book, analysis)
+        problem = find_text_size_problem(book, usage)
         overrides = dict(problem["overrides"]) if problem else {}
         inline = None
         if getattr(self.config, "fix_inline_size", True):
-            rules, _sources = _book_rules(book)
+            rules, _sources = _book_rules(book, usage)
             sizes, ok = _class_sizes(rules)
             if ok and sizes:
                 sizes.update(overrides)
@@ -427,6 +447,7 @@ class TextSizeRepair:
                     book, sizes,
                     float(getattr(self.config, "inline_min", 0.9)),
                     float(getattr(self.config, "inline_max", 1.1)),
+                    usage,
                 )
                 if inline:
                     overrides.update(inline["overrides"])
@@ -436,7 +457,7 @@ class TextSizeRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        problem, inline, _overrides = self._plan(book)
+        problem, inline, _overrides = self._plan(book, analysis)
         if problem:
             report.add("stylesheet", "Text size depends on the page body size", self._describe(problem, will=True))
         if inline:
@@ -447,11 +468,11 @@ class TextSizeRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        problem, inline, overrides = self._plan(book)
+        problem, inline, overrides = self._plan(book, analysis)
         if not overrides:
             return report
 
-        rules, sources = _book_rules(book)
+        rules, sources = _book_rules(book, class_usage_for(book, analysis))
         base = PurePosixPath(getattr(book, "package_path", "") or "").parent
         written = 0
         in_place = dict(overrides) if (problem and problem.get("plain")) else {}

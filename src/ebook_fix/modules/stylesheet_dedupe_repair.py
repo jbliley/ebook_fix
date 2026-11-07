@@ -35,6 +35,7 @@ from pathlib import PurePosixPath
 
 from lxml import etree
 
+from ebook_fix.class_usage import class_usage_for
 from ebook_fix.config import StylesheetDedupeConfig
 from ebook_fix.cover import archive_names
 from ebook_fix.models import ManifestItem, Resource
@@ -70,7 +71,7 @@ class EmbeddedStylesheetRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        groups, _skipped = self._find_groups(book)
+        groups, _skipped = self._find_groups(book, analysis)
         for css_text, copies in groups:
             size_kb = len(css_text.encode("utf-8")) / 1024
             for copy in copies:
@@ -93,7 +94,7 @@ class EmbeddedStylesheetRepair:
         if manifest_el is None:
             return report
 
-        groups, _skipped = self._find_groups(book)
+        groups, _skipped = self._find_groups(book, analysis)
         for css_text, copies in groups:
             css_href = self._choose_href(book, copies, css_text)
             if css_href is None:
@@ -128,16 +129,17 @@ class EmbeddedStylesheetRepair:
     # Finding the repeated blocks
     # -----------------------------------------------------
 
-    def _find_groups(self, book):
+    def _find_groups(self, book, analysis=None):
         """([(css_text, [_Copy, ...]), ...], skipped_notes). Only blocks
         that appear exactly once in each of at least two files."""
         by_key: dict[str, list[_Copy]] = {}
         text_for_key: dict[str, str] = {}
         counts: dict[tuple[str, str], int] = {}
 
-        for chapter in book.chapters:
+        for chapter, record in zip(book.chapters, class_usage_for(book, analysis)):
             document = getattr(chapter, "document", None)
-            if document is None:
+            # A page with no <style> element at all has no embedded stylesheet.
+            if document is None or not record.has_style:
                 continue
             chapter_dir = posixpath.dirname(chapter.href)
             for style in document.iterfind(".//{*}head//{*}style"):

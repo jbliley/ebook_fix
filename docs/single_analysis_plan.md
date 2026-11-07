@@ -190,6 +190,17 @@ when Text Size and Line Height need them.
 Moves Line Height, Text Size, Embedded Stylesheet Consolidation and Body
 Paragraph Look onto the same index.
 
+Done 2026-11-06. The page record (`class_usage.py`) now also holds the classes
+on non-inline elements and under headings (Line Height), whether any element
+has an inline line height or an inline font size with text, the text each page
+adds to the book's size totals (Text Size), and the classes of one-class
+paragraphs with text (Body Paragraph Look). Text Size skips a page that has no
+sized class and adds that page's totals from the record, in the same order, so
+ties between sizes break the way they always did. `_book_rules` (shared with
+Header Spacing and Paragraph Indent) can take the records for the style blocks.
+The inline style counts planned for this stretch turned out to be needed only
+as the two flags above, so no per-element counts were added.
+
 ### Stretch 6: Class and style usage, part 3 (L)
 
 Moves Reader Settings, Paragraph Spacing and Class Standardize with the
@@ -286,17 +297,17 @@ step reads only the store and the checks above passed.
 | Scene Break Normalizer | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
 | Scene Opener Markers | B | 9 | 4.0 | nothing seen | |
 | Scene Break Markers | B | 9 | 4.0 | classes, links/ids, attributes, tags, text | |
-| Body Paragraph Look | B | 5 | 7.0 | classes | |
+| Body Paragraph Look | B | 5 | 7.0 | classes | ✓ |
 | Paragraph Spacing | B | 6 | 3.0 | CSS | |
-| Line Height | C | 5 | 4.0 | CSS | |
+| Line Height | C | 5 | 4.0 | CSS | ✓ |
 | Reader Settings | B | 6 | 15.0 | classes, text, CSS | |
-| Text Size | C | 5 | 10.0 | nothing seen | |
+| Text Size | C | 5 | 10.0 | nothing seen | ✓ |
 | Extra Page Break Removal | C | 8 | 2.0 | nothing seen | |
 | Image Repair | A | 10 | 0.0 | classes, links/ids, attributes, tags, text | |
 | Cover Repair | A | 7, 10 | 9.2 | files removed, links/ids, files edited, package | |
 | Color Strip | A | 2 | 4.0 | CSS | |
 | Font Strip | A | 2 | 5.0 | files removed, attributes, package, resources, CSS | |
-| Embedded Stylesheet Consolidation | C | 5 | 2.0 | nothing seen | |
+| Embedded Stylesheet Consolidation | C | 5 | 2.0 | nothing seen | ✓ |
 | Class Cleanup | C | 4 | 6.0 | classes | ✓ |
 | Span Cleanup | C | 4 | 8.0 | classes, links/ids, attributes, tags, text | ✓ |
 | Unused CSS | C | 4 | 7.0 | classes, files removed, links/ids, attributes, package, tags, text, resources, CSS | ✓ |
@@ -393,3 +404,4 @@ Open: nothing right now.
 | Stretch 2b: The rest on the store | 2026-11-06 | `paragraphs`, `linebreaks`, `scene_breaks`, `color` and `fonts` come from the store, always made from the chapters and front matter as the book is now. The engine's refresh tables now only name which finding to ask the store for (`_refresh_paragraphs` and `_fresh_findings` removed). Examples identical (26 books, only the OPF modified time differs), second run changes nothing, direct tests pass. Not faster yet: Tarzan 34 to 35s, within the run-to-run noise (a whole-book fingerprint is taken for each request). The savings come from Stretches 4 to 10 |
 | Stretch 3: Shadow check | 2026-11-06 | New `dirty_check.py`, `DirtyTracker`, watched by `_run_repair_passes`; every repair run is compared with the prediction "nothing changed since this repair last found nothing to do". Results go to the Fix log only (`[Shadow check]` lines). The command line `repair` keeps the store when it analyzes again after a split. Examples identical (26 books, only the OPF modified time differs), second run changes nothing, tracker tests pass. Over 26 books: 0 wrong predictions and 0 unreported book changes, but only 4.7% of runs skippable, because one fingerprint for the whole book makes every step dirty after any change anywhere. The skip rate is the number Phase 2 has to raise, by giving each step its own inputs |
 | Stretch 4: Class and style usage, part 1 | 2026-11-06 | New `class_usage.py` and a per-page `class_usage` finding in the store. Class Cleanup, Span Cleanup and Unused CSS read it instead of walking every page, and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. A direct comparison of the old and new steps on 48 cases (24 books, each with injected edge cases: empty `class=""`, a span with an id, empty spans, a style block, a script) gave identical pages, files and counts. Shadow check unchanged: 0 wrong predictions in 2,356 runs |
+| Stretch 5: Class and style usage, part 2 | 2026-11-06 | `class_usage.py` records extended; Line Height, Text Size, Embedded Stylesheet Consolidation and Body Paragraph Look read them. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 24 books in 5 variants each (120 cases, including books made to trigger Text Size's two findings, a repeated embedded stylesheet, inline line heights and body paragraph variants): identical pages, files and counts. Shadow check unchanged: 0 wrong predictions in 2,356 runs |

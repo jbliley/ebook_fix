@@ -34,6 +34,7 @@ from __future__ import annotations
 import re
 
 from ebook_fix.class_map import build_class_profiles
+from ebook_fix.class_usage import class_usage_for
 from ebook_fix.config import BodyVariantConfig
 from ebook_fix.report import Report
 
@@ -128,14 +129,17 @@ def find_body_variants(book, analysis=None, reader_settings: bool = True) -> lis
     return found
 
 
-def _variant_paragraphs(book, variant):
+def _variant_paragraphs(book, variant, usage=None):
     """[(chapter, element)] for each paragraph that is only the variant class
     and holds text. A blank spacer paragraph is not body text; its own spacing
     is what keeps the gap it was put there for."""
     found = []
-    for chapter in book.chapters:
+    if usage is None:
+        usage = class_usage_for(book)
+    for chapter, record in zip(book.chapters, usage):
         doc = chapter.document
-        if doc is None:
+        # The page's record says whether it has such a paragraph at all.
+        if doc is None or variant not in record.single_class_paragraphs:
             continue
         for el in doc.iter("{*}p"):
             if (el.get("class") or "").split() != [variant]:
@@ -159,8 +163,9 @@ class BodyVariantRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
+        usage = class_usage_for(book, analysis)
         for variant, body, _, _ in find_body_variants(book, analysis, self.reader_settings):
-            n = len(_variant_paragraphs(book, variant))
+            n = len(_variant_paragraphs(book, variant, usage))
             if n:
                 report.add("stylesheet", "Body paragraphs with a different look", self._describe(variant, body, n, will=True))
         return report
@@ -172,7 +177,10 @@ class BodyVariantRepair:
         changed = set()
         for variant, body, _, _ in find_body_variants(book, analysis, self.reader_settings):
             switched = 0
-            for chapter, el in _variant_paragraphs(book, variant):
+            # The records are asked for again for each variant: switching one
+            # variant's paragraphs changes the pages, and the next variant must
+            # be looked for in the pages as they now are.
+            for chapter, el in _variant_paragraphs(book, variant, class_usage_for(book, analysis)):
                 el.set("class", body)
                 chapter.modified = True
                 changed.add(chapter.href)
