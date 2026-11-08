@@ -4129,3 +4129,16 @@ Stretch 6b of `docs/single_analysis_plan.md`, which finishes Stretch 6. Class St
 - `class_standardize.py`: the count looks only at pages whose record lists the mapped class. The repair opens a page only if its record shows a style block, a mapped class, or a class that already has a chapter heading's new name (the chapter break marking needs those). The results and their order are the same as before.
 
 Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; Class Standardize, old against new, on 24 books with and without injected edge cases (48 cases, 36 of them changing the book): identical pages, files and counts, and nothing left for a second run. The shadow check still shows 0 wrong predictions.
+
+### Changed: Dead Link Cleanup, TOC Cleanup, Page Titles and Cover Repair's links read a shared page index (2026-11-08)
+
+Stretch 7 of `docs/single_analysis_plan.md`. These steps used to walk every element of every page to find links, ids, titles and empty pages. The analysis store now keeps one record per page (`link_index.py`, the `links` finding), and each step opens only the pages its record says can have something to do.
+
+- `link_index.py` (new): each page's record holds its ids and anchors, whether it is the navigation document, the links that could be dead, the files its links go to, the first few text blocks as heading keys with their anchors, the book paths its links reach, whether its body is empty, the text of its `<title>`, and the picture and link addresses Cover Repair looks at. The helpers that Dead Link Cleanup and TOC Cleanup used to keep for themselves (heading keys, anchors, the empty page test) live here so the records and the steps agree.
+- `dead_link_repair.py`: a page is opened only when a link on it goes to a missing file, or to a spot that is missing from a page of the book. The heading index used to repoint links is built from the records.
+- `toc_cleanup.py`: the empty page test and the check that nothing links to an empty page read the records.
+- `page_title_repair.py`: a page that already has a real title is not opened.
+- `cover.py` and `cover_repair.py`: the stale cover link repair, the picture rewrite after a rename and the unused image check skip pages whose records show nothing to change. The duplicate page search still reads the few pages after the cover.
+- `analysis_store.py`: the `links` finding is stored per page like the class usage records.
+
+Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; the four steps, old against new, on 572 cases (26 books with injected dead links, placeholder titles, empty pages, repeated and blank contents entries and stale cover links, with and without a store) plus 40 cases on 20 books made to hold a duplicate cover page: identical pages, files, counts and report lines. The shadow check still shows 0 wrong predictions in 2,356 runs. Time on the examples is unchanged within noise.

@@ -46,6 +46,11 @@ Explicit cover replacement (the `replace-cover` command) is a
 separate operation entirely -- see Engine.replace_cover -- since a
 user-supplied image doesn't need any of this guessing in the first
 place.
+
+The scans that look at every page for pictures and cover links (stale links,
+the rewrite after a rename, the unused image check) read the page records the
+analysis store keeps (ebook_fix.link_index) when the analysis carries a store,
+and open only the pages that can change.
 """
 
 from __future__ import annotations
@@ -67,6 +72,7 @@ from ebook_fix.cover import (
     swap_filename,
     sync_declarations,
 )
+from ebook_fix.link_index import links_from_store
 from ebook_fix.modules.gutenberg_repair import _remove_whole_chapter
 from ebook_fix.report import Report
 
@@ -108,11 +114,17 @@ def image_size(data: bytes):
     return None
 
 
-def _page_images(book, chapter):
+def _page_images(book, chapter, record=None):
     """Full archive paths of every image a page shows (<img> and SVG
-    <image>)."""
+    <image>). With the page's link record (ebook_fix.link_index) the page is
+    not walked: the record already lists the addresses, pictures first."""
     base = PurePosixPath(book.package_path).parent
     chapter_dir = PurePosixPath(posixpath.normpath(str(base / chapter.href))).parent
+    if record is not None:
+        return [
+            posixpath.normpath(str(chapter_dir / ref.split("#")[0]))
+            for ref in record.image_srcs
+        ]
     found = []
     for img in chapter.document.findall(".//{*}img"):
         src = img.get("src")
@@ -253,7 +265,9 @@ class CoverRepair:
                 )
 
         if self.config.fix_stale_links:
-            stale = repoint_stale_cover_links(book, cover.resolved_href, dry_run=True)
+            stale = repoint_stale_cover_links(
+                book, cover.resolved_href, dry_run=True, records=links_from_store(book, analysis)
+            )
             if stale:
                 report.add(
                     "content.opf",
@@ -306,7 +320,7 @@ class CoverRepair:
                         "Duplicate cover page removed",
                         "This page only repeated the cover image near the cover page.",
                     )
-                    self._remove_image_if_unused(book, image_path, report)
+                    self._remove_image_if_unused(book, image_path, report, analysis)
                     changed = True
 
         if self.config.sync_declarations and self._needs_sync(cover):
@@ -332,7 +346,7 @@ class CoverRepair:
             changed = True
 
         if self.config.standardize_filename:
-            renamed_to = self._standardize_filename(book, opf, cover)
+            renamed_to = self._standardize_filename(book, opf, cover, analysis)
             if renamed_to:
                 # Same reasoning as above: keep the manifest snapshot's
                 # href in sync with the live OPF edit _standardize_filename
@@ -354,7 +368,9 @@ class CoverRepair:
             cover_now = posixpath.normpath(
                 str(PurePosixPath(book.package_path).parent / cover.cover_item.href)
             )
-            fixed_pages = repoint_stale_cover_links(book, cover_now)
+            fixed_pages = repoint_stale_cover_links(
+                book, cover_now, records=links_from_store(book, analysis)
+            )
             if fixed_pages:
                 report.add(
                     "content.opf",
@@ -371,11 +387,15 @@ class CoverRepair:
 
         return report
 
-    def _remove_image_if_unused(self, book, image_path, report):
+    def _remove_image_if_unused(self, book, image_path, report, analysis=None):
         """Drops the removed page's image too, but only if nothing else
         in the book still uses it."""
-        for c in book.chapters:
-            if c.document is not None and image_path in _page_images(book, c):
+        records = links_from_store(book, analysis)
+        for index, c in enumerate(book.chapters):
+            if c.document is None:
+                continue
+            record = records[index] if records is not None else None
+            if image_path in _page_images(book, c, record):
                 return
         name = PurePosixPath(image_path).name
         for css in book.css:
@@ -436,7 +456,7 @@ class CoverRepair:
             or cover.meta_item.id != cover.properties_item.id
         )
 
-    def _standardize_filename(self, book, opf, cover) -> str | None:
+    def _standardize_filename(self, book, opf, cover, analysis=None) -> str | None:
         target_name = standard_cover_filename(cover.cover_item.media_type, cover.resolved_href)
         old_path = cover.resolved_href
         if PurePosixPath(old_path).name == target_name:
@@ -462,6 +482,8 @@ class CoverRepair:
         if cover_item_el is not None:
             cover_item_el.set("href", swap_filename(cover_item_el.get("href", ""), target_name))
 
-        rewrite_chapter_image_references(book, old_path, new_path)
+        rewrite_chapter_image_references(
+            book, old_path, new_path, records=links_from_store(book, analysis)
+        )
 
         return new_path

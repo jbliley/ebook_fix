@@ -15,7 +15,9 @@ What this does, for each text page of the book:
 
 Only the `<title>` text changes; nothing in the page body is touched, and
 the table of contents is not read or changed. A second run finds nothing to
-replace.
+replace. The page records the analysis store keeps (ebook_fix.link_index)
+supply each page's current title, so only a page whose title needs replacing
+is opened.
 """
 from __future__ import annotations
 
@@ -24,6 +26,7 @@ import re
 from lxml import etree
 
 from ebook_fix.config import PageTitleConfig
+from ebook_fix.link_index import links_for
 from ebook_fix.report import Report
 
 _JUNK = frozenset({
@@ -89,12 +92,16 @@ class PageTitleRepair:
     def __init__(self, config: PageTitleConfig | None = None):
         self.config = config or PageTitleConfig()
 
-    def _scan(self, book, write: bool):
+    def _scan(self, book, write: bool, analysis=None):
         results = []
         fallback = _book_title(book)
-        for chapter in book.chapters:
+        # The page records (ebook_fix.link_index) hold each page's <title>, so
+        # a page that already has a real title is not opened.
+        for chapter, record in zip(book.chapters, links_for(book, analysis)):
             doc = chapter.document
             if doc is None:
+                continue
+            if record.title_text is not None and not is_junk_title(record.title_text):
                 continue
             root = _root(doc)
             title_el = _title_el(root)
@@ -123,7 +130,7 @@ class PageTitleRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        for href, old, new in self._scan(book, write=False):
+        for href, old, new in self._scan(book, write=False, analysis=analysis):
             report.add(href, "Placeholder page title",
                        f"title {old!r} will become {new!r}" if old else f"missing title will be set to {new!r}")
         return report
@@ -132,7 +139,7 @@ class PageTitleRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        results = self._scan(book, write=True)
+        results = self._scan(book, write=True, analysis=analysis)
         for href, old, new in results:
             report.add(href, "Placeholder page title replaced",
                        f"title {old!r} became {new!r}" if old else f"missing title set to {new!r}")

@@ -227,6 +227,22 @@ profiles already came from the shared build in 6a. Stretch 6 is complete.
 Index of links, ids and targets per page. Moves Dead Link Cleanup, TOC
 Cleanup and Page Titles, and the link part of Cover Repair.
 
+Done 2026-11-08. The new page record (`link_index.py`, kept by the store as
+the `links` finding) holds each page's ids and anchors, whether it is the
+navigation document, the links that could be dead, the files its links go to,
+the first few text blocks as heading keys with their anchors, the book paths
+its links reach (for TOC Cleanup's check that nothing links to an empty page),
+whether the body is empty, the text of its `<title>`, and the picture and
+link addresses Cover Repair looks at. Dead Link Cleanup opens only pages whose
+records show a link that goes to a missing file or a missing spot, and builds
+its heading index from the records. TOC Cleanup reads the empty-page flag and
+the link paths from the records. Page Titles opens only pages whose title is
+missing or a placeholder. Cover Repair's stale cover links, the picture
+rewrite after a rename and the unused-image check read the records. Cover
+Repair's duplicate page search is left as it was: it looks at no more than
+nine pages, so it is not a whole-book scan. The package part of Cover Repair
+stays with Stretch 10.
+
 ### Stretch 8: Text lines (M)
 
 Index of each page's paragraphs and lines as text. Moves Mid-Word Hyphen
@@ -303,8 +319,8 @@ step reads only the store and the checks above passed.
 | Paragraph Repair | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
 | Chapter Markup | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
 | Chapter Title Cleanup | C | 8 | 8.0 | nothing seen | |
-| TOC Cleanup | C | 7 | 3.0 | nothing seen | |
-| Dead Link Cleanup | C | 7 | 9.7 | classes, links/ids, attributes, tags, text | |
+| TOC Cleanup | C | 7 | 3.0 | nothing seen | ✓ |
+| Dead Link Cleanup | C | 7 | 9.7 | classes, links/ids, attributes, tags, text | ✓ |
 | EPUB 3 Upgrade | A | 10 | 7.5 | files edited, package | |
 | TOC Generation | A | 2, 10 | 4.0 | NCX, links/ids, files edited | |
 | Chapter Header Spacing | B | 9 | 9.0 | classes, links/ids, attributes, tags, text | |
@@ -330,7 +346,7 @@ step reads only the store and the checks above passed.
 | Ellipsis Normalizer | A | 1 | 0.0 | text | |
 | Apostrophe Repair | A | 1 | 0.0 | text | |
 | Quote Style | C | 8 | 5.7 | text | |
-| Page Titles | C | 7 | 2.0 | text | |
+| Page Titles | C | 7 | 2.0 | text | ✓ |
 | Whitespace Normalizer | A | 1 | 0.0 | text | |
 | Title Cleanup | C | 10 | 0.0 | package | |
 | Metadata Sync | A | 10 | 0.0 | nothing seen | |
@@ -421,3 +437,4 @@ Open: nothing right now.
 | Stretch 5: Class and style usage, part 2 | 2026-11-06 | `class_usage.py` records extended; Line Height, Text Size, Embedded Stylesheet Consolidation and Body Paragraph Look read them. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 24 books in 5 variants each (120 cases, including books made to trigger Text Size's two findings, a repeated embedded stylesheet, inline line heights and body paragraph variants): identical pages, files and counts. Shadow check unchanged: 0 wrong predictions in 2,356 runs |
 | Stretch 6a: Reader Settings and Paragraph Spacing | 2026-11-07 | Page records extended; class profiles built once and shared (`class_profiles_for`). Reader Settings, Paragraph Spacing and Body Paragraph Look read them. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 120 cases (24 books, 5 variants, including one that triggers Paragraph Spacing): identical. Shadow check unchanged: 0 wrong predictions in 2,356 runs. Tarzan time unchanged (within noise) |
 | Stretch 6b: Class Standardize | 2026-11-07 | `class_standardize.py` reads the page records for both its count and its repair, so a page with no mapped class and no style block is not walked. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 48 cases (24 books, plain and with injected edge cases: mapped classes in style blocks, with inline colors and page breaks, a scene break marker, an empty class; 36 changed the book): identical pages, files and counts, and a second pass finding nothing. Shadow check unchanged: 0 wrong predictions per book. Stretch 6 complete |
+| Stretch 7: Links and ids | 2026-11-08 | New `link_index.py` and a per-page `links` finding in the store. Dead Link Cleanup, TOC Cleanup, Page Titles and the link part of Cover Repair read it and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 572 cases (26 books with injected dead links, placeholder titles, empty and linked-to empty pages, blank and repeated contents entries, stale cover links; analysis with and without a store) plus 40 cases on 20 books made to hold a duplicate cover page: identical pages, files, counts and report lines. Shadow check unchanged: 0 wrong predictions in 2,356 runs |

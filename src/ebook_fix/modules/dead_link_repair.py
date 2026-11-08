@@ -46,21 +46,25 @@ Runs right after TOC Cleanup so the contents list it matches against is
 already tidy, and on a book with fixed-layout pages it is skipped with
 the other markup repairs, since an empty link can be a clickable region
 there. Re-running it on a repaired book finds nothing to do.
+
+Which pages hold a link that could be dead, each page's ids and the headings
+used to repoint a link all come from the page records the analysis store keeps
+(ebook_fix.link_index), so a page with nothing to find is not opened.
 """
 from __future__ import annotations
 
 import posixpath
-import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from urllib.parse import unquote
 import zipfile
 
 from ebook_fix.config import DeadLinkConfig
+from ebook_fix.link_index import CONTENTS_LIKE_LINKS
+from ebook_fix.link_index import SCHEME as _SCHEME
+from ebook_fix.link_index import heading_key as _heading_key
+from ebook_fix.link_index import links_for
 from ebook_fix.report import Report
-
-_OPS = "http://www.idpf.org/2007/ops"
-_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
 
 
 @dataclass
@@ -84,32 +88,11 @@ def _fold(text) -> str:
     return text.strip(" .:;,!-\u2013\u2014\"'\u201c\u201d\u2018\u2019")
 
 
-def _is_nav_document(doc) -> bool:
-    if doc is None:
-        return False
-    return any(nav.get(f"{{{_OPS}}}type") == "toc" for nav in doc.iter("{*}nav"))
-
-
 def _flatten(entries):
     for entry in entries:
         yield entry
         if entry.children:
             yield from _flatten(entry.children)
-
-
-def _ids_in(document) -> set:
-    found = set()
-    for el in document.iter():
-        if not isinstance(el.tag, str):
-            continue
-        value = el.get("id")
-        if value:
-            found.add(value)
-        if el.tag.endswith("}a") or el.tag == "a":
-            name = el.get("name")
-            if name:
-                found.add(name)
-    return found
 
 
 def _unwrap(a) -> None:
@@ -141,88 +124,6 @@ def _unwrap(a) -> None:
     parent.remove(a)
 
 
-_PAGE_BREAK_ID = re.compile(r"^calibre_pb_\d+$")
-_CONTENTS_LIKE_LINKS = 8   # a page linking to this many pages is a contents page, not a chapter
-_HEADING_BLOCKS = 3        # how many text blocks at the top of a page count as its heading
-_BLOCK_NAMES = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "td", "blockquote", "section"}
-
-
-def _local_name(el) -> str:
-    tag = el.tag if isinstance(el.tag, str) else ""
-    return tag.rsplit("}", 1)[-1].lower()
-
-
-def _heading_key(text) -> str:
-    """A heading or link text reduced to its words: lowercase, no
-    punctuation, no leading "Chapter". 'Chapter 12. "Tomorrow Thou
-    Diest!"' and '12. "TOMORROW THOU DIEST!"' both become
-    '12 tomorrow thou diest'."""
-    words = re.findall(r"\w+", (text or "").casefold())
-    if words and words[0] == "chapter":
-        words = words[1:]
-    return " ".join(words)
-
-
-def _anchor_for(block) -> str:
-    """The id a link can use to reach this block: its own id, an anchor
-    inside it, or an empty anchor just before it. Empty when there is none
-    (the link then goes to the top of the page)."""
-    candidates = []
-    if block.get("id"):
-        candidates.append(block.get("id"))
-    for el in block.iter():
-        if not isinstance(el.tag, str):
-            continue
-        value = el.get("id") or (el.get("name") if _local_name(el) == "a" else None)
-        if value:
-            candidates.append(value)
-    previous = block.getprevious()
-    for _ in range(2):
-        if previous is None:
-            break
-        if isinstance(previous.tag, str):
-            if previous.get("id") and not "".join(previous.itertext()).strip():
-                candidates.append(previous.get("id"))
-            if "".join(previous.itertext()).strip():
-                break
-        previous = previous.getprevious()
-    # A page-break marker (calibre_pb_12) is the sort of thing other
-    # repairs tidy away, so the heading's own anchor is preferred.
-    for value in candidates:
-        if not _PAGE_BREAK_ID.match(value):
-            return value
-    return candidates[0] if candidates else ""
-
-
-def _link_count(document) -> int:
-    """How many different pages a page's links go to (a contents page has many)."""
-    targets = set()
-    for a in document.iter():
-        if isinstance(a.tag, str) and _local_name(a) == "a":
-            href = (a.get("href") or "").strip()
-            if href and not href.startswith("#") and not _SCHEME.match(href):
-                targets.add(href.partition("#")[0])
-    return len(targets)
-
-
-def _top_blocks(document) -> list:
-    """The first few text-bearing blocks of a page, as (element, text)."""
-    root = document.getroot() if hasattr(document, "getroot") else document
-    body = next((el for el in root.iter() if isinstance(el.tag, str) and _local_name(el) == "body"), root)
-    found = []
-    for el in body.iter():
-        if not isinstance(el.tag, str) or _local_name(el) not in _BLOCK_NAMES:
-            continue
-        if any(isinstance(child.tag, str) and _local_name(child) in _BLOCK_NAMES for child in el.iterdescendants()):
-            continue                      # only the innermost block holds the text
-        text = " ".join("".join(el.itertext()).split())
-        if text:
-            found.append((el, text))
-            if len(found) >= _HEADING_BLOCKS:
-                break
-    return found
-
-
 class DeadLinkRepair:
     name = "Dead Link Cleanup"
 
@@ -237,7 +138,7 @@ class DeadLinkRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        for finding in self._scan(book):
+        for finding in self._scan(book, analysis):
             report.add(finding.chapter.href, *self._describe(finding, will=True))
         return report
 
@@ -247,7 +148,7 @@ class DeadLinkRepair:
             return report
 
         touched = set()
-        for finding in self._scan(book):
+        for finding in self._scan(book, analysis):
             a = finding.element
             if finding.action == "repoint" or finding.action == "drop_fragment":
                 a.set("href", finding.new_href)
@@ -281,12 +182,16 @@ class DeadLinkRepair:
         names -= set(getattr(book, "removed_files", set()) or set())
         return names
 
-    def _scan(self, book) -> list:
+    def _scan(self, book, analysis=None) -> list:
         base = PurePosixPath(book.package_path).parent
         existing = self._existing_paths(book)
         chapters = {c.href: c for c in book.chapters if c.document is not None}
         in_memory = {c.href for c in book.chapters}
-        id_cache: dict = {}
+        # What each page holds, from the analysis store's page records (see
+        # ebook_fix.link_index): which links a page has, its ids and its top
+        # headings. Nothing below changes a page until the scan is over.
+        pages = list(zip(book.chapters, links_for(book, analysis)))
+        records = {c.href: record for c, record in pages if c.document is not None}
 
         def full(path: str) -> str:
             return posixpath.normpath(str(base / path))
@@ -302,24 +207,44 @@ class DeadLinkRepair:
         def headings() -> dict:
             if not headings_cache:
                 index: dict = {}
-                for page in book.chapters:
-                    if page.document is None or _is_nav_document(page.document):
+                for page, record in pages:
+                    if page.document is None or record.is_toc_nav:
                         continue
-                    if _link_count(page.document) >= _CONTENTS_LIKE_LINKS:
+                    if len(record.link_target_files) >= CONTENTS_LIKE_LINKS:
                         continue          # a contents page lists chapters; it is not one
-                    for block, text in _top_blocks(page.document):
-                        key = _heading_key(text)
-                        if len(key) >= 3:
-                            index.setdefault(key, []).append((page.href, _anchor_for(block)))
+                    for key, anchor in record.heading_blocks:
+                        index.setdefault(key, []).append((page.href, anchor))
                 headings_cache.append(index)
             return headings_cache[0]
 
+        def may_have_dead_link(chapter, record, chapter_dir) -> bool:
+            """True when some link on the page goes to a missing file, or to a
+            spot that does not exist in a page of the book. A page for which
+            this is False has nothing to find, so it is not opened."""
+            for href in record.dead_link_candidates:
+                raw_path, _, raw_fragment = href.partition("#")
+                path = unquote(raw_path)
+                fragment = unquote(raw_fragment)
+                target = (
+                    chapter.href
+                    if not path
+                    else posixpath.normpath(posixpath.join(chapter_dir, path))
+                )
+                if not exists(target):
+                    return True
+                if fragment and self.config.fix_missing_anchors and target in chapters:
+                    if fragment not in records[target].ids:
+                        return True
+            return False
+
         findings = []
-        for chapter in book.chapters:
+        for chapter, record in pages:
             doc = chapter.document
-            if doc is None or _is_nav_document(doc):
+            if doc is None or record.is_toc_nav:
                 continue
             chapter_dir = posixpath.dirname(chapter.href)
+            if not may_have_dead_link(chapter, record, chapter_dir):
+                continue
 
             for a in doc.iter("{*}a"):
                 href = a.get("href")
@@ -346,9 +271,7 @@ class DeadLinkRepair:
                     continue
 
                 if fragment and self.config.fix_missing_anchors and target in chapters:
-                    if target not in id_cache:
-                        id_cache[target] = _ids_in(chapters[target].document)
-                    if fragment not in id_cache[target]:
+                    if fragment not in records[target].ids:
                         if target == chapter.href:
                             findings.append(_Finding(chapter, a, "missing anchor", href, "unlink", text=text))
                         else:

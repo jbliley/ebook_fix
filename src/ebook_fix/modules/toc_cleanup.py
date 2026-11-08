@@ -43,6 +43,9 @@ Runs after Chapter Title Cleanup and before EPUB 3 Upgrade, because the
 navigation document that module generates is built from the contents
 list this one corrects. Re-running it on a repaired book finds nothing
 to do.
+
+Whether a page is empty, and whether another page links to it, are read from
+the page records the analysis store keeps (ebook_fix.link_index).
 """
 
 from __future__ import annotations
@@ -57,6 +60,7 @@ from pathlib import PurePosixPath
 from lxml import etree
 
 from ebook_fix.config import TocCleanupConfig
+from ebook_fix.link_index import EXTERNAL_PREFIXES, clean_text, is_empty_document, links_for
 from ebook_fix.parser import EPUBParser
 from ebook_fix.report import Report
 from ebook_fix.split_fragments import _drop_file, _local
@@ -64,7 +68,6 @@ from ebook_fix.split_fragments import _drop_file, _local
 OPF_NS = "http://www.idpf.org/2007/opf"
 NCX_NS_URI = "http://www.daisy.org/z3986/2005/ncx/"
 EPUB_OPS_NS = "http://www.idpf.org/2007/ops"
-EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "tel:", "data:")
 HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 IMAGE_TAGS = {"img", "image", "svg"}
 COVER_LABELS = {"cover", "front cover", "cover page"}
@@ -76,11 +79,7 @@ MAX_TEXT_BEFORE_HEADING = 150
 # ---------------------------------------------------------------------
 
 
-def _clean(text) -> str:
-    """Whitespace-collapsed text, with non-breaking and zero-width
-    spaces treated as nothing."""
-    text = (text or "").replace("\u00a0", " ").replace("\u200b", "").replace("\ufeff", "")
-    return " ".join(text.split())
+_clean = clean_text
 
 
 def _key(text) -> str:
@@ -91,32 +90,10 @@ def _path_of(href: str) -> str:
     return (href or "").partition("#")[0]
 
 
-def _resolve(source_dir: str, href: str) -> str:
-    """OPF-relative path of an href found inside a file in source_dir
-    (fragment dropped)."""
-    path = _path_of(href)
-    if not path:
-        return ""
-    return posixpath.normpath(posixpath.join(source_dir, path))
-
-
 def _body(doc):
     if doc is None:
         return None
     return doc.find(".//{*}body")
-
-
-def _body_text(body) -> str:
-    texts = []
-    for el in body.iter():
-        if not isinstance(el.tag, str):
-            if el is not body and el.tail:
-                texts.append(el.tail)
-            continue
-        texts.append(el.text or "")
-        if el is not body:
-            texts.append(el.tail or "")
-    return _clean("".join(texts))
 
 
 def _has_image(body) -> bool:
@@ -144,22 +121,19 @@ def _raw_file_is_empty(book, chapter) -> bool:
     return not text.strip()
 
 
-def _is_empty_page(book, chapter) -> bool:
+def _is_empty_page(book, chapter, record=None) -> bool:
     doc = chapter.document
     if doc is None:
         # The parser found no document in the file. Only treat it as
         # empty if the file itself really holds nothing.
         return _raw_file_is_empty(book, chapter)
-    body = _body(doc)
-    if body is None:
-        return False
-    if _body_text(body):
-        return False
+    if record is not None:
+        return record.empty_page
     # Even an empty <div> counts as something: a page whose picture or
     # text another repair just removed still has its wrapper shell, and
     # that is not this module's call to make. Only a body with no
     # elements at all is empty.
-    return not any(isinstance(el.tag, str) for el in body.iterdescendants())
+    return is_empty_document(doc)
 
 
 def _is_nav_document(doc) -> bool:
@@ -399,7 +373,7 @@ class TocCleanupRepair:
 
     def analyze(self, book, analysis=None):
         report = Report(self.name)
-        plan = self._make_plan(book)
+        plan = self._make_plan(book, analysis)
         self._report_pages(report, plan)
         # Dry run on copies, so nothing in the book is touched.
         for _label, tree in self._trees(book, copy_trees=True):
@@ -413,7 +387,7 @@ class TocCleanupRepair:
 
     def repair(self, book, analysis=None):
         report = Report(self.name)
-        plan = self._make_plan(book)
+        plan = self._make_plan(book, analysis)
         self._report_pages(report, plan)
 
         changed_trees = []
@@ -441,11 +415,14 @@ class TocCleanupRepair:
     # Planning
     # -----------------------------------------------------
 
-    def _make_plan(self, book) -> _Plan:
+    def _make_plan(self, book, analysis=None) -> _Plan:
         plan = _Plan()
         if not self.config.remove_empty_pages:
             return plan
 
+        # What each page holds, from the analysis store's page records (see
+        # ebook_fix.link_index). Nothing below changes a page.
+        records = {id(c): r for c, r in zip(book.chapters, links_for(book, analysis))}
         by_id = {m.id: m for m in book.manifest}
         chapters_by_id = {c.id: c for c in book.chapters}
         for index, idref in enumerate(book.spine):
@@ -455,9 +432,9 @@ class TocCleanupRepair:
                 continue
             if "nav" in (item.properties or "").split():
                 continue
-            if not _is_empty_page(book, chapter):
+            if not _is_empty_page(book, chapter, records.get(id(chapter))):
                 continue
-            plan.pages.append(_EmptyPage(chapter, index, self._blocker(book, chapter)))
+            plan.pages.append(_EmptyPage(chapter, index, self._blocker(book, chapter, records)))
 
         removable = plan.removable
         if removable and removable[0].spine_index == 0:
@@ -468,23 +445,19 @@ class TocCleanupRepair:
                 plan.cover_for = first.chapter.href
         return plan
 
-    def _blocker(self, book, chapter):
+    def _blocker(self, book, chapter, records):
         href = chapter.href
         cover_ref = self._guide_cover_href(book)
         if cover_ref == href:
             return "it is the book's declared cover page"
         for other in book.chapters:
-            if other is chapter or other.document is None or _is_nav_document(other.document):
+            if other is chapter or other.document is None:
                 continue
-            other_dir = posixpath.dirname(other.href)
-            for el in other.document.iter():
-                if not isinstance(el.tag, str) or _local(el) != "a":
-                    continue
-                link = el.get("href") or ""
-                if link.startswith(EXTERNAL_PREFIXES):
-                    continue
-                if _resolve(other_dir, link) == href:
-                    return f"{other.href} links to it"
+            record = records.get(id(other))
+            if record.is_toc_nav:
+                continue
+            if href in record.toc_link_paths:
+                return f"{other.href} links to it"
         return None
 
     def _guide_references(self, book):

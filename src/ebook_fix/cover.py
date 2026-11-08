@@ -368,7 +368,7 @@ def sync_declarations(opf, cover_item) -> bool:
     return changed
 
 
-def rewrite_chapter_image_references(book, old_path: str, new_path: str) -> None:
+def rewrite_chapter_image_references(book, old_path: str, new_path: str, records=None) -> None:
     """Updates any <img src>, SVG <image xlink:href>/href, <link href>
     (e.g. the <link rel="icon" type="image/x-cover"> tag Project
     Gutenberg books carry in every page header) or <a href> in any
@@ -376,15 +376,26 @@ def rewrite_chapter_image_references(book, old_path: str, new_path: str) -> None
     `old_path` to point at `new_path` instead. Marks each touched
     chapter .modified = True; does not itself call
     book.mark_modified() -- the caller does that once, after whatever
-    else it's changed in the same pass."""
+    else it's changed in the same pass.
+
+    `records` (optional) are the page link records (ebook_fix.link_index) for
+    book.chapters, in order; with them a page that shows no picture and has no
+    link to `old_path` is not opened."""
     base = PurePosixPath(book.package_path).parent
     target_name = PurePosixPath(new_path).name
     xlink_href = "{http://www.w3.org/1999/xlink}href"
 
-    for chapter in book.chapters:
+    for index, chapter in enumerate(book.chapters):
         if chapter.document is None:
             continue
         chapter_dir = PurePosixPath(_resolve(base, chapter.href)).parent
+        if records is not None:
+            record = records[index]
+            if not any(
+                _resolve(chapter_dir, ref) == old_path
+                for ref in (*record.image_srcs, *record.link_refs)
+            ):
+                continue
         touched = False
 
         for img in chapter.document.findall(".//{*}img"):
@@ -433,7 +444,7 @@ def _looks_like_cover_link(el) -> bool:
     )
 
 
-def repoint_stale_cover_links(book, cover_path: str, dry_run: bool = False) -> list:
+def repoint_stale_cover_links(book, cover_path: str, dry_run: bool = False, records=None) -> list:
     """Finds <link> tags that declare a cover picture but point at a
     file that no longer exists in the book, and points them at the
     book's real cover (`cover_path`) instead. This heals books that an
@@ -445,7 +456,11 @@ def repoint_stale_cover_links(book, cover_path: str, dry_run: bool = False) -> l
     whose target is genuinely missing; a link to a file that exists is
     never changed. Marks each touched chapter .modified = True and
     returns the list of chapter hrefs it changed. With dry_run=True
-    nothing is edited; the list is what would have been changed."""
+    nothing is edited; the list is what would have been changed.
+
+    `records` (optional) are the page link records (ebook_fix.link_index) for
+    book.chapters, in order; with them a page that has no cover-declaring
+    <link> pointing at a missing file is not opened."""
     base = PurePosixPath(book.package_path).parent
     present = (
         archive_names(book)
@@ -455,10 +470,14 @@ def repoint_stale_cover_links(book, cover_path: str, dry_run: bool = False) -> l
         return []
 
     changed = []
-    for chapter in book.chapters:
+    for index, chapter in enumerate(book.chapters):
         if chapter.document is None:
             continue
         chapter_dir = PurePosixPath(_resolve(base, chapter.href)).parent
+        if records is not None and all(
+            _resolve(chapter_dir, href) in present for href in records[index].cover_link_hrefs
+        ):
+            continue
         touched = False
         for el in chapter.document.findall(".//{*}link"):
             href = el.get("href")
