@@ -942,8 +942,54 @@ MIN_SEQUENCE_LENGTH = 3
 # tolerate a missing/unlabeled first chapter within the new part.
 PART_RESTART_MAX_NUMBER = 2
 
+# A book can number its sections with deliberate jumps ("001", "005",
+# "007" ... "032" -- a story whose narrator has lost pieces of memory).
+# Normally a jump past MAX_SEQUENCE_GAP breaks a run, but when the book
+# itself vouches for every section, the jumps are the author's own
+# choice and not a sign of broken numbering. All of these must hold:
+#   - bare numbers (never labeled ones, which already count cleanly),
+#   - at least MIN_SPARSE_RUN of them,
+#   - every one is the same kind of element with the same class,
+#   - the book's own table of contents lists at least
+#     SPARSE_TOC_SHARE of them under the very same text.
+# Page numbers in a running header never pass the last test.
+MIN_SPARSE_RUN = 6
+SPARSE_TOC_SHARE = 0.8
 
-def _find_best_sequence(candidates: list) -> ChapterSequence | None:
+
+def _toc_label_set(book) -> set:
+    """Normalized labels of the book's own (not tool-written) contents list."""
+    entries = list(getattr(book, "toc", None) or [])
+    if not entries or getattr(book, "toc_generated", False):
+        return set()
+    labels = set()
+    stack = list(entries)
+    while stack:
+        entry = stack.pop()
+        labels.add(_normalize_marker_text(getattr(entry, "label", "") or ""))
+        stack.extend(getattr(entry, "children", None) or [])
+    labels.discard("")
+    return labels
+
+
+def _sparse_numbering_vouched(group: list, book) -> bool:
+    """True when a style group of bare numbers may skip numbers freely
+    (see the comment above MIN_SPARSE_RUN)."""
+    if book is None or len(group) < MIN_SPARSE_RUN:
+        return False
+    if any(c.style != MarkerStyle.ARABIC or c.number is None or c.element is None for c in group):
+        return False
+    shapes = {(c.tag, c.element.get("class") or "") for c in group}
+    if len(shapes) != 1 or next(iter(shapes))[1] == "":
+        return False
+    labels = _toc_label_set(book)
+    if not labels:
+        return False
+    listed = sum(1 for c in group if _normalize_marker_text(c.text) in labels)
+    return listed >= SPARSE_TOC_SHARE * len(group)
+
+
+def _find_best_sequence(candidates: list, book=None) -> ChapterSequence | None:
     """
     Best-scoring-increasing-run search, grouped by marker style (a book
     normally sticks to one numbering style throughout). Within a style,
@@ -982,6 +1028,7 @@ def _find_best_sequence(candidates: list) -> ChapterSequence | None:
         n = len(group)
         if n == 0:
             continue
+        sparse_ok = _sparse_numbering_vouched(group, book)
 
         # dp[i] = (score_sum, run_length, predecessor_index) for the
         # best-scoring run ending at i.
@@ -992,7 +1039,7 @@ def _find_best_sequence(candidates: list) -> ChapterSequence | None:
                     continue
                 if group[i].part_index == group[j].part_index:
                     gap = group[i].number - group[j].number
-                    valid = 1 <= gap <= MAX_SEQUENCE_GAP
+                    valid = gap >= 1 if sparse_ok else 1 <= gap <= MAX_SEQUENCE_GAP
                 elif group[i].part_index > group[j].part_index:
                     # Crossed into a later Book/Part/Volume -- numbering
                     # is allowed to restart near 1 instead of needing to
@@ -1378,7 +1425,7 @@ def analyze_book_chapters(book) -> BookChapterSummary:
         _add_titled_sections(book, summary)
         return summary
 
-    best, all_sequences = _find_best_sequence(chapter_candidates)
+    best, all_sequences = _find_best_sequence(chapter_candidates, book)
     best, all_sequences, demoted = _chapters_under_numbered_parts(book, best, all_sequences)
     summary.best_sequence = best
     summary.other_sequences = [s for s in all_sequences if s is not best]

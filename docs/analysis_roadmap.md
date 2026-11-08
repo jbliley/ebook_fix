@@ -4121,3 +4121,11 @@ Stretch 6a of `docs/single_analysis_plan.md`. The class profiles (which classes 
 - `body_variant_repair.py` and the automatic Class Standardize in `engine.py`: take the shared profiles.
 
 Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; Reader Settings, Paragraph Spacing, Body Paragraph Look and the cleanup steps, old against new, on 24 books in five variants (120 cases): identical pages, files and counts; direct tests of the new record fields and the shared profiles. Time on Tarzan is unchanged within noise.
+
+### Fixed: numbered sections that skip numbers on purpose (2026-11-08)
+
+The Last Conversation (Paul Tremblay) numbers its sections 001, 005, 007, 009, 010, 011, 012, 014, 018, 020 and on up to 032, skipping numbers by design. A run of bare numbers was only accepted when each number was at most 2 above the last (`MAX_SEQUENCE_GAP`), so the jumps from 001 to 005 and from 014 to 018 split the book into pieces and only the longest piece (018 to 032) was recognized. The first eight sections got no chapter markup and no header spacing. Spacing was never part of the detection; the missing spacing was the symptom.
+
+- `chapters.py`: `_find_best_sequence` takes the book. A style group of bare numbers may skip numbers freely only when the book vouches for it (`_sparse_numbering_vouched`): at least 6 of them, all the same kind of element with the same class, and at least 80% listed in the book's own contents list under the same text. A contents list the tool wrote itself never counts. Page numbers in a running header do not pass the contents list test, so the normal gap limit still applies to them.
+
+Checks: this book went from 10 recognized sections to all 18, every one wrapped and spaced, and fixing the fixed copy again changed nothing; the detected chapters of all 26 example EPUBs, old code against new, identical.
