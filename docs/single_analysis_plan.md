@@ -217,6 +217,11 @@ Settings, Paragraph Spacing, Body Paragraph Look and the automatic Class
 Standardize, through `class_profiles_for`. Reader Settings and Paragraph
 Spacing open only pages whose record says something can change.
 
+Stretch 6b (done): Class Standardize counts and renames only on pages whose
+record lists a mapped class, and opens other pages only when they have a style
+block or a class already named like a chapter heading's new name. Its class
+profiles already came from the shared build in 6a. Stretch 6 is complete.
+
 ### Stretch 7: Links and ids (M)
 
 Index of links, ids and targets per page. Moves Dead Link Cleanup, TOC
@@ -331,7 +336,7 @@ step reads only the store and the checks above passed.
 | Metadata Sync | A | 10 | 0.0 | nothing seen | |
 | Identifier Standardize | C | 10 | 0.0 | package | |
 | Author Initials | C | 10 | 0.0 | package | |
-| Class Standardize (automatic mapping) | B | 6 | 4.0 | classes, CSS | |
+| Class Standardize (automatic mapping) | B | 6 | 4.0 | classes, CSS | ✓ |
 
 "Reads" is the most page accesses per page the step made itself, over the
 26 example books (it ranks the steps and is not an exact scan count; steps
@@ -415,3 +420,4 @@ Open: nothing right now.
 | Stretch 4: Class and style usage, part 1 | 2026-11-06 | New `class_usage.py` and a per-page `class_usage` finding in the store. Class Cleanup, Span Cleanup and Unused CSS read it instead of walking every page, and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. A direct comparison of the old and new steps on 48 cases (24 books, each with injected edge cases: empty `class=""`, a span with an id, empty spans, a style block, a script) gave identical pages, files and counts. Shadow check unchanged: 0 wrong predictions in 2,356 runs |
 | Stretch 5: Class and style usage, part 2 | 2026-11-06 | `class_usage.py` records extended; Line Height, Text Size, Embedded Stylesheet Consolidation and Body Paragraph Look read them. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 24 books in 5 variants each (120 cases, including books made to trigger Text Size's two findings, a repeated embedded stylesheet, inline line heights and body paragraph variants): identical pages, files and counts. Shadow check unchanged: 0 wrong predictions in 2,356 runs |
 | Stretch 6a: Reader Settings and Paragraph Spacing | 2026-11-07 | Page records extended; class profiles built once and shared (`class_profiles_for`). Reader Settings, Paragraph Spacing and Body Paragraph Look read them. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 120 cases (24 books, 5 variants, including one that triggers Paragraph Spacing): identical. Shadow check unchanged: 0 wrong predictions in 2,356 runs. Tarzan time unchanged (within noise) |
+| Stretch 6b: Class Standardize | 2026-11-07 | `class_standardize.py` reads the page records for both its count and its repair, so a page with no mapped class and no style block is not walked. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 48 cases (24 books, plain and with injected edge cases: mapped classes in style blocks, with inline colors and page breaks, a scene break marker, an empty class; 36 changed the book): identical pages, files and counts, and a second pass finding nothing. Shadow check unchanged: 0 wrong predictions per book. Stretch 6 complete |

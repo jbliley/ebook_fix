@@ -61,6 +61,7 @@ from lxml import etree
 
 from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE, THEME_FIGHTING_PROPERTIES
 from ebook_fix.class_map import SIMPLE_CLASS_SELECTOR_RE
+from ebook_fix.class_usage import class_usage_for
 from ebook_fix.report import Report
 from ebook_fix.page_breaks import chapter_break_target, mark_page_break_after, closest_preceding_block
 
@@ -211,9 +212,14 @@ class ClassStandardizeRepair:
         if not self.mapping:
             return report
 
+        # A page whose record shows none of the mapped classes has nothing
+        # to count, so only the other pages are walked.
+        usage = class_usage_for(book, analysis)
         for old_name, entry in self.by_old_name.items():
             count = 0
-            for chapter in book.chapters:
+            for chapter, record in zip(book.chapters, usage):
+                if old_name not in record.classes:
+                    continue
                 root = self._root(chapter.document)
                 if root is None:
                     continue
@@ -276,7 +282,14 @@ class ClassStandardizeRepair:
 
         # 2. Embedded <style> blocks, class="" attributes, and style=""
         #    attributes, per chapter.
-        for chapter in book.chapters:
+        # Only a page with a style block, a mapped class, or a class that
+        # already has a chapter heading's new name can change. The records
+        # are read before any page is edited; each describes its own page.
+        usage = class_usage_for(book, analysis)
+        visit_names = set(self.by_old_name) | self.chapter_heading_new_names
+        for chapter, record in zip(book.chapters, usage):
+            if not (record.has_style or record.classes & visit_names):
+                continue
             root = self._root(chapter.document)
             if root is None:
                 continue
