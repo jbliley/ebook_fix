@@ -42,27 +42,23 @@ only joined inside one piece of text, never across two elements.
 
 Every occurrence of a pair is treated alike (all joined or none), so a
 second run finds nothing left to do.
+
+The words and pairs of each page come from the page records the analysis store
+keeps (ebook_fix.text_lines), so only a page that holds a pair to be joined is
+opened.
 """
 from __future__ import annotations
 
-import re
 from collections import Counter
 
 from ebook_fix.config import HyphenLeftoverConfig
 from ebook_fix.report import Report
-
-# The hyphen-minus (escaped so it is a plain character inside a [...] class)
-# and the Unicode hyphen, written as escapes so the file stays plain ASCII.
-HYPHENS = "\\-\u2010"
-
-# A whole hyphen-joined chain of letters: "word", "well-known",
-# "mother-in-law". Anything glued to other word characters, an apostrophe
-# (so the pieces of "I've" and "dog's" are not mistaken for words) or a
-# double hyphen does not match, so "word--word" is ignored.
-_CHAIN = re.compile(
-    rf"(?<![\w{HYPHENS}'\u2019])[^\W\d_]+(?:[{HYPHENS}][^\W\d_]+)*(?![\w{HYPHENS}'\u2019])"
+from ebook_fix.text_lines import (
+    CHAIN as _CHAIN,
+    SPLIT_ON_HYPHEN as _SPLIT_ON_HYPHEN,
+    hyphen_slots,
+    text_lines_for,
 )
-_SPLIT_ON_HYPHEN = re.compile(f"[{HYPHENS}]")
 
 # First halves that are real prefixes. A hyphen after one of these is the
 # author's spelling, not a line-break leftover.
@@ -73,12 +69,6 @@ PREFIXES = frozenset({
     "off", "on", "out", "over", "post", "pre", "pro", "pseudo", "quasi",
     "re", "self", "semi", "sub", "super", "tri", "ultra", "un", "under",
     "up", "vice", "well",
-})
-
-# Text inside any of these (or inside a heading) is never changed.
-_SKIPPED_ANCESTORS = frozenset({
-    "head", "title", "style", "script", "pre", "code", "svg", "math",
-    "h1", "h2", "h3", "h4", "h5", "h6",
 })
 
 MIN_HALF_LENGTH = 3
@@ -94,52 +84,54 @@ class HyphenLeftoverRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        slots = list(self._slots(book))
-        joins = self._pairs_to_join(slots)
-        for chapter, _owner, _kind, text in slots:
-            for match in _CHAIN.finditer(text):
-                replacement = self._replacement(match.group(0), joins)
-                if replacement is not None:
-                    report.add(
-                        chapter.href,
-                        "Mid-word hyphen",
-                        f'{chapter.href}: "{match.group(0)}" will become "{replacement}"',
-                    )
+        pages = self._pages(book, analysis)
+        joins = self._pairs_to_join(pages)
+        for chapter, _record in self._pages_to_open(pages, joins):
+            for _owner, _kind, text in hyphen_slots(chapter.document):
+                for match in _CHAIN.finditer(text):
+                    replacement = self._replacement(match.group(0), joins)
+                    if replacement is not None:
+                        report.add(
+                            chapter.href,
+                            "Mid-word hyphen",
+                            f'{chapter.href}: "{match.group(0)}" will become "{replacement}"',
+                        )
         return report
 
     def repair(self, book, analysis=None) -> Report:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        slots = list(self._slots(book))
-        joins = self._pairs_to_join(slots)
+        pages = self._pages(book, analysis)
+        joins = self._pairs_to_join(pages)
         if not joins:
             return report
 
-        for chapter, owner, kind, text in slots:
-            changes = []
+        for chapter, _record in self._pages_to_open(pages, joins):
+            for owner, kind, text in list(hyphen_slots(chapter.document)):
+                changes = []
 
-            def swap(match):
-                replacement = self._replacement(match.group(0), joins)
-                if replacement is None:
-                    return match.group(0)
-                changes.append((match.group(0), replacement))
-                return replacement
+                def swap(match):
+                    replacement = self._replacement(match.group(0), joins)
+                    if replacement is None:
+                        return match.group(0)
+                    changes.append((match.group(0), replacement))
+                    return replacement
 
-            new_text = _CHAIN.sub(swap, text)
-            if not changes:
-                continue
-            if kind == "text":
-                owner.text = new_text
-            else:
-                owner.tail = new_text
-            chapter.modified = True
-            for before, after in changes:
-                report.add(
-                    chapter.href,
-                    "Mid-word hyphen joined",
-                    f'{chapter.href}: "{before}" became "{after}"',
-                )
+                new_text = _CHAIN.sub(swap, text)
+                if not changes:
+                    continue
+                if kind == "text":
+                    owner.text = new_text
+                else:
+                    owner.tail = new_text
+                chapter.modified = True
+                for before, after in changes:
+                    report.add(
+                        chapter.href,
+                        "Mid-word hyphen joined",
+                        f'{chapter.href}: "{before}" became "{after}"',
+                    )
 
         if report.count and hasattr(book, "mark_modified"):
             book.mark_modified()
@@ -149,53 +141,40 @@ class HyphenLeftoverRepair:
     # Finding the text to read and change
     # -----------------------------------------------------
 
-    def _slots(self, book):
-        """(chapter, element, "text" or "tail", string) for every piece of
-        story text in the book, in reading order."""
+    def _pages(self, book, analysis):
+        """(chapter, page record) for every page of story text in the book, in
+        reading order. The records (ebook_fix.text_lines) say which words and
+        hyphenated pairs each page holds, so no page is walked to find them."""
         nav = book.nav_chapter
-        for chapter in book.chapters:
+        pages = []
+        for chapter, record in zip(book.chapters, text_lines_for(book, analysis)):
             if chapter is nav:
                 continue
-            document = getattr(chapter, "document", None)
-            if document is None:
+            if getattr(chapter, "document", None) is None:
                 continue
-            for element in document.iter():
-                if not isinstance(element.tag, str):
-                    # A comment or processing instruction: its tail is
-                    # still story text, its own text is not.
-                    if element.tail and self._allowed(element.getparent()):
-                        yield chapter, element, "tail", element.tail
-                    continue
-                if element.text and self._allowed(element):
-                    yield chapter, element, "text", element.text
-                if element.tail and self._allowed(element.getparent()):
-                    yield chapter, element, "tail", element.tail
+            pages.append((chapter, record))
+        return pages
 
     @staticmethod
-    def _allowed(element) -> bool:
-        node = element
-        while node is not None:
-            if isinstance(node.tag, str) and node.tag.rsplit("}", 1)[-1].lower() in _SKIPPED_ANCESTORS:
-                return False
-            node = node.getparent()
-        return True
+    def _pages_to_open(pages, joins):
+        """The pages that hold at least one pair that is going to be joined.
+        Every other page has nothing to report or change."""
+        for chapter, record in pages:
+            if any(pair in joins for pair in record.pairs):
+                yield chapter, record
 
     # -----------------------------------------------------
     # Deciding which pairs to join
     # -----------------------------------------------------
 
-    def _pairs_to_join(self, slots) -> set:
+    def _pairs_to_join(self, pages) -> set:
         """Set of (first, second) lowercase pairs that pass every check."""
         standalone: Counter = Counter()
         pairs: Counter = Counter()
 
-        for _chapter, _owner, _kind, text in slots:
-            for match in _CHAIN.finditer(text):
-                parts = _SPLIT_ON_HYPHEN.split(match.group(0))
-                if len(parts) == 1:
-                    standalone[parts[0].lower()] += 1
-                elif len(parts) == 2:
-                    pairs[(parts[0].lower(), parts[1].lower())] += 1
+        for _chapter, record in pages:
+            standalone.update(record.words)
+            pairs.update(record.pairs)
 
         joins = set()
         for (first, second), hyphenated in pairs.items():

@@ -44,6 +44,11 @@ any of these is true:
 Runs after Chapter Markup and before EPUB 3 Upgrade, because the EPUB 3
 navigation document is built from the contents list this module fixes.
 Re-running it on a repaired book finds nothing to do.
+
+Which page is the navigation document, what each page's leading headings say
+and which pages link to a whole file come from the page records the analysis
+store keeps (ebook_fix.link_index and ebook_fix.text_lines), so a page is
+opened only when one of its headings has to be rewritten.
 """
 
 from __future__ import annotations
@@ -53,7 +58,17 @@ import re
 from dataclasses import dataclass
 
 from ebook_fix.config import ChapterTitleCleanupConfig
+from ebook_fix.link_index import links_for
 from ebook_fix.report import Report
+from ebook_fix.text_lines import (
+    LEAD as _LEAD,
+    NODE_START_RE as _NODE_START_RE,
+    TITLE_START as _TITLE_START,
+    first_text_slot as _first_text_slot,
+    leading_headings,
+    normalize as _normalize,
+    text_lines_for,
+)
 from ebook_fix.split_fragments import (
     _chain,
     _descend,
@@ -67,36 +82,19 @@ from ebook_fix.split_fragments import (
 NCX_NS_URI = "http://www.daisy.org/z3986/2005/ncx/"
 EPUB_OPS_NS = "http://www.idpf.org/2007/ops"
 EXTERNAL_PREFIXES = ("http://", "https://", "mailto:")
-HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
-HEADING_CLASS_HINTS = ("title", "chapter", "head")
-LEADING_BLOCKS_SCANNED = 4
 MAX_HEADING_CHARS = 100
-
-# An optional opening quote or bracket, a capital, then at least one more
-# letter -- so "3-D glasses" (a lone capital) is never read as a title.
-_TITLE_START = "[\"'\u201c\u2018(]?[A-Z][A-Za-z]"
-_LEAD = r"(?:(?i:chapter|part|book|section)\s+)?"
 
 # Whole heading/label text (already whitespace-normalized).
 _NUMBERED_TITLE_RE = re.compile(
     rf"^(?P<lead>{_LEAD})(?P<num>\d{{1,4}})(?P<sep>\s*-\s*)(?P<title>{_TITLE_START}.*)$",
     re.S,
 )
-# The start of one text node, leading whitespace allowed.
-_NODE_START_RE = re.compile(
-    rf"^(?P<ws>\s*)(?P<lead>{_LEAD})(?P<num>\d{{1,4}})(?P<sep>\s*-\s*)(?={_TITLE_START})"
-)
-
 SEPARATORS = {"spaced": " - ", "tight": "-"}
 
 
 # ---------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------
-
-
-def _normalize(text: str) -> str:
-    return " ".join((text or "").split())
 
 
 def _sep_style(sep: str) -> str:
@@ -128,59 +126,10 @@ def _is_nav_document(doc) -> bool:
     return False
 
 
-def _class_hint(el) -> bool:
-    node = el
-    while node is not None and isinstance(node.tag, str):
-        if _local(node) == "body":
-            break
-        classes = (node.get("class") or "").lower()
-        if any(hint in classes for hint in HEADING_CLASS_HINTS):
-            return True
-        node = node.getparent()
-    return False
-
-
 def _leading_headings(chapter):
     """Heading-like blocks within the first few text-bearing blocks of a
     file: (element, normalized text) pairs."""
-    body = _find_body(chapter.document)
-    if body is None:
-        return []
-    found = []
-    seen_blocks = 0
-    for el in body.iter():
-        if not isinstance(el.tag, str):
-            continue
-        name = _local(el)
-        if name not in HEADING_TAGS and name != "p":
-            continue
-        text = _normalize("".join(el.itertext()))
-        if not text:
-            continue
-        seen_blocks += 1
-        if name in HEADING_TAGS or _class_hint(el):
-            found.append((el, text))
-        if seen_blocks >= LEADING_BLOCKS_SCANNED:
-            break
-    return found
-
-
-def _text_nodes(el):
-    """(owner, 'text' or 'tail') slots inside `el` in true document
-    order, not including el's own tail."""
-    yield el, "text"
-    for child in el:
-        if isinstance(child.tag, str):
-            yield from _text_nodes(child)
-        yield child, "tail"
-
-
-def _first_text_slot(el):
-    for owner, attr in _text_nodes(el):
-        value = getattr(owner, attr)
-        if value and value.strip():
-            return owner, attr, value
-    return None
+    return leading_headings(chapter.document)
 
 
 def _desired_text_for_node(value: str, desired_sep: str):
@@ -229,7 +178,15 @@ def _normalize_keep_sep(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip())
 
 
-def _toc_label_nodes(book):
+def _page_info(book, analysis=None):
+    """(chapter, link record, text-line record) for every page, in order. The
+    records (ebook_fix.link_index and ebook_fix.text_lines) say which page is
+    the navigation document and what each page's leading headings say, so no
+    page is walked to find out."""
+    return list(zip(book.chapters, links_for(book, analysis), text_lines_for(book, analysis)))
+
+
+def _toc_label_nodes(book, info):
     """Every place a contents label lives, as (kind, owner, element):
     kind 'ncx' / 'nav' hold a live element; 'entry' holds a TocEntry."""
     if book.ncx_document is not None:
@@ -237,8 +194,8 @@ def _toc_label_nodes(book):
             parent = text_el.getparent()
             if parent is not None and _local(parent) == "navlabel":
                 yield "ncx", None, text_el
-    for chapter in book.chapters:
-        if _is_nav_document(chapter.document):
+    for chapter, link, _lines in info:
+        if link.is_toc_nav:
             for nav in chapter.document.iter("{*}nav"):
                 if nav.get(f"{{{EPUB_OPS_NS}}}type") != "toc":
                     continue
@@ -248,32 +205,32 @@ def _toc_label_nodes(book):
         yield "entry", None, entry
 
 
-def _collect_styles(book) -> list:
+def _collect_styles(book, info) -> list:
     styles = []
-    for kind, _owner, node in _toc_label_nodes(book):
+    for kind, _owner, node in _toc_label_nodes(book, info):
         if kind == "entry":
             style = _numbered_style(node.label)
         else:
             style = _numbered_style("".join(node.itertext()))
         if style:
             styles.append(style)
-    for chapter in book.chapters:
-        if chapter.document is None or _is_nav_document(chapter.document):
+    for chapter, link, lines in info:
+        if chapter.document is None or link.is_toc_nav:
             continue
-        for _el, text in _leading_headings(chapter):
+        for text, _sep in lines.headings:
             style = _numbered_style(text)
             if style:
                 styles.append(style)
     return styles
 
 
-def resolve_target_separator(book, config):
+def resolve_target_separator(book, config, info):
     """The separator string to standardize on, or None when there is
     nothing to decide (fewer than 3 numbered titles in auto mode)."""
     mode = getattr(config, "separator_style", "auto")
     if mode in SEPARATORS:
         return SEPARATORS[mode]
-    styles = _collect_styles(book)
+    styles = _collect_styles(book, info)
     if len(styles) < 3:
         return None
     spaced = styles.count("spaced")
@@ -281,12 +238,12 @@ def resolve_target_separator(book, config):
     return SEPARATORS["spaced"] if spaced >= tight else SEPARATORS["tight"]
 
 
-def find_separator_fixes(book, desired_sep: str) -> list:
+def find_separator_fixes(book, desired_sep: str, info) -> list:
     """(location, old_text) for every title that needs its hyphen
     spacing changed. Does not modify anything."""
     fixes = []
     seen_toc = set()
-    for kind, _owner, node in _toc_label_nodes(book):
+    for kind, _owner, node in _toc_label_nodes(book, info):
         text = node.label if kind == "entry" else "".join(node.itertext())
         if _rewrite_label(text, desired_sep) is not None:
             # NCX, nav and the in-memory list all describe the same
@@ -295,25 +252,24 @@ def find_separator_fixes(book, desired_sep: str) -> list:
             if key not in seen_toc:
                 seen_toc.add(key)
                 fixes.append(("table of contents", _normalize(text)))
-    for chapter in book.chapters:
-        if chapter.document is None or _is_nav_document(chapter.document):
+    for chapter, link, lines in info:
+        if chapter.document is None or link.is_toc_nav:
             continue
-        for el, text in _leading_headings(chapter):
-            slot = _first_text_slot(el)
-            if slot is None:
-                continue
-            if _desired_text_for_node(slot[2], desired_sep) is not None:
+        # A heading whose first piece of text opens with a numbered title and a
+        # different separator is the one that needs fixing.
+        for text, sep in lines.headings:
+            if sep is not None and sep != desired_sep:
                 fixes.append((chapter.href, text))
     return fixes
 
 
-def apply_separator_fixes(book, desired_sep: str) -> int:
+def apply_separator_fixes(book, desired_sep: str, info) -> int:
     """Rewrites every title found by find_separator_fixes. Returns the
     number of places changed."""
     changed = 0
     ncx_changed = False
 
-    for kind, owner, node in _toc_label_nodes(book):
+    for kind, owner, node in _toc_label_nodes(book, info):
         if kind == "entry":
             new_label = _rewrite_label(node.label, desired_sep)
             if new_label is not None:
@@ -333,14 +289,15 @@ def apply_separator_fixes(book, desired_sep: str) -> int:
         book.ncx_modified = True
         book.mark_modified()
 
-    for chapter in book.chapters:
-        if chapter.document is None or _is_nav_document(chapter.document):
+    for chapter, link, lines in info:
+        if chapter.document is None or link.is_toc_nav:
             continue
-        for el, _text in _leading_headings(chapter):
-            if _rewrite_element(el, desired_sep):
-                chapter.modified = True
-                book.mark_modified()
-                changed += 1
+        if any(sep is not None and sep != desired_sep for _text, sep in lines.headings):
+            for el, _text in _leading_headings(chapter):
+                if _rewrite_element(el, desired_sep):
+                    chapter.modified = True
+                    book.mark_modified()
+                    changed += 1
         new_title = _rewrite_label(chapter.title, desired_sep)
         if new_title is not None:
             chapter.title = new_title
@@ -377,7 +334,7 @@ def _looks_structural(label: str) -> bool:
         return False
 
 
-def find_false_chapters(book) -> list:
+def find_false_chapters(book, analysis=None) -> list:
     flat = list(_flatten(book.toc))
     by_href = {c.href: (i, c) for i, c in enumerate(book.chapters)}
     results = []
@@ -409,7 +366,7 @@ def find_false_chapters(book) -> list:
             continue
 
         candidate = FalseChapter(entry, holder, file_chapter, target, label)
-        candidate.blocker = _merge_blocker(book, candidate, prev_entry, flat)
+        candidate.blocker = _merge_blocker(book, candidate, prev_entry, flat, analysis)
         results.append(candidate)
 
     return results
@@ -420,7 +377,7 @@ def _first_heading_text(chapter) -> str:
     return headings[0][1] if headings else ""
 
 
-def _merge_blocker(book, cand: FalseChapter, prev_entry, flat):
+def _merge_blocker(book, cand: FalseChapter, prev_entry, flat, analysis=None):
     file_chapter = cand.file_chapter
     target = cand.target_chapter
 
@@ -467,26 +424,20 @@ def _merge_blocker(book, cand: FalseChapter, prev_entry, flat):
     if ids_t & ids_f:
         return "it uses an element id the chapter before it already uses"
 
-    if _whole_file_link_exists(book, file_chapter.href):
+    if _whole_file_link_exists(book, file_chapter.href, analysis):
         return "something other than the contents links to the whole file"
 
     return None
 
 
-def _whole_file_link_exists(book, href: str) -> bool:
-    for chapter in book.chapters:
-        doc = chapter.document
-        if doc is None or chapter.href == href or _is_nav_document(doc):
+def _whole_file_link_exists(book, href: str, analysis=None) -> bool:
+    # Only reached for a contents entry that passed every other check, so the
+    # page records are asked for here and not before.
+    for chapter, link, lines in _page_info(book, analysis):
+        if chapter.document is None or chapter.href == href or link.is_toc_nav:
             continue
-        for el in doc.iter():
-            if _local(el) != "a":
-                continue
-            link = el.get("href") or ""
-            if link.startswith(EXTERNAL_PREFIXES):
-                continue
-            path, _, fragment = link.partition("#")
-            if path == href and not fragment:
-                return True
+        if href in lines.whole_file_links:
+            return True
     opf = getattr(book, "opf_document", None)
     if opf is not None:
         for el in opf.iter():
@@ -624,7 +575,7 @@ class ChapterTitleCleanupRepair:
             return report
 
         if self.config.merge_false_chapters:
-            for cand in find_false_chapters(book):
+            for cand in find_false_chapters(book, analysis):
                 if cand.blocker is None:
                     report.add(
                         cand.file_chapter.href,
@@ -634,9 +585,10 @@ class ChapterTitleCleanupRepair:
                     )
 
         if self.config.standardize_title_separators:
-            desired = resolve_target_separator(book, self.config)
+            info = _page_info(book, analysis)
+            desired = resolve_target_separator(book, self.config, info)
             if desired is not None:
-                for location, text in find_separator_fixes(book, desired):
+                for location, text in find_separator_fixes(book, desired, info):
                     report.add(
                         location,
                         "Chapter title hyphen spacing",
@@ -660,7 +612,7 @@ class ChapterTitleCleanupRepair:
             failed = set()
             for _ in range(len(book.chapters) + 1):
                 ready = [
-                    c for c in find_false_chapters(book)
+                    c for c in find_false_chapters(book, analysis)
                     if c.blocker is None and c.file_chapter.href not in failed
                 ]
                 if not ready:
@@ -677,10 +629,12 @@ class ChapterTitleCleanupRepair:
                     failed.add(cand.file_chapter.href)
 
         if self.config.standardize_title_separators:
-            desired = resolve_target_separator(book, self.config)
+            # After any merge above, so the records describe the book as it is.
+            info = _page_info(book, analysis)
+            desired = resolve_target_separator(book, self.config, info)
             if desired is not None:
-                fixes = find_separator_fixes(book, desired)
-                if fixes and apply_separator_fixes(book, desired):
+                fixes = find_separator_fixes(book, desired, info)
+                if fixes and apply_separator_fixes(book, desired, info):
                     for location, text in fixes:
                         report.add(
                             location,

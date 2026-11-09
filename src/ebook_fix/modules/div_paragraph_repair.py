@@ -31,6 +31,10 @@ So the look does not change:
   removes it again like any other paragraph gap, so the reading app decides.)
 
 Skipped on fixed-layout books. A second run finds nothing left to convert.
+
+The div and paragraph counts come from the page records the analysis store
+keeps (ebook_fix.text_lines), so a book that is not built this way is decided
+without opening a page, and only a page with a paragraph div is opened.
 """
 from __future__ import annotations
 
@@ -42,6 +46,13 @@ from pathlib import PurePosixPath
 from ebook_fix.config import DivParagraphConfig
 from ebook_fix.css import COMMENT_RE, RULE_RE, read_book_css
 from ebook_fix.report import Report
+from ebook_fix.text_lines import (
+    DIV_BLOCKS as _BLOCKS,
+    div_protected as _protected,
+    is_leaf_text_div as _is_leaf_text_div,
+    text_len as _text_len,
+    text_lines_for,
+)
 
 MIN_CLASS_USES = 20
 MIN_MEDIAN_CHARS = 40
@@ -49,42 +60,13 @@ MIN_BOOK_DIVS = 100
 MIN_RATIO = 2.0
 MIN_TIER2_CHARS = 40
 
-_BLOCKS = frozenset({
-    "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "dl", "dt", "dd",
-    "table", "thead", "tbody", "tfoot", "tr", "td", "th", "blockquote", "pre", "section",
-    "article", "aside", "header", "footer", "nav", "figure", "figcaption", "hr", "form",
-    "fieldset", "address", "main", "caption",
-})
 _DIV_TOKEN = re.compile(
     r"(?<![\w.#\[:-])div((?:\.[\w-]+|#[\w-]+|:{1,2}[\w-]+(?:\([^)]*\))?|\[[^\]]*\])*)"
 )
 
 
-def _local(el) -> str:
-    tag = el.tag if isinstance(el.tag, str) else ""
-    return tag.rsplit("}", 1)[-1].lower()
-
-
 def _root(doc):
     return doc.getroot() if hasattr(doc, "getroot") else doc
-
-
-def _text_len(el) -> int:
-    return len(re.sub(r"\s+", " ", "".join(el.itertext())).strip())
-
-
-def _is_leaf_text_div(el) -> bool:
-    if not isinstance(el.tag, str) or _local(el) != "div":
-        return False
-    if any(isinstance(d.tag, str) and _local(d) in _BLOCKS for d in el.iterdescendants()):
-        return False
-    return _text_len(el) > 0
-
-
-def _protected(el) -> bool:
-    if any(k.startswith("data-ebookfix") for k in el.attrib):
-        return True
-    return "ebookfix" in (el.get("class") or "").lower()
 
 
 class _Plan:
@@ -95,23 +77,17 @@ class _Plan:
         self.count = 0
 
 
-def _build_plan(book) -> _Plan:
+def _build_plan(records) -> _Plan:
+    """The plan for the whole book, added up from the page records (see
+    ebook_fix.text_lines): the paragraphs with text, and the length of the
+    text in every div that holds only text, grouped by class."""
     plan = _Plan()
     stats = defaultdict(list)
     p_text = 0
-    for chapter in book.chapters:
-        doc = chapter.document
-        if doc is None:
-            continue
-        for el in _root(doc).iter():
-            if not isinstance(el.tag, str):
-                continue
-            name = _local(el)
-            if name == "p":
-                if _text_len(el) > 0:
-                    p_text += 1
-            elif name == "div" and _is_leaf_text_div(el) and not _protected(el):
-                stats[(el.get("class") or "").strip()].append(_text_len(el))
+    for record in records:
+        p_text += record.paragraphs_with_text
+        for cls, length in record.text_divs:
+            stats[cls].append(length)
     for cls, lengths in stats.items():
         if len(lengths) >= MIN_CLASS_USES and statistics.median(lengths) >= MIN_MEDIAN_CHARS:
             plan.classes.add(cls)
@@ -124,13 +100,17 @@ def _build_plan(book) -> _Plan:
     return plan
 
 
-def _convert_pages(book, plan: _Plan, write: bool):
-    """[(href, converted_count)], and the set of class names actually converted."""
+def _convert_pages(book, plan: _Plan, write: bool, records):
+    """[(href, converted_count)], and the set of class names actually converted.
+    A page whose record shows no paragraph div of a planned class has nothing
+    to convert and is not opened."""
     results = []
     converted_tokens = set()
-    for chapter in book.chapters:
+    for chapter, record in zip(book.chapters, records):
         doc = chapter.document
         if doc is None:
+            continue
+        if not any(cls in plan.classes for cls, _length in record.text_divs):
             continue
         root = _root(doc)
         todo = []
@@ -199,10 +179,11 @@ class DivParagraphRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        plan = _build_plan(book)
+        records = text_lines_for(book, analysis)
+        plan = _build_plan(records)
         if not plan.active:
             return report
-        results, _ = _convert_pages(book, plan, write=False)
+        results, _ = _convert_pages(book, plan, write=False, records=records)
         for href, n in results:
             report.add(href, "Paragraphs written as div tags",
                        f"{n} paragraph(s) written as div tags will become p tags")
@@ -212,10 +193,11 @@ class DivParagraphRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        plan = _build_plan(book)
+        records = text_lines_for(book, analysis)
+        plan = _build_plan(records)
         if not plan.active:
             return report
-        results, tokens = _convert_pages(book, plan, write=True)
+        results, tokens = _convert_pages(book, plan, write=True, records=records)
         if not results:
             return report
         self._rewrite_styles(book, tokens)

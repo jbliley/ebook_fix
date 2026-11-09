@@ -4142,3 +4142,17 @@ Stretch 7 of `docs/single_analysis_plan.md`. These steps used to walk every elem
 - `analysis_store.py`: the `links` finding is stored per page like the class usage records.
 
 Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; the four steps, old against new, on 572 cases (26 books with injected dead links, placeholder titles, empty pages, repeated and blank contents entries and stale cover links, with and without a store) plus 40 cases on 20 books made to hold a duplicate cover page: identical pages, files, counts and report lines. The shadow check still shows 0 wrong predictions in 2,356 runs. Time on the examples is unchanged within noise.
+
+### Changed: Mid-Word Hyphen, Quote Style, Div Paragraphs, Extra Page Break Removal and Chapter Title Cleanup read a shared text index (2026-11-08)
+
+Stretch 8 of `docs/single_analysis_plan.md`. These steps used to walk every element of every page to look at its text. The analysis store now keeps one record per page (`text_lines.py`, the `text_lines` finding), and each step opens only the pages its record says can have something to do.
+
+- `text_lines.py` (new): each page's record holds its words and hyphen pairs, its quote counts, its count of text paragraphs and its text-only divs with their classes, whether any element forces a page break, its leading headings with the separator each numbered title uses, and the files its links go to as a whole. The helpers these steps used to keep for themselves (the hyphen chain patterns, the quote slots, the div tests, the heading finder) live here so the records and the steps agree.
+- `hyphen_leftover_repair.py`: the word and pair counts are added up from the records, and a page is opened only if it holds a pair that will be joined.
+- `quote_style_repair.py`: the curly and straight totals come from the records, and a page is opened only if it has a straight quote of a kind being converted.
+- `div_paragraph_repair.py`: the plan for the book is built from the records, and a page is opened only if it has a div of a planned class.
+- `extra_page_break_repair.py`: a page is opened only if some element on it forces a page break.
+- `chapter_title_cleanup.py`: the navigation page flag comes from the link records, the title style and the headings that need a new separator come from the text records, and the check for links to a whole file runs only for a contents entry that passed every other false chapter test.
+- `analysis_store.py`: the `text_lines` finding is stored per page like the other page records.
+
+Checks: auto-fix of all 26 example EPUBs, old code against new, identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; the five steps, old against new, on 1,820 cases (26 books with injected hyphen pairs, mixed quotes, text-only divs, forced page breaks and mixed title separators, with and without a store) plus a made-up false chapter, one merged and one blocked: identical pages, files, counts and report lines. The new page record was also compared with the old per-step reading on every page of the examples. The shadow check still shows 0 wrong predictions in 2,356 runs. Time on the examples is unchanged (226s against 233s for all 26).

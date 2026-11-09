@@ -27,23 +27,32 @@ What it will not do:
   <pre>, <code>, <script> or <style>.
 
 A second run finds nothing left to convert.
+
+The quote totals come from the page records the analysis store keeps
+(ebook_fix.text_lines), and a page with no straight quote is not opened.
 """
 from __future__ import annotations
 
 from ebook_fix.config import QuoteStyleConfig
 from ebook_fix.report import Report
+from ebook_fix.text_lines import (
+    CLOSE_D,
+    CLOSE_S,
+    OPEN_D,
+    OPEN_S,
+    QUOTE_SKIP as _SKIP,
+    quote_slots as _slots,
+    slot_text as _get,
+    text_lines_for,
+)
 
 MIN_CURLY = 10
 MAX_STRAIGHT_SHARE = 0.25
-
-OPEN_D, CLOSE_D = "“", "”"
-OPEN_S, CLOSE_S = "‘", "’"
 
 _BLOCKS = frozenset({
     "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "td", "th", "dd", "dt",
     "blockquote", "div", "figcaption", "caption", "pre",
 })
-_SKIP = frozenset({"pre", "code", "script", "style", "svg", "math"})
 _OPENERS = set("([{—–‘“/")
 _DASHES = set("—–-")
 _CLOSE_PUNCT = set(".,!?;:…)]}’”")
@@ -58,17 +67,6 @@ def _local(el) -> str:
     return tag.rsplit("}", 1)[-1].lower()
 
 
-def _slots(el):
-    """Yield (element, 'text'|'tail') in document order for the text inside
-    el, skipping do-not-touch subtrees (their tail still counts)."""
-    if _local(el) in _SKIP:
-        return
-    yield el, "text"
-    for child in el:
-        yield from _slots(child)
-        yield child, "tail"
-
-
 def _leaf_blocks(root):
     for el in root.iter():
         if not isinstance(el.tag, str):
@@ -80,10 +78,6 @@ def _leaf_blocks(root):
         if any(isinstance(d.tag, str) and _local(d) in _BLOCKS for d in el.iterdescendants()):
             continue
         yield el
-
-
-def _get(el, which):
-    return (el.text if which == "text" else el.tail) or ""
 
 
 def _is_alnum(ch: str) -> bool:
@@ -142,21 +136,14 @@ class _Counts:
         self.curly_d = self.straight_d = self.curly_s = self.straight_s = 0
 
 
-def _tally(book) -> _Counts:
+def _tally(records) -> _Counts:
+    """The quote totals for the whole book, added up from the page records."""
     c = _Counts()
-    for chapter in book.chapters:
-        doc = chapter.document
-        if doc is None:
-            continue
-        root = doc.getroot() if hasattr(doc, "getroot") else doc
-        for el, which in _slots(root):
-            s = _get(el, which)
-            if not s:
-                continue
-            c.curly_d += s.count(OPEN_D) + s.count(CLOSE_D)
-            c.straight_d += s.count('"')
-            c.curly_s += s.count(OPEN_S) + s.count(CLOSE_S)
-            c.straight_s += s.count("'")
+    for record in records:
+        c.curly_d += record.curly_double
+        c.straight_d += record.straight_double
+        c.curly_s += record.curly_single
+        c.straight_s += record.straight_single
     return c
 
 
@@ -204,22 +191,23 @@ class QuoteStyleRepair:
     def __init__(self, config: QuoteStyleConfig | None = None):
         self.config = config or QuoteStyleConfig()
 
-    def _run(self, book, write: bool):
-        counts = _tally(book)
+    def _run(self, book, write: bool, analysis=None):
+        # What each page holds, from the analysis store's page records (see
+        # ebook_fix.text_lines): the quote totals, and whether the page has
+        # any straight quote at all. A page with none is not opened.
+        records = text_lines_for(book, analysis)
+        counts = _tally(records)
         do_double = _uses(counts.curly_d, counts.straight_d)
         do_single = _uses(counts.curly_s, counts.straight_s)
         results = []
         if not (do_double or do_single):
             return results
-        uses_open = any(
-            OPEN_S in (_get(el, w))
-            for chapter in book.chapters if chapter.document is not None
-            for el, w in _slots(
-                chapter.document.getroot() if hasattr(chapter.document, "getroot") else chapter.document)
-        )
-        for chapter in book.chapters:
+        uses_open = any(record.open_single for record in records)
+        for chapter, record in zip(book.chapters, records):
             doc = chapter.document
             if doc is None:
+                continue
+            if not ((do_double and record.straight_double) or (do_single and record.straight_single)):
                 continue
             root = doc.getroot() if hasattr(doc, "getroot") else doc
             n = 0
@@ -235,7 +223,7 @@ class QuoteStyleRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        for href, n in self._run(book, write=False):
+        for href, n in self._run(book, write=False, analysis=analysis):
             report.add(href, "Straight quotes in a book that uses curly quotes",
                        f"{n} straight quote mark(s) will be made curly")
         return report
@@ -244,7 +232,7 @@ class QuoteStyleRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        results = self._run(book, write=True)
+        results = self._run(book, write=True, analysis=analysis)
         for href, n in results:
             report.add(href, "Straight quotes made curly",
                        f"{n} straight quote mark(s) were made curly")

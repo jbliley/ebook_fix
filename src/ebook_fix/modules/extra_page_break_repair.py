@@ -12,12 +12,16 @@ Only inline style declarations are removed, and only the forced-break
 properties (page-break-before/after, break-before/after); the rest of the
 style attribute is kept. A break that has visible text or a picture on
 the page before it is never touched. Re-running finds nothing to do.
+
+Whether a page forces any break at all comes from the page records the analysis
+store keeps (ebook_fix.text_lines), so only a page that does is opened.
 """
 from __future__ import annotations
 
 from ebook_fix.config import ExtraPageBreakConfig
 from ebook_fix.page_breaks import redundant_forced_breaks, _strip_break_props
 from ebook_fix.report import Report
+from ebook_fix.text_lines import text_lines_for
 
 
 class ExtraPageBreakRepair:
@@ -26,10 +30,12 @@ class ExtraPageBreakRepair:
     def __init__(self, config: ExtraPageBreakConfig | None = None):
         self.config = config or ExtraPageBreakConfig()
 
-    def _find(self, book):
-        for chapter in book.chapters:
+    def _find(self, book, analysis=None):
+        # The page records (ebook_fix.text_lines) say whether any element of a
+        # page forces a page break; a page where none does is not opened.
+        for chapter, record in zip(book.chapters, text_lines_for(book, analysis)):
             doc = getattr(chapter, "document", None)
-            if doc is None:
+            if doc is None or not record.forced_break:
                 continue
             found = redundant_forced_breaks(doc)
             if found:
@@ -39,7 +45,7 @@ class ExtraPageBreakRepair:
         report = Report(self.name)
         if not self.config.enabled:
             return report
-        for chapter, found in self._find(book):
+        for chapter, found in self._find(book, analysis):
             report.add(chapter.href, "Extra page break before a chapter", f"{len(found)} forced break(s) would only add an empty page")
         return report
 
@@ -48,7 +54,7 @@ class ExtraPageBreakRepair:
         if not self.config.enabled:
             return report
         changed = False
-        for chapter, found in list(self._find(book)):
+        for chapter, found in list(self._find(book, analysis)):
             for el, props in found:
                 _strip_break_props(el, set(props))
             chapter.modified = True

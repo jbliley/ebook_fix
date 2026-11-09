@@ -249,6 +249,22 @@ Index of each page's paragraphs and lines as text. Moves Mid-Word Hyphen
 Repair, Quote Style, Div Paragraphs, Extra Page Break Removal and Chapter
 Title Cleanup.
 
+Done 2026-11-08. The new page record (`text_lines.py`, kept by the store as
+the `text_lines` finding) holds each page's words and hyphen pairs (for the
+Mid-Word Hyphen join decision), its quote counts, its count of text
+paragraphs and its text-only divs with their classes, whether any element
+forces a page break, its leading headings with the separator each numbered
+title uses, and the files its links go to as a whole. Each step adds up the
+records for its book-wide decision (the word and pair counts, the quote
+totals, the div plan, the separator style) and opens only the pages whose
+record shows something that can change: a page holding one of the pairs to
+join, a straight quote of a kind being converted, a div of a class in the
+plan, a forced page break, or a heading whose separator differs from the
+chosen one. Chapter Title Cleanup also reads the navigation page flag from
+the link records and looks up whole-file links only when a contents entry has
+passed every other check for a false chapter. Mid-Word Hyphen Repair's own
+cost moved here.
+
 ### Stretch 9: Scene and header steps (L)
 
 Moves Scene Opener Markers, Scene Break Markers (and the book's own scene
@@ -296,7 +312,7 @@ until Jacob wants it earlier:
 - Per-page reuse for paragraphs, typography, color and front matter
   (about 3s together on Tarzan). Mostly absorbed by Stretch 2.
 - Mid-Word Hyphen Repair's own cost (about 1 to 2s per run on Tarzan).
-  Moves in Stretch 8.
+  Done in Stretch 8.
 - About a quarter of a Fix on Tarzan is neither analysis nor repair (opening
   the book, saving the analysis cache, writing the result). Not broken down
   yet.
@@ -314,11 +330,11 @@ step reads only the store and the checks above passed.
 | Gutenberg Boilerplate Removal | A | 2, 10 | 1.0 | classes, files removed, links/ids, attributes, package, page list, tags, text | |
 | Extra Content Removal | B | 9 | 5.7 | files removed, package, page list, resources | |
 | Running Title Removal | A | 2, 10 | 0.9 | classes, links/ids, attributes, tags, text | |
-| Div Paragraphs | C | 8 | 4.0 | tags, CSS | |
+| Div Paragraphs | C | 8 | 4.0 | tags, CSS | ✓ |
 | Stray Line Break Removal | A | 2, 10 | 0.0 | classes, links/ids, attributes, tags, text | |
 | Paragraph Repair | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
 | Chapter Markup | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
-| Chapter Title Cleanup | C | 8 | 8.0 | nothing seen | |
+| Chapter Title Cleanup | C | 8 | 8.0 | nothing seen | ✓ |
 | TOC Cleanup | C | 7 | 3.0 | nothing seen | ✓ |
 | Dead Link Cleanup | C | 7 | 9.7 | classes, links/ids, attributes, tags, text | ✓ |
 | EPUB 3 Upgrade | A | 10 | 7.5 | files edited, package | |
@@ -332,7 +348,7 @@ step reads only the store and the checks above passed.
 | Line Height | C | 5 | 4.0 | CSS | ✓ |
 | Reader Settings | B | 6 | 15.0 | classes, text, CSS | ✓ |
 | Text Size | C | 5 | 10.0 | nothing seen | ✓ |
-| Extra Page Break Removal | C | 8 | 2.0 | nothing seen | |
+| Extra Page Break Removal | C | 8 | 2.0 | nothing seen | ✓ |
 | Image Repair | A | 10 | 0.0 | classes, links/ids, attributes, tags, text | |
 | Cover Repair | A | 7, 10 | 9.2 | files removed, links/ids, files edited, package | |
 | Color Strip | A | 2 | 4.0 | CSS | |
@@ -342,10 +358,10 @@ step reads only the store and the checks above passed.
 | Span Cleanup | C | 4 | 8.0 | classes, links/ids, attributes, tags, text | ✓ |
 | Unused CSS | C | 4 | 7.0 | classes, files removed, links/ids, attributes, package, tags, text, resources, CSS | ✓ |
 | Junk File Removal | C | 10 | 3.0 | files removed, links/ids, package, resources | |
-| Mid-Word Hyphen Repair | C | 8 | 2.0 | text | |
+| Mid-Word Hyphen Repair | C | 8 | 2.0 | text | ✓ |
 | Ellipsis Normalizer | A | 1 | 0.0 | text | |
 | Apostrophe Repair | A | 1 | 0.0 | text | |
-| Quote Style | C | 8 | 5.7 | text | |
+| Quote Style | C | 8 | 5.7 | text | ✓ |
 | Page Titles | C | 7 | 2.0 | text | ✓ |
 | Whitespace Normalizer | A | 1 | 0.0 | text | |
 | Title Cleanup | C | 10 | 0.0 | package | |
@@ -438,3 +454,4 @@ Open: nothing right now.
 | Stretch 6a: Reader Settings and Paragraph Spacing | 2026-11-07 | Page records extended; class profiles built once and shared (`class_profiles_for`). Reader Settings, Paragraph Spacing and Body Paragraph Look read them. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 120 cases (24 books, 5 variants, including one that triggers Paragraph Spacing): identical. Shadow check unchanged: 0 wrong predictions in 2,356 runs. Tarzan time unchanged (within noise) |
 | Stretch 6b: Class Standardize | 2026-11-07 | `class_standardize.py` reads the page records for both its count and its repair, so a page with no mapped class and no style block is not walked. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 48 cases (24 books, plain and with injected edge cases: mapped classes in style blocks, with inline colors and page breaks, a scene break marker, an empty class; 36 changed the book): identical pages, files and counts, and a second pass finding nothing. Shadow check unchanged: 0 wrong predictions per book. Stretch 6 complete |
 | Stretch 7: Links and ids | 2026-11-08 | New `link_index.py` and a per-page `links` finding in the store. Dead Link Cleanup, TOC Cleanup, Page Titles and the link part of Cover Repair read it and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 572 cases (26 books with injected dead links, placeholder titles, empty and linked-to empty pages, blank and repeated contents entries, stale cover links; analysis with and without a store) plus 40 cases on 20 books made to hold a duplicate cover page: identical pages, files, counts and report lines. Shadow check unchanged: 0 wrong predictions in 2,356 runs |
+| Stretch 8: Text lines | 2026-11-08 | New `text_lines.py` and a per-page `text_lines` finding in the store. Mid-Word Hyphen Repair, Quote Style, Div Paragraphs, Extra Page Break Removal and Chapter Title Cleanup read it and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 1,820 cases (26 books with injected hyphen pairs, mixed quotes, text-only divs, forced page breaks and mixed title separators; analysis with and without a store) plus a made-up false chapter, one merged and one blocked: identical pages, files, counts and report lines. Shadow check unchanged: 0 wrong predictions in 2,356 runs. Time on the examples is unchanged (226s against 233s for all 26) |
