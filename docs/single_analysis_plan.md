@@ -271,6 +271,22 @@ Moves Scene Opener Markers, Scene Break Markers (and the book's own scene
 marker it reuses), Chapter Header Spacing and Extra Content Removal.
 Split point: the two scene steps first, then the other two.
 
+Done 2026-11-09, both halves in one stretch. The new page record
+(`scene_index.py`, kept by the store as the `scene_index` finding) holds, for
+each page, the facts the book-wide scene opener checks add up (paragraphs
+with text, uses of each paragraph class and wrapper element, paragraphs that
+open with capitals) and whether the page has any opener candidate at all;
+whether any paragraph could be a text scene break marker or the book's own
+marker line; and whether any element carries a chapter marker stamp. Scene
+Opener Markers adds up the records and opens only a page with an opener
+candidate. The book's own scene marker (`house_marker_text`, used by Scene
+Break Normalizer, Paragraph Repair, Scene Opener Markers and Scene Break
+Markers) and Scene Break Markers open only a page with a marker candidate.
+Chapter Header Spacing opens only a page that has a stamp or holds one of
+the chapter analysis's marker elements. Extra Content Removal needed no move:
+it reads only the front matter labels and a handful of front and back pages
+(never the story), so there is no whole-book scan in it to remove.
+
 ### Stretch 10: Metadata and package steps (S)
 
 Title Cleanup, Identifier Standardize, Author Initials, Junk File Removal,
@@ -455,3 +471,4 @@ Open: nothing right now.
 | Stretch 6b: Class Standardize | 2026-11-07 | `class_standardize.py` reads the page records for both its count and its repair, so a page with no mapped class and no style block is not walked. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 48 cases (24 books, plain and with injected edge cases: mapped classes in style blocks, with inline colors and page breaks, a scene break marker, an empty class; 36 changed the book): identical pages, files and counts, and a second pass finding nothing. Shadow check unchanged: 0 wrong predictions per book. Stretch 6 complete |
 | Stretch 7: Links and ids | 2026-11-08 | New `link_index.py` and a per-page `links` finding in the store. Dead Link Cleanup, TOC Cleanup, Page Titles and the link part of Cover Repair read it and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 572 cases (26 books with injected dead links, placeholder titles, empty and linked-to empty pages, blank and repeated contents entries, stale cover links; analysis with and without a store) plus 40 cases on 20 books made to hold a duplicate cover page: identical pages, files, counts and report lines. Shadow check unchanged: 0 wrong predictions in 2,356 runs |
 | Stretch 8: Text lines | 2026-11-08 | New `text_lines.py` and a per-page `text_lines` finding in the store. Mid-Word Hyphen Repair, Quote Style, Div Paragraphs, Extra Page Break Removal and Chapter Title Cleanup read it and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 1,820 cases (26 books with injected hyphen pairs, mixed quotes, text-only divs, forced page breaks and mixed title separators; analysis with and without a store) plus a made-up false chapter, one merged and one blocked: identical pages, files, counts and report lines. Shadow check unchanged: 0 wrong predictions in 2,356 runs. Time on the examples is unchanged (226s against 233s for all 26) |
+| Stretch 9: Scene and header steps | 2026-11-09 | New `scene_index.py` and a per-page `scene_index` finding in the store. Scene Opener Markers, the book's own scene marker (and Scene Break Markers) and Chapter Header Spacing read it and open only pages that can have something to do; Extra Content Removal had no whole-book scan to move. Examples identical (27 books, only the OPF modified time differs), second run changes nothing. Old against new on 30 books (the 27 examples plus three made-up books with scene openers, with the book's own marker line, and with neither): identical opener findings, marker text and marker lists. Shadow check unchanged: 0 wrong predictions in 2,397 runs. Time not compared (old and new ran side by side) |

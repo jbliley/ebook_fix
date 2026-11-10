@@ -180,7 +180,92 @@ def _is_blank(el) -> bool:
     return not _text(el) and not el.findall(".//{*}img")
 
 
-def analyze_book_scene_openers(book, frontmatter_summary=None, chapter_markers=None) -> BookSceneOpenerSummary:
+def opener_candidate(el, text):
+    """(lead, signature, weak) for a paragraph with `text`: the capitalized
+    opening words (None if it has none), what the paragraph looks like in the
+    markup, and whether it is a "weak" candidate. A weak candidate is too short
+    for the capitals rule (a whole-capitals line like "I WAS DEAD.", or "A FEW
+    DAYS later.") but starts with a capital word inside a wrapper element. It
+    only counts if it turns out to share the exact distinctive look of the
+    strong openers. Shared by the page records (ebook_fix.scene_index) and the
+    scan below, so the two cannot drift apart."""
+    parent = el.getparent()
+    parent_ok = parent is not None and _local(parent) in _STORY_PARENTS
+    lead = caps_lead(text) if (text and parent_ok) else None
+    signature = _signature(el) if (text and parent_ok) else ()
+    weak = (
+        lead is None
+        and bool(signature)
+        and bool(signature[1])
+        and _is_caps_word(text.split()[0])
+    )
+    return lead, signature, weak
+
+
+def _scan_page(chapter, chapter_markers):
+    """[(SceneOpener, marks, strong)] for each opening-capitals paragraph on one
+    page. `marks` is True when it follows story text and is not already
+    under a heading, rule, marker or blank spacer."""
+    from ebook_fix.linebreaks import is_scene_break_marker
+
+    body = chapter.document.find(".//{*}body")
+    if body is None:
+        return []
+    found = []
+    prev_block = None      # the previous heading / rule / paragraph in reading order
+    seen_story = False
+    for el in body.iter():
+        name = _local(el)
+        if name in HEADING_TAGS:
+            if _text(el):
+                prev_block = el
+            continue
+        if name == "hr":
+            prev_block = el
+            continue
+        if name != "p":
+            continue
+
+        text = _text(el)
+        lead, signature, weak = opener_candidate(el, text)
+
+        if lead is not None or weak:
+            marks = (
+                seen_story
+                and prev_block is not None
+                and not is_chapter_header(prev_block, chapter_markers)
+                and _local(prev_block) != "hr"
+                and not is_scene_break_marker(prev_block)
+                and not _is_blank(prev_block)
+            )
+            found.append((
+                SceneOpener(
+                    href=chapter.href,
+                    lead=lead[0] if lead is not None else " ".join(text.split()[:4]),
+                    preview=text[:60],
+                    signature=signature,
+                    element=el,
+                ),
+                marks,
+                lead is not None,
+            ))
+
+        prev_block = el
+        if (
+            not is_chapter_header(el, chapter_markers)
+            and text
+            and len(text.split()) >= MIN_STORY_WORDS
+            and not is_scene_break_marker(el)
+        ):
+            seen_story = True
+    return found
+
+
+def analyze_book_scene_openers(book, frontmatter_summary=None, chapter_markers=None, records=None) -> BookSceneOpenerSummary:
+    """`records` are the analysis store's page records (ebook_fix.scene_index),
+    in the order of `book.chapters`. The totals the book-wide checks need come
+    from adding them up, and only a page whose record shows an opening-capitals
+    paragraph is opened. Without records every page is read to make them."""
     summary = BookSceneOpenerSummary()
 
     if frontmatter_summary is None:
@@ -192,98 +277,29 @@ def analyze_book_scene_openers(book, frontmatter_summary=None, chapter_markers=N
         from ebook_fix.frontmatter import MAIN_ZONE
         main_hrefs = {cm.href for cm in frontmatter_summary.chapters if cm.zone == MAIN_ZONE}
 
-    from ebook_fix.linebreaks import is_scene_break_marker
+    if records is None:
+        from ebook_fix.scene_index import analyze_book_scene_index
+        records = analyze_book_scene_index(book).chapters
 
     class_counts: dict = {}     # paragraph class -> paragraphs using it
     wrapper_counts: dict = {}   # "span.smallCaps" -> elements using it
-    per_chapter = []   # (href, [(opener, convertible_position_ok)])
-    for chapter in book.chapters:
+    strong_total = 0
+    pages = []                  # pages that hold an opening-capitals paragraph
+    for chapter, record in zip(book.chapters, records):
         if chapter.document is None:
             continue
         if main_hrefs is not None and chapter.href not in main_hrefs:
             continue
-        body = chapter.document.find(".//{*}body")
-        if body is None:
-            continue
+        summary.paragraph_count += record.paragraphs
+        for key, n in record.class_counts:
+            class_counts[key] = class_counts.get(key, 0) + n
+        for key, n in record.wrapper_counts:
+            wrapper_counts[key] = wrapper_counts.get(key, 0) + n
+        strong_total += record.strong_openers
+        if record.opener_candidates:
+            pages.append(chapter)
 
-        found = []
-        prev_block = None      # the previous heading / rule / paragraph in reading order
-        seen_story = False
-        for el in body.iter():
-            name = _local(el)
-            if name in HEADING_TAGS:
-                if _text(el):
-                    prev_block = el
-                continue
-            if name == "hr":
-                prev_block = el
-                continue
-            if name in WRAPPER_TAGS:
-                wrapper_class = el.get("class")
-                if wrapper_class:
-                    key = f"{name}.{wrapper_class}"
-                    wrapper_counts[key] = wrapper_counts.get(key, 0) + 1
-                continue
-            if name != "p":
-                continue
-
-            text = _text(el)
-            if text:
-                summary.paragraph_count += 1
-                paragraph_class = el.get("class") or ""
-                class_counts[paragraph_class] = class_counts.get(paragraph_class, 0) + 1
-
-            parent = el.getparent()
-            parent_ok = parent is not None and _local(parent) in _STORY_PARENTS
-            lead = caps_lead(text) if (text and parent_ok) else None
-            signature = _signature(el) if (text and parent_ok) else ()
-
-            # A "weak" candidate is too short for the capitals rule (a
-            # whole-capitals line like "I WAS DEAD.", or "A FEW DAYS
-            # later.") but starts with a capital word inside a wrapper
-            # element. It only counts if it turns out to share the exact
-            # distinctive look of the strong openers (see below).
-            weak = (
-                lead is None
-                and bool(signature)
-                and bool(signature[1])
-                and _is_caps_word(text.split()[0])
-            )
-
-            if lead is not None or weak:
-                marks = (
-                    seen_story
-                    and prev_block is not None
-                    and not is_chapter_header(prev_block, chapter_markers)
-                    and _local(prev_block) != "hr"
-                    and not is_scene_break_marker(prev_block)
-                    and not _is_blank(prev_block)
-                )
-                found.append((
-                    SceneOpener(
-                        href=chapter.href,
-                        lead=lead[0] if lead is not None else " ".join(text.split()[:4]),
-                        preview=text[:60],
-                        signature=signature,
-                        element=el,
-                    ),
-                    marks,
-                    lead is not None,
-                ))
-
-            prev_block = el
-            if (
-                not is_chapter_header(el, chapter_markers)
-                and text
-                and len(text.split()) >= MIN_STORY_WORDS
-                and not is_scene_break_marker(el)
-            ):
-                seen_story = True
-        per_chapter.append((chapter.href, found))
-
-    all_found = [f for _href, items in per_chapter for f in items]
-    strong = [f for f in all_found if f[2]]
-    summary.candidate_count = len(strong)
+    summary.candidate_count = strong_total
 
     if summary.candidate_count < MIN_OPENERS:
         summary.reason_skipped = (
@@ -294,6 +310,10 @@ def analyze_book_scene_openers(book, frontmatter_summary=None, chapter_markers=N
     if summary.paragraph_count and summary.candidate_count / summary.paragraph_count > MAX_OPENER_RATIO:
         summary.reason_skipped = "capitalized openings are too common to be scene markers"
         return summary
+
+    per_chapter = [(chapter.href, _scan_page(chapter, chapter_markers)) for chapter in pages]
+    all_found = [f for _href, items in per_chapter for f in items]
+    strong = [f for f in all_found if f[2]]
 
     counts: dict = {}
     for opener, _marks, _strong in strong:

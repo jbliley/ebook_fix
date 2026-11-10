@@ -240,10 +240,24 @@ def _headers(book, analysis):
     if summary is not None:
         markers = chapter_marker_elements(summary)
     found = []
-    for chapter in book.chapters:
+    # The analysis store's page records (ebook_fix.scene_index) say which pages
+    # carry a chapter marker stamp; the others can only hold a header if the
+    # chapter analysis points at an element on them. Any other page is not
+    # opened. Without a store every page is read, as always.
+    records = None
+    marker_roots = None
+    if getattr(analysis, "store", None) is not None:
+        from ebook_fix.scene_index import scene_index_for
+        records = scene_index_for(book, analysis)
+        marker_roots = {el.getroottree().getroot() for el in markers}
+    for position, chapter in enumerate(book.chapters):
         doc = getattr(chapter, "document", None)
         if doc is None:
             continue
+        if records is not None and not records[position].header_stamped:
+            root = doc.getroot() if hasattr(doc, "getroot") else doc
+            if root not in marker_roots:
+                continue
         body = doc.find(".//{*}body")
         if body is None:
             continue

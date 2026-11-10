@@ -4166,3 +4166,18 @@ Found in Altered Carbon (Richard Morgan, a Calibre conversion of a MOBI, added a
 - `toc_supplement.py` (new) and `modules/toc_generation.py`: a table of contents with more than two entries was always taken as the book's own and left alone. It is now rebuilt from the detected chapters and Parts when it lists fewer than half as many entries as there are confirmed chapters (at least 5). Original entries with no counterpart (Acknowledgements) are kept and put in reading order, label spacing is tidied the way the Whitespace Normalizer would ("PART 1 : ARRIVAL" to "PART 1: ARRIVAL"), and the book's own contents page (a run of one-link paragraphs) is pointed at the rebuilt places, since it carried the same stale Part links. The Part links were stale because Calibre leaves each Part's anchor at the end of the file before the Part's title page.
 
 Checks: all 26 example EPUBs repaired with the old code and the new, outputs compared file by file. Identical except Altered Carbon (new), Images-PageNumbers (Chapters 1 to 9 now marked and spaced) and BiteBack-BoxSet (contents of 5 entries rebuilt to 79, with the three book titles and Acknowledgements kept). Repairing each of those three outputs again changed nothing.
+
+### Changed: Scene Opener Markers, the book's own scene marker, Scene Break Markers and Chapter Header Spacing read a shared scene index (2026-11-09)
+
+Stretch 9 of `docs/single_analysis_plan.md`. These steps used to walk every paragraph of every page to find the few pages with a scene opening in capitals, a row of ornament glyphs or a chapter header. The analysis store now keeps one record per page (`scene_index.py`, the `scene_index` finding), and each step opens only the pages whose record shows something that can change.
+
+- `scene_index.py` (new): each page's record holds its count of paragraphs with text, how often each paragraph class and each wrapper element is used, how many paragraphs open with capitals, whether any paragraph is an opener candidate, whether any paragraph could be a scene break marker or the book's own marker line, and whether any element carries a chapter marker stamp.
+- `scene_openers.py`: the test for an opener candidate is one shared helper (`opener_candidate`) used by the records and the page scan. The book-wide checks (enough openers, not too many, one look, a distinctive look) add up the records, and only a page with an opener candidate is scanned for the openers themselves.
+- `modules/scene_opener_repair.py`: passes the records in.
+- `modules/scene_marker_repair.py`: `house_marker_text` and `find_markers` skip a page whose record shows no paragraph that could be a marker. Scene Break Normalizer, Paragraph Repair and Scene Opener Markers get the same saving through `house_marker_text`.
+- `modules/header_spacing_repair.py`: a page is opened only if its record shows a chapter marker stamp or it holds one of the chapter analysis's marker elements. Without a store every page is read, as before.
+- Extra Content Removal reads only the front matter labels and a few front and back pages, so nothing in it was moved.
+- `analysis_store.py`: the `scene_index` finding is stored per page like the other page records.
+
+Checks: all 27 example EPUBs repaired with the old code and the new, outputs identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; opener findings, the book's marker text and the marker lists compared old against new on 30 books (the examples plus three made-up books: one whose scene changes open with capitals and which qualifies, one with a row of "∞ ∞ ∞" markers, and a plain one): identical. The shadow check is unchanged: 0 wrong predictions in 2,397 runs.
+

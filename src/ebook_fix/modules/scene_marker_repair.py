@@ -46,6 +46,7 @@ from ebook_fix.config import SceneMarkerConfig
 from ebook_fix.headings import chapter_marker_elements, is_chapter_header
 from ebook_fix.linebreaks import _MARKER_GLYPHS, _MARKER_MAX_GLYPHS, _ORNAMENTS, _SYMBOL_CATEGORIES
 from ebook_fix.report import Report
+from ebook_fix.scene_index import scene_index_for
 
 SCENE_BREAK_TEXT = "* * *"
 MARKER_ATTR = "data-ebookfix-scenebreak"
@@ -112,9 +113,13 @@ def house_marker_text(book, analysis=None) -> str:
     main_hrefs = _main_hrefs(book, analysis)
     counts: Counter = Counter()
     first_seen: dict = {}
-    for chapter in book.chapters:
+    # A page whose record (ebook_fix.scene_index) shows no paragraph that could
+    # be a marker is not opened.
+    for chapter, record in zip(book.chapters, scene_index_for(book, analysis)):
         doc = chapter.document
         if doc is None or (main_hrefs is not None and chapter.href not in main_hrefs):
+            continue
+        if not record.marker_candidates:
             continue
         for el in doc.iter("{*}p"):
             if not _is_house_candidate(el) or is_chapter_header(el, heading_markers):
@@ -181,9 +186,11 @@ def find_markers(book, analysis=None, house: str | None = None) -> list:
     heading_markers = chapter_marker_elements(chapters) if chapters is not None else None
     found = []
     main_hrefs = _main_hrefs(book, analysis)
-    for chapter in book.chapters:
+    for chapter, record in zip(book.chapters, scene_index_for(book, analysis)):
         doc = chapter.document
         if doc is None or (main_hrefs is not None and chapter.href not in main_hrefs):
+            continue
+        if not record.marker_candidates:
             continue
         for el in doc.iter("{*}p"):
             if not is_text_marker(el, house) or is_chapter_header(el, heading_markers):

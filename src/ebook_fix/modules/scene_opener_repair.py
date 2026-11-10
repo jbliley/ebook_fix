@@ -31,6 +31,7 @@ from ebook_fix.config import SceneOpenerConfig
 from ebook_fix.headings import chapter_marker_elements
 from ebook_fix.modules.scene_marker_repair import house_marker_text
 from ebook_fix.report import Report
+from ebook_fix.scene_index import scene_index_for
 from ebook_fix.scene_openers import analyze_book_scene_openers
 
 SCENE_BREAK_TEXT = "* * *"
@@ -96,4 +97,9 @@ class SceneOpenerRepair:
         frontmatter = getattr(analysis, "frontmatter", None) if analysis is not None else None
         chapters = getattr(analysis, "chapters", None) if analysis is not None else None
         markers = chapter_marker_elements(chapters) if chapters is not None else None
-        return analyze_book_scene_openers(book, frontmatter_summary=frontmatter, chapter_markers=markers)
+        # The page records (ebook_fix.scene_index) hold the totals the book-wide
+        # checks add up, so only a page with an opening-capitals paragraph is opened.
+        return analyze_book_scene_openers(
+            book, frontmatter_summary=frontmatter, chapter_markers=markers,
+            records=scene_index_for(book, analysis),
+        )
