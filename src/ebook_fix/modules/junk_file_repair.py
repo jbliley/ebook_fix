@@ -46,11 +46,11 @@ from urllib.parse import unquote
 
 from ebook_fix.config import JunkFileConfig
 from ebook_fix.cover import analyze_book_cover, find_manifest_item_element
+from ebook_fix.file_refs import XLINK_HREF, css_url_values, element_references, file_refs_for
 from ebook_fix.modules.cover_repair import image_size
 from ebook_fix.report import Report
 
 OPF_NS = "http://www.idpf.org/2007/opf"
-XLINK_HREF = "{http://www.w3.org/1999/xlink}href"
 ENCRYPTION_PATH = "META-INF/encryption.xml"
 
 JUNK_BASENAMES = frozenset({
@@ -62,8 +62,6 @@ JUNK_BASENAMES = frozenset({
 })
 JUNK_FOLDER_PREFIX = "__macosx/"
 
-_CSS_URL = re.compile(r"url\(\s*['\"]?([^'\")]+?)['\"]?\s*\)", re.IGNORECASE)
-_REFERENCE_ATTRS = ("src", "href", XLINK_HREF, "data", "poster")
 
 
 class JunkFileRepair:
@@ -78,7 +76,7 @@ class JunkFileRepair:
             return report
         for path in self._junk_paths(book):
             report.add(path, "Junk file", f"{path}: a leftover file that is not part of the book")
-        for plan in self._duplicate_plans(book):
+        for plan in self._duplicate_plans(book, analysis):
             report.add(plan.remove_href, "Unused cover copy" if plan.kind == "cover_copy" else "Duplicate picture", plan.describe(will=True))
         return report
 
@@ -93,7 +91,7 @@ class JunkFileRepair:
             self._remove_path(book, path)
             report.add(path, "Junk file removed", f"{path}: a leftover file that is not part of the book")
 
-        for plan in self._duplicate_plans(book):
+        for plan in self._duplicate_plans(book, analysis):
             for chapter, element, attr in plan.repoints:
                 element.set(attr, self._relative(chapter, plan.keep_href))
                 chapter.modified = True
@@ -155,16 +153,16 @@ class JunkFileRepair:
     # Duplicate pictures
     # -----------------------------------------------------
 
-    def _duplicate_plans(self, book) -> list:
+    def _duplicate_plans(self, book, analysis=None) -> list:
         plans = []
         if self.config.remove_duplicate_images:
-            plans.extend(self._exact_duplicate_plans(book))
+            plans.extend(self._exact_duplicate_plans(book, analysis))
         if self.config.remove_unused_cover_copy:
             planned = {p.remove_href for p in plans}
-            plans.extend(p for p in self._cover_copy_plans(book) if p.remove_href not in planned)
+            plans.extend(p for p in self._cover_copy_plans(book, analysis) if p.remove_href not in planned)
         return plans
 
-    def _exact_duplicate_plans(self, book) -> list:
+    def _exact_duplicate_plans(self, book, analysis=None) -> list:
         base = PurePosixPath(book.package_path).parent
 
         images = [m for m in book.manifest if m.media_type.startswith("image/")]
@@ -179,7 +177,7 @@ class JunkFileRepair:
         if not groups:
             return []
 
-        refs = _References(book, base)
+        refs = _References(book, base, file_refs_for(book, analysis))
         protected = self._protected_paths(book, base)
         cover_ids = self._cover_item_ids(book)
 
@@ -211,7 +209,7 @@ class JunkFileRepair:
                 ))
         return plans
 
-    def _cover_copy_plans(self, book) -> list:
+    def _cover_copy_plans(self, book, analysis=None) -> list:
         """An unused picture with exactly the declared cover's pixel size.
         Found in Sandman Slim: a second, PNG copy of the cover (the same
         art as cover.jpg, so not a byte-for-byte match) that no page,
@@ -230,7 +228,7 @@ class JunkFileRepair:
         if cover_size is None:
             return []
 
-        refs = _References(book, base)
+        refs = _References(book, base, file_refs_for(book, analysis))
         protected = self._protected_paths(book, base)
         plans = []
         for item in book.manifest:
@@ -361,16 +359,21 @@ class _Plan:
 
 
 class _References:
-    """Everything in the book that points at a file, by resolved path."""
+    """Everything in the book that points at a file, by resolved path. The
+    addresses on each page come from the analysis store's page records
+    (ebook_fix.file_refs), so a page is opened only to find the live <img>
+    elements that have to be moved to a kept copy."""
 
-    def __init__(self, book, base):
-        self._markup: dict[str, list] = {}
+    def __init__(self, book, base, records=None):
+        self._markup_pages: list = []   # (chapter, chapter_dir, resolved picture paths)
+        self._markup_paths: set = set()
         self._other: set = set()
-        self._scan_chapters(book, base)
+        self._found: dict = {}
+        self._scan_chapters(book, base, records)
         self._scan_stylesheets(book, base)
 
     def is_used(self, path) -> bool:
-        return path in self._markup or path in self._other
+        return path in self._markup_paths or path in self._other
 
     def blocked(self, path) -> bool:
         """True if something other than an <img> or SVG <image> in a page
@@ -378,37 +381,35 @@ class _References:
         return path in self._other
 
     def markup_refs(self, path):
-        return self._markup.get(path, [])
+        """[(chapter, element, attr)] for every picture reference to `path`, in
+        reading order."""
+        if path not in self._found:
+            found = []
+            for chapter, chapter_dir, paths in self._markup_pages:
+                if path not in paths:
+                    continue
+                for element in chapter.document.iter():
+                    for kind, attr, value in element_references(element):
+                        if kind == "picture" and self._resolve(chapter_dir, value) == path:
+                            found.append((chapter, element, attr))
+            self._found[path] = found
+        return self._found[path]
 
     # -----------------------------------------------------
 
-    def _scan_chapters(self, book, base) -> None:
-        for chapter in book.chapters:
-            document = getattr(chapter, "document", None)
-            if document is None:
+    def _scan_chapters(self, book, base, records) -> None:
+        if records is None:
+            records = file_refs_for(book)
+        for chapter, record in zip(book.chapters, records):
+            if getattr(chapter, "document", None) is None:
                 continue
             chapter_dir = PurePosixPath(base) / posixpath.dirname(chapter.href)
-            for element in document.iter():
-                if not isinstance(element.tag, str):
-                    continue
-                local = element.tag.rsplit("}", 1)[-1].lower()
-                for attr in _REFERENCE_ATTRS:
-                    value = element.get(attr)
-                    if not value or "://" in value or value.startswith(("data:", "#", "mailto:")):
-                        continue
-                    resolved = self._resolve(chapter_dir, value)
-                    is_picture_ref = (local == "img" and attr == "src") or (
-                        local == "image" and attr in (XLINK_HREF, "href")
-                    )
-                    if is_picture_ref:
-                        self._markup.setdefault(resolved, []).append((chapter, element, attr))
-                    else:
-                        self._other.add(resolved)
-                style_attr = element.get("style")
-                if style_attr:
-                    self._add_css_urls(style_attr, chapter_dir)
-                if local == "style" and element.text:
-                    self._add_css_urls(element.text, chapter_dir)
+            pictures = {self._resolve(chapter_dir, v) for v in record.picture_values}
+            for value in record.other_values:
+                self._other.add(self._resolve(chapter_dir, value))
+            if pictures:
+                self._markup_pages.append((chapter, chapter_dir, pictures))
+                self._markup_paths |= pictures
 
     def _scan_stylesheets(self, book, base) -> None:
         new_files = getattr(book, "new_files", {}) or {}
@@ -434,10 +435,7 @@ class _References:
                 archive.close()
 
     def _add_css_urls(self, text, folder) -> None:
-        for match in _CSS_URL.finditer(text):
-            value = match.group(1).strip()
-            if not value or "://" in value or value.startswith("data:"):
-                continue
+        for value in css_url_values(text):
             self._other.add(self._resolve(folder, value))
 
     @staticmethod

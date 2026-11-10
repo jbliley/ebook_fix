@@ -63,6 +63,7 @@ from pathlib import PurePosixPath
 from lxml import etree
 
 from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE, FONT_FACE_RE, FONT_FAMILY_RE
+from ebook_fix.class_usage import class_usage_for
 from ebook_fix.report import Report
 from ebook_fix.config import FontRepairConfig
 from ebook_fix.fonts import (
@@ -121,11 +122,12 @@ class FontStripRepair:
                 reach, body_text_classes)[0],
             element_predicate=lambda el, finding_id, href: decide_font_inline(
                 el, declared_of(el), href, reach, main_hrefs)[0],
+            analysis=analysis,
         )
 
         removable_families = fonts.fully_confident_families()
         if removable_families:
-            self._remove_font_faces_and_resources(book, removable_families, fonts, report)
+            self._remove_font_faces_and_resources(book, removable_families, fonts, report, analysis=analysis)
 
         return report
 
@@ -149,7 +151,7 @@ class FontStripRepair:
     # Shared removal walk -- CSS-level font-family declarations only
     # -----------------------------------------------------
 
-    def _remove_matching(self, book, family_to_hrefs, css_predicate, element_predicate):
+    def _remove_matching(self, book, family_to_hrefs, css_predicate, element_predicate, analysis=None):
         """Walks every CSS file, embedded <style> block, inline
         style="", and <font face> tag exactly once, in the same order
         ebook_fix.fonts.analyze_book_font_usage does, removing a
@@ -186,9 +188,13 @@ class FontStripRepair:
 
         # 2. Embedded <style> blocks, inline style="" attributes, and
         #    legacy <font face> tags, per chapter.
-        for chapter in book.chapters:
+        # A page whose record (ebook_fix.class_usage) shows no <style> block, no
+        # inline font-family and no <font face> has nothing to strip.
+        for chapter, record in zip(book.chapters, self._records(book, analysis)):
             root = self._root(chapter.document)
             if root is None:
+                continue
+            if record is not None and not (record.has_style or record.inline_font_family or record.font_face_tag):
                 continue
             href = getattr(chapter, "href", "")
             changed = False
@@ -254,7 +260,7 @@ class FontStripRepair:
     # @font-face + resource + encryption.xml cleanup
     # -----------------------------------------------------
 
-    def _remove_font_faces_and_resources(self, book, removable_families, fonts, report):
+    def _remove_font_faces_and_resources(self, book, removable_families, fonts, report, analysis=None):
         """For every family where EVERY usage in the book is
         confident, strips its @font-face rule(s) wherever they live
         and deletes the font resource(s) it embeds -- but only a
@@ -281,9 +287,9 @@ class FontStripRepair:
                 )
 
         # ...then any chapter's own embedded <style> block.
-        for chapter in book.chapters:
+        for chapter, record in zip(book.chapters, self._records(book, analysis)):
             root = self._root(chapter.document)
-            if root is None:
+            if root is None or (record is not None and not record.has_style):
                 continue
             for el in root.iter():
                 if not isinstance(el.tag, str) or etree.QName(el).localname.lower() != "style":
@@ -406,6 +412,15 @@ class FontStripRepair:
     # -----------------------------------------------------
     # Helpers
     # -----------------------------------------------------
+
+    @staticmethod
+    def _records(book, analysis):
+        """The page records (ebook_fix.class_usage) used to skip pages with
+        nothing to strip. Without an analysis there are none (None for every
+        page), and every page is walked, as before."""
+        if analysis is None:
+            return [None] * len(book.chapters)
+        return class_usage_for(book, analysis)
 
     def _root(self, tree):
         if tree is None:

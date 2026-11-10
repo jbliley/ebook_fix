@@ -81,6 +81,14 @@ class PageClassUsage:
     body_classes: frozenset = frozenset()
     p_body_style: bool = False
     font_family_inline: bool = False
+    # Color Strip and Font Strip: an inline style holding the word "color" or
+    # "font-family" on any element, and a <font> tag with a color or a face. A
+    # page with none of these and no <style> block has nothing for either to
+    # strip.
+    inline_color: bool = False
+    inline_font_family: bool = False
+    font_color_tag: bool = False
+    font_face_tag: bool = False
 
 
 @dataclass
@@ -99,6 +107,7 @@ def analyze_class_usage_page(href, document) -> PageClassUsage:
     block_classes, heading_classes, single_paragraphs = set(), set(), set()
     non_paragraph, body_classes = set(), set()
     p_body_style = font_family_inline = False
+    inline_color = inline_font_family = font_color_tag = font_face_tag = False
     in_heading = {}  # element -> True when a heading is above it
     plain_spans = text_elements = text_chars = unit_count = unit_chars = 0
     empty_class = has_script = has_style = False
@@ -137,6 +146,15 @@ def analyze_class_usage_page(href, document) -> PageClassUsage:
             for inner in el.iter():
                 if isinstance(inner.tag, str):
                     heading_classes.update((inner.get("class") or "").split())
+        if "color" in style:
+            inline_color = True
+        if "font-family" in style:
+            inline_font_family = True
+        if lowered == "font":
+            if el.get("color"):
+                font_color_tag = True
+            if el.get("face"):
+                font_face_tag = True
         if local == "span":
             if names:
                 span_classes.update(names)
@@ -190,6 +208,10 @@ def analyze_class_usage_page(href, document) -> PageClassUsage:
         body_classes=frozenset(body_classes),
         p_body_style=p_body_style,
         font_family_inline=font_family_inline,
+        inline_color=inline_color,
+        inline_font_family=inline_font_family,
+        font_color_tag=font_color_tag,
+        font_face_tag=font_face_tag,
     )
 
 

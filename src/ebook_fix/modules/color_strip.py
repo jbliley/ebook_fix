@@ -58,6 +58,7 @@ from pathlib import PurePosixPath
 from lxml import etree
 
 from ebook_fix.css import read_book_css, COMMENT_RE, RULE_RE
+from ebook_fix.class_usage import class_usage_for
 from ebook_fix.report import Report
 from ebook_fix.config import ColorRepairConfig
 from ebook_fix.color import (
@@ -105,6 +106,7 @@ class ColorStripRepair:
                 selector, body, reach, body_text_classes, keep_small)[0],
             element_predicate=lambda el, finding_id, href, value, style_val: decide_inline(
                 el, value, style_val, href, reach, main_hrefs, keep_small)[0],
+            analysis=analysis,
         )
 
     def apply_review_removals(self, book, accepted_ids):
@@ -128,7 +130,7 @@ class ColorStripRepair:
     # Shared removal walk
     # -----------------------------------------------------
 
-    def _remove_matching(self, book, css_predicate, element_predicate):
+    def _remove_matching(self, book, css_predicate, element_predicate, analysis=None):
         """Walks every CSS file, embedded <style> block, inline
         style="", and <font color> tag exactly once, in the same order
         ebook_fix.analyze_book_color does, removing a `color`
@@ -171,9 +173,14 @@ class ColorStripRepair:
 
         # 2. Embedded <style> blocks, inline style="" attributes, and
         #    legacy <font color> tags, per chapter.
-        for chapter in book.chapters:
+        # A page whose record (ebook_fix.class_usage) shows no <style> block, no
+        # inline style with a color and no <font color> has nothing to strip, so
+        # it is not walked.
+        for chapter, record in zip(book.chapters, self._records(book, analysis)):
             root = self._root(chapter.document)
             if root is None:
+                continue
+            if record is not None and not (record.has_style or record.inline_color or record.font_color_tag):
                 continue
             href = getattr(chapter, "href", "")
             changed = False
@@ -236,6 +243,15 @@ class ColorStripRepair:
     # -----------------------------------------------------
     # Helpers
     # -----------------------------------------------------
+
+    @staticmethod
+    def _records(book, analysis):
+        """The page records (ebook_fix.class_usage) used to skip pages with
+        nothing to strip. Without an analysis there are none (None for every
+        page), and every page is walked, as before."""
+        if analysis is None:
+            return [None] * len(book.chapters)
+        return class_usage_for(book, analysis)
 
     def _root(self, tree):
         if tree is None:

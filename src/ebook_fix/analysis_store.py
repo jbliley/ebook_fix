@@ -15,7 +15,7 @@ again. See `docs/single_analysis_plan.md` for where this is heading.
 Two kinds of finding are stored today:
 
 - Findings that depend on one page's markup and nothing else (whitespace,
-  ellipsis, apostrophes, possessive candidates, class usage, links, text lines and scene index). Each is kept per page,
+  ellipsis, apostrophes, possessive candidates, class usage, links, text lines, scene index and file references). Each is kept per page,
   with a fingerprint of the page, by PageFindingCache (see
   `ebook_fix.finding_cache` for exactly when a kept finding is trusted).
 - Whole-book findings (chapters, front matter so far). Each is kept with a
@@ -48,6 +48,7 @@ from ebook_fix.class_map import build_class_profiles
 from ebook_fix.class_usage import analyze_book_class_usage
 from ebook_fix.color import analyze_book_color
 from ebook_fix.ellipsis import analyze_book_ellipsis
+from ebook_fix.file_refs import analyze_book_file_refs
 from ebook_fix.finding_cache import PageFindingCache, _root_of, page_fingerprint
 from ebook_fix.fonts import analyze_book_font_usage
 from ebook_fix.frontmatter import analyze_book_frontmatter
@@ -74,6 +75,7 @@ PAGE_FINDINGS = {
     "links": analyze_book_links,
     "text_lines": analyze_book_text_lines,
     "scene_index": analyze_book_scene_index,
+    "file_refs": analyze_book_file_refs,
 }
 
 

@@ -4189,3 +4189,16 @@ Found in Altered Carbon: 147 names written with no space after the title ("Mrs.B
 - `whitespace.py`: a capitalized title (`HONORIFICS`: Mr, Mrs, Ms, Mx, Dr, Prof, Rev, Capt, Col, Lt, Sgt) followed by a period and a capitalized word with no space now gets the space ("Mrs. Bancroft"). A title can only be followed by a name, so this is never the end of a sentence. The word before the period must be the whole title, in capitals as written, so "mr.Smith", initials ("J.Smith"), acronyms ("U.S.A.Then"), "etc.Then" and "St.Louis" are left as they were. It rides the existing "Missing space after punctuation" setting and report line.
 
 Checks: the new rule on 10 hand-written cases (titles fixed; lowercase, initials, acronyms, other abbreviations and an already spaced title unchanged). Altered Carbon repaired: 147 glued titles before, 0 after, and repairing the output again changed nothing. No other example EPUB contains a glued title, so none of the other 26 can change.
+
+
+### Changed: Junk File Removal, Color Strip and Font Strip read shared page records (2026-11-10)
+
+Stretch 10 of `docs/single_analysis_plan.md`. Junk File Removal used to open every page to see which files it points at, and Color Strip and Font Strip walked every page looking for inline colors and fonts. The analysis store now keeps the facts per page, and each step opens only the pages that can have something to do.
+
+- `file_refs.py` (new): the files each page points at (pictures, other files, stylesheet `url(...)` values), kept by the store as the `file_refs` finding.
+- `modules/junk_file_repair.py`: decides which files are in use from the records, and rescans only pages whose record names a file it is about to change.
+- `class_usage.py`: each page record also says whether it has an inline color, an inline font family, a `<font>` tag with a color or face.
+- `modules/color_strip.py`, `modules/font_strip.py`: open only pages where the record shows one of those, or a style block.
+- `analysis_store.py`: the `file_refs` finding is stored per page like the others.
+
+Checks: all 27 example EPUBs repaired with the old code and the new, outputs identical apart from the modified time in the OPF. Color Strip and Font Strip run with and without the store on the 27 examples and 5 made-up books: identical pages and reports. The other steps in the stretch (Title Cleanup, Identifier Standardize, Author Initials, Metadata Sync, EPUB 3 Upgrade, Image Repair) read no pages, so they were not changed.

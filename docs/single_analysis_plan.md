@@ -293,6 +293,23 @@ Title Cleanup, Identifier Standardize, Author Initials, Junk File Removal,
 EPUB 3 Upgrade, Metadata Sync and Image Repair read through the store.
 Final check that every Group A step only reads findings.
 
+Done 2026-11-10. Of the seven steps, only Junk File Removal had a whole-book
+scan to move. Title Cleanup, Identifier Standardize, Author Initials, Metadata
+Sync and EPUB 3 Upgrade (which only reads the package file) read no pages, and
+Image Repair works from the analysis it is given, so there was nothing to
+change in them. The new page record (`file_refs.py`, kept by the store as the
+`file_refs` finding) lists, for each page, the files it points at (pictures
+and other files, including stylesheet `url(...)` values). Junk File Removal
+adds up the records to decide which files are still in use and rescans only
+the pages whose record names a file it is about to change. The final check
+found two more leftovers: Color Strip and Font Strip walked every page for
+inline colors, font families and `<font>` tags. The class usage record now
+also notes whether a page has an inline color, an inline font family, a
+`<font>` tag with a color or face, or a style block, and both steps open only
+pages where one is present. The other Group A steps that touch pages act on
+elements the analysis already found, or on a handful of front and back
+pages.
+
 ## Phase 3: Retire the repeats
 
 ### Stretch 11: Switch the Fix to the dirty check (M)
@@ -472,3 +489,4 @@ Open: nothing right now.
 | Stretch 7: Links and ids | 2026-11-08 | New `link_index.py` and a per-page `links` finding in the store. Dead Link Cleanup, TOC Cleanup, Page Titles and the link part of Cover Repair read it and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 572 cases (26 books with injected dead links, placeholder titles, empty and linked-to empty pages, blank and repeated contents entries, stale cover links; analysis with and without a store) plus 40 cases on 20 books made to hold a duplicate cover page: identical pages, files, counts and report lines. Shadow check unchanged: 0 wrong predictions in 2,356 runs |
 | Stretch 8: Text lines | 2026-11-08 | New `text_lines.py` and a per-page `text_lines` finding in the store. Mid-Word Hyphen Repair, Quote Style, Div Paragraphs, Extra Page Break Removal and Chapter Title Cleanup read it and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 1,820 cases (26 books with injected hyphen pairs, mixed quotes, text-only divs, forced page breaks and mixed title separators; analysis with and without a store) plus a made-up false chapter, one merged and one blocked: identical pages, files, counts and report lines. Shadow check unchanged: 0 wrong predictions in 2,356 runs. Time on the examples is unchanged (226s against 233s for all 26) |
 | Stretch 9: Scene and header steps | 2026-11-09 | New `scene_index.py` and a per-page `scene_index` finding in the store. Scene Opener Markers, the book's own scene marker (and Scene Break Markers) and Chapter Header Spacing read it and open only pages that can have something to do; Extra Content Removal had no whole-book scan to move. Examples identical (27 books, only the OPF modified time differs), second run changes nothing. Old against new on 30 books (the 27 examples plus three made-up books with scene openers, with the book's own marker line, and with neither): identical opener findings, marker text and marker lists. Shadow check unchanged: 0 wrong predictions in 2,397 runs. Time not compared (old and new ran side by side) |
+| Stretch 10: Metadata and package steps | 2026-11-10 | New `file_refs.py` and a per-page `file_refs` finding in the store. Junk File Removal reads it; Color Strip and Font Strip read new inline color and font facts on the class usage record and open only pages that have one. The other five steps read no pages, so nothing moved. Examples identical (27 books, only the OPF modified time differs). Color Strip and Font Strip with and without the store compared on 27 examples plus 5 made-up books: identical pages and reports. Time not compared |
