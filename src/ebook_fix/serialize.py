@@ -83,14 +83,3 @@ def save_report(report, epub_path) -> Path:
     return path
 
 
-def load_report(epub_path) -> dict | None:
-    """
-    Load a previously cached analysis report for a book, if one
-    exists. Returns a plain dict (see module docstring for why),
-    or None if no cache file is there yet.
-    """
-    path = cache_path_for(epub_path)
-    if not path.exists():
-        return None
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)

@@ -4212,3 +4212,20 @@ Stretch 11 of `docs/single_analysis_plan.md`. After a pass changed something, th
 - `dirty_check.py`: the tracker now decides what to skip instead of only watching. If the book ever changes without a repair reporting it, the tracker forgets what it knew, so nothing is skipped on stale information.
 
 Checks: all 27 example EPUBs repaired with the old Fix and the new, outputs identical apart from the modified time in the OPF; fixing 8 of the fixed outputs again changed nothing. Time was not compared.
+
+
+### Changed: clean-up after the single analysis work (2026-11-10)
+
+Stretch 12 of `docs/single_analysis_plan.md`, the last one. A scan for code that nothing calls found a few leftovers.
+
+- `contents_filter.py`: `filter_contents_page_candidates` removed (the detector class it wrapped is still used).
+- `headings.py`: `is_marked_header` removed.
+- `isbn_lookup.py`: `extract_isbn_from_epub` removed (`find_isbn_candidates` is what the ISBN lookup and the omnibus splitter use).
+- `serialize.py`: `load_report` removed (nothing reads the saved report file back; it is still written).
+- `structure.py`: `_text_from` removed.
+- `report.py`: unused `Table` import removed.
+- `README.md`: a short paragraph on the one-analysis idea.
+
+Kept on purpose: `PageFindingCache` (the analysis store is built on it and every page index uses it) and `_REFRESH_BEFORE` in `engine.py` (three names, still used before the three text repairs).
+
+Checks: all 27 example EPUBs repaired with the old code and the new, outputs identical apart from the modified time in the OPF; fixing 8 of the fixed outputs again changed nothing. Measured on the same machine against the code from before Stretch 11, the Fix on Tarzan, War and Peace and Images-PageNumbers now takes 3 passes instead of 2 and 9% to 22% longer. The figures and the open question are in `docs/single_analysis_plan.md`.

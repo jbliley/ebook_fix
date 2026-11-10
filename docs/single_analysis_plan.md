@@ -1,6 +1,6 @@
 # Single Analysis Plan
 
-Written 2026-11-05. The plan for making one analysis of the whole book the
+Written 2026-11-05. All 12 stretches were built by 2026-11-10; what is still open is listed under Decisions and in the status log at the bottom. The plan for making one analysis of the whole book the
 only place anything is detected, with every repair working from it. What
 was built so far is in `docs/analysis_roadmap.md`; this file is the
 roadmap for what is left, so nothing gets lost between sessions. Update
@@ -339,6 +339,20 @@ final timing table, and mark this plan finished in the roadmap. After that
 the plan file itself can be removed under the docs clean-up rule, with its
 text kept in git history.
 
+Done 2026-11-10 (the plan file stays until Jacob's trial on his own books is
+finished). A scan for code nothing calls found five helpers and one import,
+all removed: `filter_contents_page_candidates` (`contents_filter.py`),
+`is_marked_header` (`headings.py`), `extract_isbn_from_epub`
+(`isbn_lookup.py`), `load_report` (`serialize.py`), `_text_from`
+(`structure.py`) and the unused `Table` import in `report.py`. The refresh
+tables are already gone except `_REFRESH_BEFORE` in `engine.py`, which is now
+only three names (Ellipsis, Apostrophe, Whitespace) and is still used, so it
+stays. `PageFindingCache` stays too: the store is built on it and every page
+index goes through it. The README has a short paragraph on the one-analysis
+idea, the checklist is ticked and the "now" column of the measures is filled
+in. The measures show that the plan's two numbers about repeats were not met
+(see Decisions).
+
 Rough total: 12 stretches, about 11 intervals if nothing spills over (two
 stretches are half size), up to 14 if all three L stretches spill over.
 The program works after every stretch, and each one ships. Jacob can stop
@@ -371,47 +385,47 @@ step reads only the store and the checks above passed.
 
 | Step | Group | Planned stretch | Reads | Changes | Done |
 | --- | --- | --- | --- | --- | --- |
-| Gutenberg Boilerplate Removal | A | 2, 10 | 1.0 | classes, files removed, links/ids, attributes, package, page list, tags, text | |
-| Extra Content Removal | B | 9 | 5.7 | files removed, package, page list, resources | |
-| Running Title Removal | A | 2, 10 | 0.9 | classes, links/ids, attributes, tags, text | |
+| Gutenberg Boilerplate Removal | A | 2, 10 | 1.0 | classes, files removed, links/ids, attributes, package, page list, tags, text | ✓ |
+| Extra Content Removal | B | 9 | 5.7 | files removed, package, page list, resources | ✓ |
+| Running Title Removal | A | 2, 10 | 0.9 | classes, links/ids, attributes, tags, text | ✓ |
 | Div Paragraphs | C | 8 | 4.0 | tags, CSS | ✓ |
-| Stray Line Break Removal | A | 2, 10 | 0.0 | classes, links/ids, attributes, tags, text | |
-| Paragraph Repair | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
-| Chapter Markup | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
+| Stray Line Break Removal | A | 2, 10 | 0.0 | classes, links/ids, attributes, tags, text | ✓ |
+| Paragraph Repair | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | ✓ |
+| Chapter Markup | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | ✓ |
 | Chapter Title Cleanup | C | 8 | 8.0 | nothing seen | ✓ |
 | TOC Cleanup | C | 7 | 3.0 | nothing seen | ✓ |
 | Dead Link Cleanup | C | 7 | 9.7 | classes, links/ids, attributes, tags, text | ✓ |
-| EPUB 3 Upgrade | A | 10 | 7.5 | files edited, package | |
-| TOC Generation | A | 2, 10 | 4.0 | NCX, links/ids, files edited | |
-| Chapter Header Spacing | B | 9 | 9.0 | classes, links/ids, attributes, tags, text | |
-| Scene Break Normalizer | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | |
-| Scene Opener Markers | B | 9 | 4.0 | nothing seen | |
-| Scene Break Markers | B | 9 | 4.0 | classes, links/ids, attributes, tags, text | |
+| EPUB 3 Upgrade | A | 10 | 7.5 | files edited, package | ✓ |
+| TOC Generation | A | 2, 10 | 4.0 | NCX, links/ids, files edited | ✓ |
+| Chapter Header Spacing | B | 9 | 9.0 | classes, links/ids, attributes, tags, text | ✓ |
+| Scene Break Normalizer | A | 2 | 1.0 | classes, links/ids, attributes, tags, text | ✓ |
+| Scene Opener Markers | B | 9 | 4.0 | nothing seen | ✓ |
+| Scene Break Markers | B | 9 | 4.0 | classes, links/ids, attributes, tags, text | ✓ |
 | Body Paragraph Look | B | 5 | 7.0 | classes | ✓ |
 | Paragraph Spacing | B | 6 | 3.0 | CSS | ✓ |
 | Line Height | C | 5 | 4.0 | CSS | ✓ |
 | Reader Settings | B | 6 | 15.0 | classes, text, CSS | ✓ |
 | Text Size | C | 5 | 10.0 | nothing seen | ✓ |
 | Extra Page Break Removal | C | 8 | 2.0 | nothing seen | ✓ |
-| Image Repair | A | 10 | 0.0 | classes, links/ids, attributes, tags, text | |
-| Cover Repair | A | 7, 10 | 9.2 | files removed, links/ids, files edited, package | |
-| Color Strip | A | 2 | 4.0 | CSS | |
-| Font Strip | A | 2 | 5.0 | files removed, attributes, package, resources, CSS | |
+| Image Repair | A | 10 | 0.0 | classes, links/ids, attributes, tags, text | ✓ |
+| Cover Repair | A | 7, 10 | 9.2 | files removed, links/ids, files edited, package | ✓ |
+| Color Strip | A | 2 | 4.0 | CSS | ✓ |
+| Font Strip | A | 2 | 5.0 | files removed, attributes, package, resources, CSS | ✓ |
 | Embedded Stylesheet Consolidation | C | 5 | 2.0 | nothing seen | ✓ |
 | Class Cleanup | C | 4 | 6.0 | classes | ✓ |
 | Span Cleanup | C | 4 | 8.0 | classes, links/ids, attributes, tags, text | ✓ |
 | Unused CSS | C | 4 | 7.0 | classes, files removed, links/ids, attributes, package, tags, text, resources, CSS | ✓ |
-| Junk File Removal | C | 10 | 3.0 | files removed, links/ids, package, resources | |
+| Junk File Removal | C | 10 | 3.0 | files removed, links/ids, package, resources | ✓ |
 | Mid-Word Hyphen Repair | C | 8 | 2.0 | text | ✓ |
-| Ellipsis Normalizer | A | 1 | 0.0 | text | |
-| Apostrophe Repair | A | 1 | 0.0 | text | |
+| Ellipsis Normalizer | A | 1 | 0.0 | text | ✓ |
+| Apostrophe Repair | A | 1 | 0.0 | text | ✓ |
 | Quote Style | C | 8 | 5.7 | text | ✓ |
 | Page Titles | C | 7 | 2.0 | text | ✓ |
-| Whitespace Normalizer | A | 1 | 0.0 | text | |
-| Title Cleanup | C | 10 | 0.0 | package | |
-| Metadata Sync | A | 10 | 0.0 | nothing seen | |
-| Identifier Standardize | C | 10 | 0.0 | package | |
-| Author Initials | C | 10 | 0.0 | package | |
+| Whitespace Normalizer | A | 1 | 0.0 | text | ✓ |
+| Title Cleanup | C | 10 | 0.0 | package | ✓ |
+| Metadata Sync | A | 10 | 0.0 | nothing seen | ✓ |
+| Identifier Standardize | C | 10 | 0.0 | package | ✓ |
+| Author Initials | C | 10 | 0.0 | package | ✓ |
 | Class Standardize (automatic mapping) | B | 6 | 4.0 | classes, CSS | ✓ |
 
 "Reads" is the most page accesses per page the step made itself, over the
@@ -431,18 +445,18 @@ Stretches 4 to 9 need synthetic tests for them.
 ## Measures
 
 Baseline taken on 2026-11-05 after Page Reuse, in the development sandbox.
-These times only compare with other times from the same machine. Fill in
+These times only compare with other times from the same machine (the Stretch 12 times were taken on a different machine from the baseline, so they were compared with the code from before Stretch 11 on that machine). Fill in
 the "now" column at Stretches 3, 6, 9 and 11.
 
 | Measure | Baseline | Target | Now |
 | --- | --- | --- | --- |
-| Full analyses per Fix (book settling in 2 passes) | 2 | 1 | 2 (Stretch 3) |
-| Whole-book repair runs per Fix | every step twice, 9 steps a third time (settling) | once each | 93 runs of 42 steps, the same (Stretch 3) |
-| Fix time, Tarzan | 33.4s | measure, no promise | 35.6s (same machine and day: 34.5s before Stretch 3) |
-| Fix time, War and Peace | 13.7s | measure, no promise | 13.9s (13.4s before Stretch 3) |
-| Fix time, Images-PageNumbers | 6.5s | measure, no promise | 6.6s (6.5s before Stretch 3) |
-| Steps that detect on their own | 26 of 42 | 0 | 26 of 42 (Stretch 3) |
-| Repair runs a dirty check could skip, with one whole-book fingerprint | 0% | most of the confirming pass | 4.7% (110 of 2,356 runs on 26 books; 0 wrong predictions) |
+| Full analyses per Fix (book settling in 2 passes) | 2 | 1 | 3 (Stretch 12): the first one and two later ones that read only the pages that changed. It was 2 before Stretch 11 |
+| Whole-book repair runs per Fix | every step twice, 9 steps a third time (settling) | once each | 112, 121 and 117 runs on the three timing books, with 14, 5 and 9 more skipped as unchanged (Stretch 12) |
+| Fix time, Tarzan | 33.4s | measure, no promise | 50.2s (41.1s with the code from before Stretch 11, same machine and day; 3 passes against 2) |
+| Fix time, War and Peace | 13.7s | measure, no promise | 19.7s (16.7s before Stretch 11, same machine and day) |
+| Fix time, Images-PageNumbers | 6.5s | measure, no promise | 8.7s (8.0s before Stretch 11, same machine and day) |
+| Steps that detect on their own | 26 of 42 | 0 | 0 of 42 walk the whole book on their own (checked step by step as each moved in Stretches 4 to 10; the page-read counter was not run again). Cover Repair's duplicate page search and Extra Content Removal still look at a handful of pages |
+| Repair runs a dirty check could skip, with one whole-book fingerprint | 0% | most of the confirming pass | 4% to 11% skipped on the three timing books (5 to 14 of 126 runs; Stretch 12). Not counted again across all examples |
 
 ## Risks and how each is handled
 
@@ -481,7 +495,10 @@ Made:
   The Bite Back box set (Mark Henwick, three books in one file) is added
   now as `examples/BiteBack-BoxSet.epub`.
 
-Open: nothing right now.
+Open after Stretch 12:
+
+- Jacob's trial of Tarzan, War and Peace, Sidewinders and other books of his own, which is the check for rare cases the examples miss.
+- Every repair now reads the store, but the Fix still looks at the book more times than before. With the settling step gone, a repair that used to run twice inside one pass now runs in the next pass, so the three timing books take 3 passes instead of 2, and 9% to 22% longer on this machine. The later passes read only the pages that changed, so the extra cost is small per pass, but the target of one full analysis per Fix is not met and Stretch 11 made the time worse. The cause of the extra pass has not been investigated yet. This is the first thing to look at when work on speed starts.
 
 ## Status log
 
@@ -502,3 +519,4 @@ Open: nothing right now.
 | Stretch 9: Scene and header steps | 2026-11-09 | New `scene_index.py` and a per-page `scene_index` finding in the store. Scene Opener Markers, the book's own scene marker (and Scene Break Markers) and Chapter Header Spacing read it and open only pages that can have something to do; Extra Content Removal had no whole-book scan to move. Examples identical (27 books, only the OPF modified time differs), second run changes nothing. Old against new on 30 books (the 27 examples plus three made-up books with scene openers, with the book's own marker line, and with neither): identical opener findings, marker text and marker lists. Shadow check unchanged: 0 wrong predictions in 2,397 runs. Time not compared (old and new ran side by side) |
 | Stretch 10: Metadata and package steps | 2026-11-10 | New `file_refs.py` and a per-page `file_refs` finding in the store. Junk File Removal reads it; Color Strip and Font Strip read new inline color and font facts on the class usage record and open only pages that have one. The other five steps read no pages, so nothing moved. Examples identical (27 books, only the OPF modified time differs). Color Strip and Font Strip with and without the store compared on 27 examples plus 5 made-up books: identical pages and reports. Time not compared |
 | Stretch 11: Switch the Fix to the dirty check | 2026-11-10 | Settling step removed; unchanged repairs skipped in later passes; log line renamed to Dirty check. Examples identical (27 books, only the OPF modified time differs); fixing 8 of the fixed outputs again changed nothing. Skipped runs on the examples: 1 to 35 of 27 to 119 per book. Time not compared; Jacob's trial on Tarzan, War and Peace and Sidewinders still to do |
+| Stretch 12: Clean-up and write-up | 2026-11-10 | Five unused helpers and one unused import removed; `PageFindingCache` and `_REFRESH_BEFORE` kept because they are still used. README paragraph added, checklist ticked, measures filled in. Examples identical (27 books, only the OPF modified time differs, old code against new); fixing 8 of the fixed outputs again changed nothing. Time compared with the code from before Stretch 11 on the same machine: 9% to 22% slower and one extra pass, recorded under Decisions |

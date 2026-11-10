@@ -100,13 +100,6 @@ def carries_split_stamp(element) -> bool:
     return False
 
 
-def is_marked_header(el) -> bool:
-    """True for an element Chapter Markup or a split has marked."""
-    return el is not None and isinstance(el.tag, str) and bool(
-        el.get(MARKER_ATTR) or el.get(SPLIT_MARKER_ATTR)
-    )
-
-
 def is_chapter_header(el, markers=None) -> bool:
     if el is None or not isinstance(el.tag, str):
         return False

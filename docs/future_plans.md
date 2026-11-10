@@ -6,10 +6,11 @@ what comes next.
 
 ## In progress
 
-- **Single analysis.** One analysis of the whole book, with every repair
-  working from it and no repair scanning on its own. The phases, the
-  checklist of all 42 repair steps and the status log are in
-  `docs/single_analysis_plan.md`. This is Jacob's top priority.
+- **Single analysis, follow-up.** All 12 stretches are built, and every
+  repair now reads the shared analysis. Still open: Jacob's trial on his
+  own books, and the Fix taking 3 passes instead of 2 since the settling
+  step was removed (9% to 22% slower on the three timing books). The
+  details and numbers are in `docs/single_analysis_plan.md`.
 
 ## Decided, not built yet
 

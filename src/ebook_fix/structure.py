@@ -899,10 +899,6 @@ def _words(text: str) -> int:
     return len(text.split())
 
 
-def _text_from(element) -> list:
-    return text_from(element)
-
-
 def _text_range(start_element, end_element) -> str:
     return text_range(start_element, end_element)
 

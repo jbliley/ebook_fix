@@ -6,6 +6,8 @@ The ultimate goal of this project is to allow eBook files to be analyzed and fix
 
 The project is still under development and currently supports analysis and repair of **EPUB** files, plus converting **MOBI**, **AZW3**, **FB2**, **HTML**, and plain-text **PDB** (PalmDOC) books to EPUB without needing any other software.
 
+Each book is analyzed once, and every repair then works from that analysis instead of searching the book for problems on its own. When a repair changes a page, only that page is checked again, and a repair that found nothing to do is skipped for as long as the book stays unchanged. Running a repair on a book that has already been repaired should change nothing.
+
 ## Table of Contents
 
 * [Installation](#installation)

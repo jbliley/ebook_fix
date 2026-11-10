@@ -25,7 +25,6 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 from rich.console import Console
-from rich.table import Table
 
 console = Console()
 

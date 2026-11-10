@@ -214,32 +214,6 @@ class ContentsPageDetector:
         return filtered
 
 
-def filter_contents_page_candidates(book, candidates: List) -> List:
-    """Public function to detect and filter contents page candidates.
-    
-    Args:
-        book: The Book object
-        candidates: List of ChapterCandidate objects from analysis
-        
-    Returns:
-        List: Filtered candidates with false positives removed
-    """
-    detector = ContentsPageDetector()
-    contents_files = detector.detect_contents_files(book)
-    
-    if not contents_files:
-        return candidates
-    
-    filtered = detector.filter_candidates(candidates, contents_files)
-    
-    # Log what was filtered (optional)
-    removed_count = len(candidates) - len(filtered)
-    if removed_count > 0:
-        print(f"[Contents Filter] Removed {removed_count} false-positive candidates from {len(contents_files)} contents page(s)")
-    
-    return filtered
-
-
 # ---------------------------------------------------------------------
 # A contents list inside a larger file
 # ---------------------------------------------------------------------

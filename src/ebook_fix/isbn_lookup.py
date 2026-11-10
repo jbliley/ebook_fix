@@ -136,12 +136,6 @@ def find_isbn_candidates(book) -> tuple[list[str], list[str]]:
     return valid, invalid
 
 
-def extract_isbn_from_epub(book) -> Optional[str]:
-    """The best valid ISBN found on the book, or None."""
-    valid, _invalid = find_isbn_candidates(book)
-    return valid[0] if valid else None
-
-
 # ---------------------------------------------------------------------------
 # Talking to Open Library
 # ---------------------------------------------------------------------------
