@@ -59,6 +59,7 @@ from ebook_fix.models import ManifestItem
 from ebook_fix.report import Report
 from ebook_fix.toc_generate import build_toc_entries, build_nav_bytes, build_ncx_document
 from ebook_fix.toc_corroborated import build_corroborated_title_entries
+from ebook_fix.toc_supplement import is_sparse_toc, merge_original_entries, retarget_contents_links
 
 OPF_NS = "http://www.idpf.org/2007/opf"
 NCX_NS_URI = "http://www.daisy.org/z3986/2005/ncx/"
@@ -86,7 +87,18 @@ class TocGenerationRepair:
         placeholder = self._is_placeholder_toc(book, analysis)
         location = book.package_path or "content.opf"
         confirmed = self._confirmed_count(analysis)
-        if self._ncx_needs_generating(book, placeholder, confirmed):
+        original = getattr(book, "original_toc_count", -1)
+        if placeholder and original > self._PLACEHOLDER_TOC_MAX_ENTRIES:
+            if self._ncx_needs_generating(book, placeholder, confirmed):
+                report.add(
+                    location,
+                    "Table of contents lists only a few of the chapters",
+                    f"The book's own table of contents has {original} entries but "
+                    f"{confirmed} chapters were found. It will be rebuilt from the detected "
+                    "chapters and Parts, keeping the original entries that have no match "
+                    "(Acknowledgements, for example).",
+                )
+        elif self._ncx_needs_generating(book, placeholder, confirmed):
             report.add(
                 location,
                 "No table of contents at all",
@@ -125,14 +137,35 @@ class TocGenerationRepair:
             # get a generated TOC from weak evidence alone).
             return report
 
+        original = getattr(book, "original_toc_count", -1)
+        if placeholder and original > self._PLACEHOLDER_TOC_MAX_ENTRIES:
+            # Sparse (not placeholder) TOC: keep the original entries the
+            # detected structure has no place for, e.g. Acknowledgements.
+            entries = merge_original_entries(book, entries, list(book.toc or []))
+
         confirmed = max(self._confirmed_count(analysis), len(entries) if entries is alt else 0)
+        rebuilt = False
         if self._ncx_needs_generating(book, placeholder, confirmed):
             self._add_ncx(book, entries, report)
+            rebuilt = True
 
         if self._needs_nav(book):
             self._add_nav(book, entries, report)
+            rebuilt = True
         elif placeholder and self._nav_needs_regenerating(book, confirmed):
             self._regenerate_nav(book, entries, report)
+            rebuilt = True
+
+        if rebuilt and placeholder and original > self._PLACEHOLDER_TOC_MAX_ENTRIES:
+            fixed = retarget_contents_links(book, entries)
+            if fixed:
+                book.mark_modified()
+                report.add(
+                    book.package_path or "content.opf",
+                    "Contents page links corrected",
+                    f"Pointed {fixed} link(s) on the book's own contents page at the "
+                    "places the rebuilt table of contents uses.",
+                )
 
         return report
 
@@ -174,7 +207,12 @@ class TocGenerationRepair:
         if original < 0:
             original = self._count_entries(book.toc or [])
         if original > self._PLACEHOLDER_TOC_MAX_ENTRIES:
-            return False
+            # A longer TOC is still treated as incomplete when it lists
+            # only a small share of the chapters the analysis confirmed
+            # (just the Parts of a forty-chapter novel, say).
+            summary = getattr(analysis, "chapters", None) if analysis is not None else None
+            confirmed = len(summary.confirmed_boundaries or []) if summary is not None else 0
+            return is_sparse_toc(original, confirmed)
         summary = getattr(analysis, "chapters", None) if analysis is not None else None
         if summary is not None and len(summary.confirmed_boundaries or []) >= self._PLACEHOLDER_TOC_MIN_CHAPTERS:
             return True

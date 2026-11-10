@@ -1044,8 +1044,21 @@ def _find_best_sequence(candidates: list, book=None) -> ChapterSequence | None:
                     # Crossed into a later Book/Part/Volume -- numbering
                     # is allowed to restart near 1 instead of needing to
                     # keep counting up from wherever the last part left
-                    # off.
-                    valid = group[i].number <= PART_RESTART_MAX_NUMBER
+                    # off. Equally valid is a count that simply keeps
+                    # going across the Part break ("CHAPTER FIFTEEN" at
+                    # the end of Part 2, "CHAPTER SIXTEEN" opening Part
+                    # 3), which is how many modern novels number them.
+                    gap = group[i].number - group[j].number
+                    continues = gap >= 1 if sparse_ok else 1 <= gap <= MAX_SEQUENCE_GAP
+                    # Only for markers that carry a label word ("CHAPTER
+                    # SIXTEEN"). Bare numbers (page numbers in a running
+                    # header, say) would otherwise chain across Parts.
+                    continues = continues and group[i].label_kind == "chapter" and group[j].label_kind == "chapter"
+                    valid = group[i].number <= PART_RESTART_MAX_NUMBER or continues
+                    # A run of bare numbers (page numbers) is never linked
+                    # to labeled chapters across a Part break either way.
+                    if group[i].label_kind != group[j].label_kind:
+                        valid = False
                 else:
                     valid = False
                 if not valid:
@@ -1122,6 +1135,32 @@ def _part_division_word(text: str) -> str:
     if first in SUFFIX_PART_LABEL_WORDS:
         return first
     return ""
+
+
+# A validated run of this many Parts under one label word ("PART 1" to
+# "PART 5") is a book's real Part structure.
+MIN_REAL_PART_RUN = 3
+
+
+def _drop_stray_singleton_parts(part_candidates: list) -> list:
+    """Drops a lone Part/Book/Volume marker that uses a different label
+    word than a book's real run of Parts. Altered Carbon has PART 1 to
+    PART 5, plus one line of story text reading "Volume II" (an in-story
+    book title) that otherwise passed as a Part of its own and split the
+    chapters around it. Only acts when the real run is at least
+    MIN_REAL_PART_RUN long, so a book with a single Prologue/Volume
+    marker is untouched."""
+    groups: dict = {}
+    for c in part_candidates:
+        groups.setdefault((_part_division_word(c.text), c.style), []).append(c)
+    if len(groups) < 2:
+        return part_candidates
+    real = [k for k, g in groups.items() if len(_find_best_part_sequence(list(g))) >= MIN_REAL_PART_RUN]
+    if not real:
+        return part_candidates
+    stray = {id(g[0]) for k, g in groups.items() if k not in real and len(g) == 1
+             and k[0] in PART_LABEL_WORDS}
+    return [c for c in part_candidates if id(c) not in stray]
 
 
 def _find_best_part_sequence(part_candidates: list) -> list:
@@ -1401,6 +1440,7 @@ def analyze_book_chapters(book) -> BookChapterSummary:
     ]
     _assign_part_indices(chapter_candidates, part_candidates)
 
+    part_candidates = _drop_stray_singleton_parts(part_candidates)
     for c in _find_best_part_sequence(part_candidates):
         c.confirmed = True
 
