@@ -38,6 +38,8 @@ What gets analyzed, per text/tail node
 - Space before punctuation (" ,text" -> ",text"; also applies to a
   stray space directly before an ellipsis character, "…")
 - Missing space after sentence-ending punctuation (narrow rule, see above)
+- Missing space after a capitalized title ("Mrs.Bancroft" -> "Mrs. Bancroft",
+  see HONORIFICS below); other abbreviations and initials are still left alone
 - Whitespace-only nodes (pure formatting whitespace standing alone
   between elements -- always collapses to a single space, never
   deleted outright; see "Standalone whitespace-only nodes" below)
@@ -197,6 +199,18 @@ MISSING_SPACE_AFTER_SEMICOLON_RE = re.compile(r"([A-Za-z]);([A-Za-z])")
 MISSING_SPACE_AFTER_COLON_RE = re.compile(r"([A-Za-z]):([A-Za-z])")
 
 
+# Courtesy and rank titles that are only ever followed by a name. A capitalized
+# one, then a period, then a capitalized word with no space at all ("Mrs.Bancroft",
+# "Dr.Okafor") is a missed space, never the end of a sentence or an initial:
+# nothing else can follow "Mrs." There are 146 of them in one Altered Carbon
+# conversion. Case-sensitive on purpose, so "mr.Smith" or a word that merely
+# ends in these letters is left alone (the word before the period must be the
+# whole title).
+HONORIFICS = frozenset({
+    "Mr", "Mrs", "Ms", "Mx", "Dr", "Prof", "Rev", "Capt", "Col", "Lt", "Sgt",
+})
+
+
 def _is_abbreviation(word: str) -> bool:
     return word.strip().lower() in ABBREVIATIONS
 
@@ -210,7 +224,7 @@ def _fix_missing_space_after_sentence(text: str) -> tuple[str, int]:
     def repl(m: re.Match) -> str:
         nonlocal count
         word, punct, next_start = m.group(1), m.group(2), m.group(3)
-        if punct == "." and _is_abbreviation(word):
+        if punct == "." and _is_abbreviation(word) and word not in HONORIFICS:
             return m.group(0)
         count += 1
         return f"{word}{punct} {next_start}"

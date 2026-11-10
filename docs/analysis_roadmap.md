@@ -4181,3 +4181,11 @@ Stretch 9 of `docs/single_analysis_plan.md`. These steps used to walk every para
 
 Checks: all 27 example EPUBs repaired with the old code and the new, outputs identical apart from the modified time in the OPF; fixing the fixed outputs again changed nothing; opener findings, the book's marker text and the marker lists compared old against new on 30 books (the examples plus three made-up books: one whose scene changes open with capitals and which qualifies, one with a row of "∞ ∞ ∞" markers, and a plain one): identical. The shadow check is unchanged: 0 wrong predictions in 2,397 runs.
 
+
+### Fixed: missing space after a title such as "Mrs." (2026-11-09)
+
+Found in Altered Carbon: 147 names written with no space after the title ("Mrs.Bancroft", "Mr.Dimitri", "Ms.Kawahara"). They were already glued in the book as it came in (Calibre conversion of a MOBI), so the repair did not cause them, but the Whitespace Normalizer would not fix them either: its missing-space rule deliberately skips any word in its abbreviation list, which includes every title, so that initials and abbreviations are never mangled.
+
+- `whitespace.py`: a capitalized title (`HONORIFICS`: Mr, Mrs, Ms, Mx, Dr, Prof, Rev, Capt, Col, Lt, Sgt) followed by a period and a capitalized word with no space now gets the space ("Mrs. Bancroft"). A title can only be followed by a name, so this is never the end of a sentence. The word before the period must be the whole title, in capitals as written, so "mr.Smith", initials ("J.Smith"), acronyms ("U.S.A.Then"), "etc.Then" and "St.Louis" are left as they were. It rides the existing "Missing space after punctuation" setting and report line.
+
+Checks: the new rule on 10 hand-written cases (titles fixed; lowercase, initials, acronyms, other abbreviations and an already spaced title unchanged). Altered Carbon repaired: 147 glued titles before, 0 after, and repairing the output again changed nothing. No other example EPUB contains a glued title, so none of the other 26 can change.
