@@ -320,6 +320,17 @@ passes as a safety net. Run all the examples plus a second-run check, and
 ask Jacob to try the books that gave trouble before (Tarzan, War and
 Peace, Sidewinders and others he picks).
 
+Done 2026-11-10 (Jacob's trial on his own books still to come). The settling
+step is gone: `_SETTLE_AFTER` and `_SETTLE_REFRESH` are removed, and the
+repairs that used to run a second time inside a pass now simply run in the
+next pass. A repair that found nothing to do, when the book is unchanged
+since, is skipped (`DirtyTracker.is_clean`), and the pass ends when nothing
+changed. The per-text findings of the three text repairs are still made again
+just before they run. The analysis made at the start of a later pass reads
+only the pages that changed, because of the store. The cap on passes stays
+as the safety net. The tracker no longer predicts: it skips, and its Fix log
+line reads "[Dirty check] N repair runs, M skipped as unchanged".
+
 ### Stretch 12: Clean-up and write-up (S)
 
 Delete dead code (refresh tables, `PageFindingCache` if nothing uses it),
@@ -490,3 +501,4 @@ Open: nothing right now.
 | Stretch 8: Text lines | 2026-11-08 | New `text_lines.py` and a per-page `text_lines` finding in the store. Mid-Word Hyphen Repair, Quote Style, Div Paragraphs, Extra Page Break Removal and Chapter Title Cleanup read it and open only pages that can have something to do. Examples identical (26 books, only the OPF modified time differs), second run changes nothing. Old against new on 1,820 cases (26 books with injected hyphen pairs, mixed quotes, text-only divs, forced page breaks and mixed title separators; analysis with and without a store) plus a made-up false chapter, one merged and one blocked: identical pages, files, counts and report lines. Shadow check unchanged: 0 wrong predictions in 2,356 runs. Time on the examples is unchanged (226s against 233s for all 26) |
 | Stretch 9: Scene and header steps | 2026-11-09 | New `scene_index.py` and a per-page `scene_index` finding in the store. Scene Opener Markers, the book's own scene marker (and Scene Break Markers) and Chapter Header Spacing read it and open only pages that can have something to do; Extra Content Removal had no whole-book scan to move. Examples identical (27 books, only the OPF modified time differs), second run changes nothing. Old against new on 30 books (the 27 examples plus three made-up books with scene openers, with the book's own marker line, and with neither): identical opener findings, marker text and marker lists. Shadow check unchanged: 0 wrong predictions in 2,397 runs. Time not compared (old and new ran side by side) |
 | Stretch 10: Metadata and package steps | 2026-11-10 | New `file_refs.py` and a per-page `file_refs` finding in the store. Junk File Removal reads it; Color Strip and Font Strip read new inline color and font facts on the class usage record and open only pages that have one. The other five steps read no pages, so nothing moved. Examples identical (27 books, only the OPF modified time differs). Color Strip and Font Strip with and without the store compared on 27 examples plus 5 made-up books: identical pages and reports. Time not compared |
+| Stretch 11: Switch the Fix to the dirty check | 2026-11-10 | Settling step removed; unchanged repairs skipped in later passes; log line renamed to Dirty check. Examples identical (27 books, only the OPF modified time differs); fixing 8 of the fixed outputs again changed nothing. Skipped runs on the examples: 1 to 35 of 27 to 119 per book. Time not compared; Jacob's trial on Tarzan, War and Peace and Sidewinders still to do |

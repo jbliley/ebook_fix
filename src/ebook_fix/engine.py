@@ -154,41 +154,19 @@ class _AutoClassStandardize:
 
 
 
-# Settling inside one pass (see Engine._run_repair_passes).
+# Fresh findings inside one pass (see Engine._run_repair_passes).
 #
 # A repair reads the analysis made before the pass began, so work that an
-# earlier repair in the same pass created used to wait for the next pass,
-# and nearly every book needed a third one. Two small rules close most of
-# that gap without analyzing the whole book again:
-#
-# - These three read per-text findings. When something has already changed
-#   the book this pass, their own findings are worked out again from the
-#   current text just before they run (one check, not the whole analysis).
+# earlier repair in the same pass created waits for the next pass. These
+# three read per-text findings. When something has already changed the book
+# this pass, their own findings are worked out again from the current text
+# just before they run (one check, not the whole analysis). The next pass
+# runs only the repairs the dirty check cannot skip (see ebook_fix.dirty_check).
 _REFRESH_BEFORE = {
     "Ellipsis Normalizer": "ellipsis",
     "Apostrophe Repair": "apostrophes",
     "Whitespace Normalizer": "whitespace",
 }
-# - These read the live book (not the findings), so running them once more
-#   when the pass is over picks up what the repairs after them left behind,
-#   such as class names that stopped being used.
-# - Paragraph Repair joins what later repairs make joinable (a class renamed
-#   to the standard body class, for one), and the three text repairs above
-#   then clean the seams it leaves. Its findings are worked out again first.
-_SETTLE_AFTER = (
-    "Paragraph Repair", "Chapter Markup", "Chapter Header Spacing", "Reader Settings", "Class Cleanup",
-    "Unused CSS", "Apostrophe Repair", "Ellipsis Normalizer", "Whitespace Normalizer",
-)
-
-
-# Which of the repairs above get which finding made again first. Every finding
-# comes from the analysis store, which keeps the answer for anything that has
-# not changed since it was made and makes the rest from the book as it is now.
-_SETTLE_REFRESH = dict(_REFRESH_BEFORE, **{
-    "Paragraph Repair": "paragraphs",
-    "Chapter Markup": "chapters",
-    "Chapter Header Spacing": "chapters",
-})
 
 
 class Engine:
@@ -2238,9 +2216,8 @@ class Engine:
         store = getattr(analysis_report, "store", None)
         if store is None:
             store = AnalysisStore()
-        # The shadow check (see ebook_fix.dirty_check): watches which repair
-        # runs a dirty check could skip and writes what it finds to the log.
-        # It changes nothing a repair does.
+        # The dirty check (see ebook_fix.dirty_check): a repair that found
+        # nothing to do, with the book unchanged since, is not run again.
         tracker = DirtyTracker(book)
         pass_num = 1
         while True:
@@ -2263,41 +2240,25 @@ class Engine:
                 else:
                     existing.issues.extend(repair_report.issues)
 
-            def _shadow(name, repair_report, was_clean):
-                count = repair_report.count if repair_report is not None else 0
-                if tracker.ran(name, count, was_clean):
-                    self.log(
-                        f"[Shadow check] {name} changed {count} thing(s) in pass {pass_num} "
-                        "although the dirty check expected nothing to do."
-                    )
-
             for module_number, module in enumerate(modules, start=1):
+                # The dirty check (see ebook_fix.dirty_check): a repair that
+                # found nothing to do and has seen no change to the book
+                # since would find nothing again, so it is not run again.
+                if tracker.is_clean(module.name):
+                    tracker.skipped += 1
+                    continue
                 self.log(f"Repairing: {module.name}")
                 if self.progress is not None:
                     self.progress(f"Fixing: {module.name} ({module_number} of {len(modules)})")
                 refresh = _REFRESH_BEFORE.get(module.name)
                 if refresh is not None and changes_this_pass:
                     setattr(analysis_report, refresh, store.findings(refresh, book))
-                was_clean = tracker.is_clean(module.name)
                 repair_report = module.repair(book, analysis_report)
                 _record(module, repair_report)
-                _shadow(module.name, repair_report, was_clean)
-
-            # Settle: what the repairs after them left for these.
-            if changes_this_pass:
-                for module in modules:
-                    if module.name in _SETTLE_AFTER:
-                        self.log(f"Repairing: {module.name} (settling)")
-                        refresh = _SETTLE_REFRESH.get(module.name)
-                        if refresh is not None:
-                            setattr(analysis_report, refresh, store.findings(refresh, book))
-                        was_clean = tracker.is_clean(module.name)
-                        repair_report = module.repair(book, analysis_report)
-                        _record(module, repair_report)
-                        _shadow(module.name, repair_report, was_clean)
+                tracker.ran(module.name, repair_report.count if repair_report is not None else 0)
 
             if tracker.end_of_pass():
-                self.log(f"[Shadow check] Pass {pass_num}: the book changed although no repair reported a change.")
+                self.log(f"[Dirty check] Pass {pass_num}: the book changed although no repair reported a change.")
 
             if changes_this_pass == 0:
                 break
@@ -2309,7 +2270,7 @@ class Engine:
                 break
             pass_num += 1
 
-        self.log(f"[Shadow check] {tracker.summary()}")
+        self.log(f"[Dirty check] {tracker.summary()}")
         return reports_by_module, pass_num
 
     def _build_auto_class_mapping(self, profiles: dict) -> list[ClassMappingEntry]:

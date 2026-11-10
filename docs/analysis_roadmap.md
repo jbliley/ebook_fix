@@ -4202,3 +4202,13 @@ Stretch 10 of `docs/single_analysis_plan.md`. Junk File Removal used to open eve
 - `analysis_store.py`: the `file_refs` finding is stored per page like the others.
 
 Checks: all 27 example EPUBs repaired with the old code and the new, outputs identical apart from the modified time in the OPF. Color Strip and Font Strip run with and without the store on the 27 examples and 5 made-up books: identical pages and reports. The other steps in the stretch (Title Cleanup, Identifier Standardize, Author Initials, Metadata Sync, EPUB 3 Upgrade, Image Repair) read no pages, so they were not changed.
+
+
+### Changed: the Fix skips repairs that have nothing new to look at (2026-11-10)
+
+Stretch 11 of `docs/single_analysis_plan.md`. After a pass changed something, the Fix used to run a group of repairs a second time inside the pass (the settling step) and then every repair again in the next pass. Now the next pass skips any repair that found nothing to do while the book has not changed since.
+
+- `engine.py`: the settling step and its two lists are removed. A repair that is clean for the current state of the book is skipped, and the Fix log ends with a "[Dirty check]" line saying how many repair runs were skipped. The cap on passes stays as a safety net.
+- `dirty_check.py`: the tracker now decides what to skip instead of only watching. If the book ever changes without a repair reporting it, the tracker forgets what it knew, so nothing is skipped on stale information.
+
+Checks: all 27 example EPUBs repaired with the old Fix and the new, outputs identical apart from the modified time in the OPF; fixing 8 of the fixed outputs again changed nothing. Time was not compared.
