@@ -110,6 +110,7 @@ from ebook_fix.modules.body_variant_repair import BodyVariantRepair
 from ebook_fix.modules.line_height_repair import LineHeightRepair
 from ebook_fix.modules.reader_settings_repair import ReaderSettingsRepair
 from ebook_fix.modules.span_cleanup_repair import SpanCleanupRepair
+from ebook_fix.modules.bold_text_repair import BoldTextRepair
 from ebook_fix.modules.class_cleanup_repair import ClassCleanupRepair
 from ebook_fix.modules.unused_css_repair import UnusedCssRepair
 from ebook_fix.modules.div_paragraph_repair import DivParagraphRepair
@@ -182,6 +183,7 @@ _REPAIR_MODULES = [
     ("reader_settings_repair", "Reader Settings"),
     ("class_cleanup_repair", "Class Cleanup"),
     ("span_cleanup_repair", "Span Cleanup"),
+    ("bold_text_repair", "Bold Text"),
     ("unused_css_repair", "Unused CSS"),
     ("div_paragraph_repair", "Div Paragraphs"),
     ("quote_style_repair", "Quote Style"),
@@ -235,6 +237,7 @@ _REPAIR_MODULE_CLASSES = {
     "reader_settings_repair": ReaderSettingsRepair,
     "class_cleanup_repair": ClassCleanupRepair,
     "span_cleanup_repair": SpanCleanupRepair,
+    "bold_text_repair": BoldTextRepair,
     "unused_css_repair": UnusedCssRepair,
     "div_paragraph_repair": DivParagraphRepair,
     "quote_style_repair": QuoteStyleRepair,

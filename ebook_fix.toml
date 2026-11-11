@@ -28,6 +28,7 @@ body_variant_repair = true
 line_height_repair = true
 reader_settings_repair = true
 span_cleanup_repair = true
+bold_text_repair = true
 quote_style_repair = true
 page_title_repair = true
 class_cleanup_repair = true
@@ -487,6 +488,22 @@ min_line_height = 1.4
 # style was removed by Reader Settings, and removes empty spans. A span with
 # an id, a style, a language or any other attribute is never touched, and the
 # text of every page is checked to be identical before and after.
+
+# ---------------------------------------------------------------------
+# Bold Text
+# ---------------------------------------------------------------------
+[bold_text_repair]
+
+# Removes bold that a conversion put on (nearly) every word of the book,
+# such as a `<span class="bold">` around every paragraph. Only acts when
+# those bold wrappers cover at least min_share of the body text and the
+# body text has at least min_chars characters. Chapter titles and other
+# short title lines keep their bold, a book with real emphasis in a normal
+# amount is never touched, and the text of every page is checked to be
+# identical before and after.
+enabled = true
+min_share = 0.85
+min_chars = 3000
 
 # ---------------------------------------------------------------------
 # Quote Style

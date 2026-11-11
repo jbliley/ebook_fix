@@ -238,6 +238,16 @@ class SpanCleanupConfig:
 
 
 @dataclass(slots=True)
+class BoldTextConfig:
+    enabled: bool = True
+    # The bold wrappers must cover at least this share of the book's body
+    # text, and the body text must be at least min_chars long, before the
+    # bold is treated as a conversion mistake and removed.
+    min_share: float = 0.85
+    min_chars: int = 3000
+
+
+@dataclass(slots=True)
 class ReaderSettingsConfig:
     enabled: bool = True
 
@@ -509,6 +519,7 @@ class Config:
     line_height_repair: LineHeightConfig = field(default_factory=LineHeightConfig)
     reader_settings_repair: ReaderSettingsConfig = field(default_factory=ReaderSettingsConfig)
     span_cleanup_repair: SpanCleanupConfig = field(default_factory=SpanCleanupConfig)
+    bold_text_repair: BoldTextConfig = field(default_factory=BoldTextConfig)
     quote_style_repair: QuoteStyleConfig = field(default_factory=QuoteStyleConfig)
     page_title_repair: PageTitleConfig = field(default_factory=PageTitleConfig)
     class_cleanup_repair: ClassCleanupConfig = field(default_factory=ClassCleanupConfig)
@@ -587,6 +598,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.line_height_repair, modules, "line_height_repair")
     _apply_module_toggle(config.reader_settings_repair, modules, "reader_settings_repair")
     _apply_module_toggle(config.span_cleanup_repair, modules, "span_cleanup_repair")
+    _apply_module_toggle(config.bold_text_repair, modules, "bold_text_repair")
     _apply_module_toggle(config.quote_style_repair, modules, "quote_style_repair")
     _apply_module_toggle(config.page_title_repair, modules, "page_title_repair")
     _apply_module_toggle(config.class_cleanup_repair, modules, "class_cleanup_repair")
@@ -630,6 +642,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.line_height_repair, "line_height_repair", data.get("line_height_repair", {}))
     _apply_section(config.reader_settings_repair, "reader_settings_repair", data.get("reader_settings_repair", {}))
     _apply_section(config.span_cleanup_repair, "span_cleanup_repair", data.get("span_cleanup_repair", {}))
+    _apply_section(config.bold_text_repair, "bold_text_repair", data.get("bold_text_repair", {}))
     _apply_section(config.quote_style_repair, "quote_style_repair", data.get("quote_style_repair", {}))
     _apply_section(config.page_title_repair, "page_title_repair", data.get("page_title_repair", {}))
     _apply_section(config.class_cleanup_repair, "class_cleanup_repair", data.get("class_cleanup_repair", {}))
@@ -755,6 +768,7 @@ body_variant_repair = true
 line_height_repair = true
 reader_settings_repair = true
 span_cleanup_repair = true
+bold_text_repair = true
 quote_style_repair = true
 page_title_repair = true
 class_cleanup_repair = true
@@ -1286,6 +1300,22 @@ min_line_height = 1.4
 # style was removed by Reader Settings, and removes empty spans. A span with
 # an id, a style, a language or any other attribute is never touched, and the
 # text of every page is checked to be identical before and after.
+
+# ---------------------------------------------------------------------
+# Bold Text
+# ---------------------------------------------------------------------
+[bold_text_repair]
+
+# Removes bold that a conversion put on (nearly) every word of the book,
+# such as a `<span class="bold">` around every paragraph. Only acts when
+# those bold wrappers cover at least min_share of the body text and the
+# body text has at least min_chars characters. Chapter titles and other
+# short title lines keep their bold, a book with real emphasis in a normal
+# amount is never touched, and the text of every page is checked to be
+# identical before and after.
+enabled = true
+min_share = 0.85
+min_chars = 3000
 
 # ---------------------------------------------------------------------
 # Quote Style

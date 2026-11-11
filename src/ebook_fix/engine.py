@@ -66,6 +66,7 @@ from ebook_fix.modules.body_variant_repair import BodyVariantRepair
 from ebook_fix.modules.line_height_repair import LineHeightRepair
 from ebook_fix.modules.reader_settings_repair import ReaderSettingsRepair
 from ebook_fix.modules.span_cleanup_repair import SpanCleanupRepair
+from ebook_fix.modules.bold_text_repair import BoldTextRepair
 from ebook_fix.modules.class_cleanup_repair import ClassCleanupRepair
 from ebook_fix.modules.unused_css_repair import UnusedCssRepair
 from ebook_fix.modules.div_paragraph_repair import DivParagraphRepair
@@ -116,6 +117,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     ReaderSettingsRepair,
     ClassCleanupRepair,
     SpanCleanupRepair,
+    BoldTextRepair,
     UnusedCssRepair,
     DivParagraphRepair,
     ParagraphSpacingRepair,
@@ -355,6 +357,12 @@ class Engine:
         # Skipped on fixed-layout books like the other style repairs.
         if getattr(self.config, "stylesheet_dedupe_repair", None) and getattr(self.config.stylesheet_dedupe_repair, "enabled", True):
             modules.append(EmbeddedStylesheetRepair(self.config.stylesheet_dedupe_repair))
+        # Takes the bold off a book that a conversion made bold from cover to
+        # cover. Runs before Class Cleanup and Span Cleanup so the wrappers
+        # it leaves behind are tidied in the same pass.
+        # Skipped on fixed-layout books like the other style repairs.
+        if getattr(self.config, "bold_text_repair", None) and getattr(self.config.bold_text_repair, "enabled", True):
+            modules.append(BoldTextRepair(self.config.bold_text_repair))
         # Class names nothing styles any more, dropped just before Span Cleanup
         # so spans that lose their class are unwrapped in the same pass.
         if getattr(self.config, "class_cleanup_repair", None) and getattr(self.config.class_cleanup_repair, "enabled", True):
