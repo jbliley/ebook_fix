@@ -43,7 +43,7 @@ BOXES = [
         "key": "structure",
         "title": "Structure and Navigation",
         "sections": ["Book Structure", "Structure", "Table of Contents"],
-        "modules": ["chapter_markup", "chapter_title_cleanup", "toc_cleanup", "dead_link_repair", "toc_generation", "header_spacing_repair", "extra_page_break_repair"],
+        "modules": ["chapter_markup", "chapter_title_cleanup", "toc_cleanup", "dead_link_repair", "toc_generation", "contents_page_expand", "header_spacing_repair", "extra_page_break_repair"],
     },
     {
         "key": "text",
@@ -55,7 +55,7 @@ BOXES = [
         ],
         "modules": [
             "gutenberg_repair", "running_title_repair", "linebreak_repair", "paragraph_repair",
-            "div_paragraph_repair", "blockquote_paragraph_repair", "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "quote_style_repair", "page_title_repair", "whitespace_repair",
+            "div_paragraph_repair", "blockquote_paragraph_repair", "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "quote_style_repair", "opening_quote_repair", "page_title_repair", "whitespace_repair",
         ],
     },
     {
@@ -100,6 +100,8 @@ PLAIN_NAMES = {
     "body_variant_repair": "Give stray body paragraphs the same line height as the rest",
     "class_cleanup_repair": "Remove class names no style uses",
     "div_paragraph_repair": "Turn paragraphs written as div tags into real paragraphs",
+    "opening_quote_repair": "Restore a dropped opening quote on a chapter's first paragraph",
+    "contents_page_expand": "Add the missing chapters to the book's own contents page",
     "blockquote_paragraph_repair": "Turn story paragraphs written as blockquotes back into normal paragraphs",
     "unused_css_repair": "Remove style rules for classes no page uses",
     "span_cleanup_repair": "Remove span tags that do nothing",

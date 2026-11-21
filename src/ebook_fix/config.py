@@ -218,6 +218,16 @@ class BlockquoteParagraphConfig:
 
 
 @dataclass(slots=True)
+class OpeningQuoteConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
+class ContentsPageConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class UnusedCssConfig:
     enabled: bool = True
 
@@ -531,6 +541,8 @@ class Config:
     unused_css_repair: UnusedCssConfig = field(default_factory=UnusedCssConfig)
     div_paragraph_repair: DivParagraphConfig = field(default_factory=DivParagraphConfig)
     blockquote_paragraph_repair: BlockquoteParagraphConfig = field(default_factory=BlockquoteParagraphConfig)
+    opening_quote_repair: OpeningQuoteConfig = field(default_factory=OpeningQuoteConfig)
+    contents_page_expand: ContentsPageConfig = field(default_factory=ContentsPageConfig)
     stylesheet_dedupe_repair: StylesheetDedupeConfig = field(default_factory=StylesheetDedupeConfig)
     junk_file_repair: JunkFileConfig = field(default_factory=JunkFileConfig)
     hyphen_leftover_repair: HyphenLeftoverConfig = field(default_factory=HyphenLeftoverConfig)
@@ -611,6 +623,8 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.unused_css_repair, modules, "unused_css_repair")
     _apply_module_toggle(config.div_paragraph_repair, modules, "div_paragraph_repair")
     _apply_module_toggle(config.blockquote_paragraph_repair, modules, "blockquote_paragraph_repair")
+    _apply_module_toggle(config.contents_page_expand, modules, "contents_page_expand")
+    _apply_module_toggle(config.opening_quote_repair, modules, "opening_quote_repair")
     _apply_module_toggle(config.stylesheet_dedupe_repair, modules, "stylesheet_dedupe_repair")
     _apply_module_toggle(config.junk_file_repair, modules, "junk_file_repair")
     _apply_module_toggle(config.hyphen_leftover_repair, modules, "hyphen_leftover_repair")
@@ -656,6 +670,8 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.unused_css_repair, "unused_css_repair", data.get("unused_css_repair", {}))
     _apply_section(config.div_paragraph_repair, "div_paragraph_repair", data.get("div_paragraph_repair", {}))
     _apply_section(config.blockquote_paragraph_repair, "blockquote_paragraph_repair", data.get("blockquote_paragraph_repair", {}))
+    _apply_section(config.contents_page_expand, "contents_page_expand", data.get("contents_page_expand", {}))
+    _apply_section(config.opening_quote_repair, "opening_quote_repair", data.get("opening_quote_repair", {}))
     _apply_section(config.stylesheet_dedupe_repair, "stylesheet_dedupe_repair", data.get("stylesheet_dedupe_repair", {}))
     _apply_section(config.junk_file_repair, "junk_file_repair", data.get("junk_file_repair", {}))
     _apply_section(config.hyphen_leftover_repair, "hyphen_leftover_repair", data.get("hyphen_leftover_repair", {}))
@@ -783,6 +799,8 @@ class_cleanup_repair = true
 unused_css_repair = true
 div_paragraph_repair = true
 blockquote_paragraph_repair = true
+opening_quote_repair = true
+contents_page_expand = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -1383,6 +1401,31 @@ min_chars = 3000
 # and they are at least 70% of that class's blockquotes. A real quotation
 # inside the story (followed by more paragraphs) is never touched, and the
 # text of every page is checked to be identical before and after.
+
+# ---------------------------------------------------------------------
+# Opening Quotes
+# ---------------------------------------------------------------------
+[opening_quote_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Puts back the opening quotation mark a conversion dropped from the first
+# paragraph of a chapter, such as `You seem ill at ease?”` that should start
+# with “. Only the first paragraph after a chapter heading is looked at, only
+# in a book that uses curly quotes, and only when that paragraph has one
+# closing quote and no opening quote at all. Nothing else is changed.
+
+# ---------------------------------------------------------------------
+# Contents Page
+# ---------------------------------------------------------------------
+[contents_page_expand]
+
+# No options: turn this module on or off in the [modules] list above.
+# When the book's own "Table of Contents" page lists only some of the
+# entries of the real table of contents (for example the Parts but none of
+# the chapters), adds the missing entries to that page in order, in the same
+# style as the ones already there. Only acts when every entry already on the
+# page matches the table of contents, in the same order, and at least 3
+# entries are missing. Existing entries are never changed.
 
 # ---------------------------------------------------------------------
 # Div Paragraphs

@@ -115,6 +115,8 @@ from ebook_fix.modules.class_cleanup_repair import ClassCleanupRepair
 from ebook_fix.modules.unused_css_repair import UnusedCssRepair
 from ebook_fix.modules.div_paragraph_repair import DivParagraphRepair
 from ebook_fix.modules.blockquote_paragraph_repair import BlockquoteParagraphRepair
+from ebook_fix.modules.opening_quote_repair import OpeningQuoteRepair
+from ebook_fix.modules.contents_page_expand import ContentsPageExpand
 from ebook_fix.modules.quote_style_repair import QuoteStyleRepair
 from ebook_fix.modules.page_title_repair import PageTitleRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
@@ -188,6 +190,8 @@ _REPAIR_MODULES = [
     ("unused_css_repair", "Unused CSS"),
     ("div_paragraph_repair", "Div Paragraphs"),
     ("blockquote_paragraph_repair", "Blockquote Paragraphs"),
+    ("opening_quote_repair", "Opening Quotes"),
+    ("contents_page_expand", "Contents Page"),
     ("quote_style_repair", "Quote Style"),
     ("page_title_repair", "Page Titles"),
     ("paragraph_spacing_repair", "Paragraph Spacing"),
@@ -243,6 +247,8 @@ _REPAIR_MODULE_CLASSES = {
     "unused_css_repair": UnusedCssRepair,
     "div_paragraph_repair": DivParagraphRepair,
     "blockquote_paragraph_repair": BlockquoteParagraphRepair,
+    "opening_quote_repair": OpeningQuoteRepair,
+    "contents_page_expand": ContentsPageExpand,
     "quote_style_repair": QuoteStyleRepair,
     "page_title_repair": PageTitleRepair,
     "paragraph_spacing_repair": ParagraphSpacingRepair,

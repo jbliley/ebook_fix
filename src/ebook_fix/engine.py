@@ -71,6 +71,8 @@ from ebook_fix.modules.class_cleanup_repair import ClassCleanupRepair
 from ebook_fix.modules.unused_css_repair import UnusedCssRepair
 from ebook_fix.modules.div_paragraph_repair import DivParagraphRepair
 from ebook_fix.modules.blockquote_paragraph_repair import BlockquoteParagraphRepair
+from ebook_fix.modules.opening_quote_repair import OpeningQuoteRepair
+from ebook_fix.modules.contents_page_expand import ContentsPageExpand
 from ebook_fix.modules.quote_style_repair import QuoteStyleRepair
 from ebook_fix.modules.page_title_repair import PageTitleRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
@@ -122,6 +124,8 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     UnusedCssRepair,
     DivParagraphRepair,
     BlockquoteParagraphRepair,
+    OpeningQuoteRepair,
+    ContentsPageExpand,
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
     TextSizeRepair,
@@ -263,6 +267,10 @@ class Engine:
         # pass -- see modules/toc_generation.py's module docstring.
         if getattr(self.config, "toc_generation", None) and getattr(self.config.toc_generation, "enabled", True):
             modules.append(TocGenerationRepair(self.config.toc_generation))
+        # After TOC Generation, so the table of contents is final: adds the
+        # entries the book's own contents page is missing.
+        if getattr(self.config, "contents_page_expand", None) and getattr(self.config.contents_page_expand, "enabled", True):
+            modules.append(ContentsPageExpand(self.config.contents_page_expand))
         # Right after Chapter Markup (it relies on the chapter headers
         # that module marks): keeps 2 to 5 visible blank lines between
         # each chapter header and its first paragraph. Skipped on
@@ -430,6 +438,11 @@ class Engine:
         # before Whitespace: makes stray straight quotes match a curly book.
         if getattr(self.config, "quote_style_repair", None) and getattr(self.config.quote_style_repair, "enabled", True):
             modules.append(QuoteStyleRepair(self.config.quote_style_repair))
+        # After Quote Style (curly quotes settled) and Chapter Markup (the
+        # chapter headings are marked): restores a dropped opening quote on a
+        # chapter's first paragraph.
+        if getattr(self.config, "opening_quote_repair", None) and getattr(self.config.opening_quote_repair, "enabled", True):
+            modules.append(OpeningQuoteRepair(self.config.opening_quote_repair))
         # Only the <title> in each page's head; runs after the chapter
         # headings are settled so the first heading is the final one.
         if getattr(self.config, "page_title_repair", None) and getattr(self.config.page_title_repair, "enabled", True):

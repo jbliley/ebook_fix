@@ -35,6 +35,8 @@ class_cleanup_repair = true
 unused_css_repair = true
 div_paragraph_repair = true
 blockquote_paragraph_repair = true
+opening_quote_repair = true
+contents_page_expand = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -563,6 +565,31 @@ min_chars = 3000
 # and they are at least 70% of that class's blockquotes. A real quotation
 # inside the story (followed by more paragraphs) is never touched, and the
 # text of every page is checked to be identical before and after.
+
+# ---------------------------------------------------------------------
+# Opening Quotes
+# ---------------------------------------------------------------------
+[opening_quote_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Puts back the opening quotation mark a conversion dropped from the first
+# paragraph of a chapter, such as `You seem ill at ease?”` that should start
+# with “. Only the first paragraph after a chapter heading is looked at, only
+# in a book that uses curly quotes, and only when that paragraph has one
+# closing quote and no opening quote at all. Nothing else is changed.
+
+# ---------------------------------------------------------------------
+# Contents Page
+# ---------------------------------------------------------------------
+[contents_page_expand]
+
+# No options: turn this module on or off in the [modules] list above.
+# When the book's own "Table of Contents" page lists only some of the
+# entries of the real table of contents (for example the Parts but none of
+# the chapters), adds the missing entries to that page in order, in the same
+# style as the ones already there. Only acts when every entry already on the
+# page matches the table of contents, in the same order, and at least 3
+# entries are missing. Existing entries are never changed.
 
 # ---------------------------------------------------------------------
 # Div Paragraphs

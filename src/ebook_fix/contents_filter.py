@@ -408,6 +408,31 @@ def _entirely_a_link_elsewhere(cand):
     return links[0].get("href")
 
 
+_BLOCK_NAMES = frozenset({"p", "li", "div"})
+
+
+def _link_list_around(cand) -> int:
+    """How many different places the link-only lines next to the candidate
+    (the neighbours under the same parent) point at."""
+    el = cand.element
+    if el is None:
+        return 0
+    block = el
+    while block is not None and etree.QName(block).localname.lower() not in _BLOCK_NAMES:
+        block = block.getparent()
+    if block is None or block.getparent() is None:
+        return 0
+    targets = set()
+    for sib in block.getparent():
+        if not isinstance(sib.tag, str) or etree.QName(sib).localname.lower() not in _BLOCK_NAMES:
+            continue
+        text = "".join(sib.itertext()).strip()
+        links = [a for a in sib.iter() if isinstance(a.tag, str) and etree.QName(a).localname.lower() == "a" and a.get("href")]
+        if text and len(links) == 1 and "".join(links[0].itertext()).strip() == text:
+            targets.add(links[0].get("href"))
+    return len(targets)
+
+
 def drop_link_list_candidates(candidates: List) -> tuple:
     """Removes chapter-marker candidates that are entries of a list of
     links (a table of contents page, wherever it sits in the book).
@@ -428,6 +453,14 @@ def drop_link_list_candidates(candidates: List) -> tuple:
     for _href, entries in by_href.items():
         if len(entries) >= _LINK_LIST_MIN_ENTRIES and len({t for _c, t in entries}) >= _LINK_LIST_MIN_ENTRIES:
             removed_ids.update(id(c) for c, _t in entries)
+            continue
+        # Fewer than five candidates, but the entries sit in a longer list of
+        # link-only lines (a contents page whose chapters are not candidates,
+        # such as a list of Parts, Prologue and Epilogue entries beside
+        # numbered chapter links): the list still decides.
+        for cand, _target in entries:
+            if _link_list_around(cand) >= _LINK_LIST_MIN_ENTRIES:
+                removed_ids.add(id(cand))
 
     kept = [c for c in candidates if id(c) not in removed_ids]
     removed = [c for c in candidates if id(c) in removed_ids]
