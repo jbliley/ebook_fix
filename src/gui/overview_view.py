@@ -55,7 +55,7 @@ BOXES = [
         ],
         "modules": [
             "gutenberg_repair", "running_title_repair", "linebreak_repair", "paragraph_repair",
-            "div_paragraph_repair", "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "quote_style_repair", "page_title_repair", "whitespace_repair",
+            "div_paragraph_repair", "blockquote_paragraph_repair", "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "quote_style_repair", "page_title_repair", "whitespace_repair",
         ],
     },
     {
@@ -100,6 +100,7 @@ PLAIN_NAMES = {
     "body_variant_repair": "Give stray body paragraphs the same line height as the rest",
     "class_cleanup_repair": "Remove class names no style uses",
     "div_paragraph_repair": "Turn paragraphs written as div tags into real paragraphs",
+    "blockquote_paragraph_repair": "Turn story paragraphs written as blockquotes back into normal paragraphs",
     "unused_css_repair": "Remove style rules for classes no page uses",
     "span_cleanup_repair": "Remove span tags that do nothing",
     "bold_text_repair": "Remove bold from a book that is bold throughout",

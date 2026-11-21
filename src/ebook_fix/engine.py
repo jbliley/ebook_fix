@@ -70,6 +70,7 @@ from ebook_fix.modules.bold_text_repair import BoldTextRepair
 from ebook_fix.modules.class_cleanup_repair import ClassCleanupRepair
 from ebook_fix.modules.unused_css_repair import UnusedCssRepair
 from ebook_fix.modules.div_paragraph_repair import DivParagraphRepair
+from ebook_fix.modules.blockquote_paragraph_repair import BlockquoteParagraphRepair
 from ebook_fix.modules.quote_style_repair import QuoteStyleRepair
 from ebook_fix.modules.page_title_repair import PageTitleRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
@@ -120,6 +121,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     BoldTextRepair,
     UnusedCssRepair,
     DivParagraphRepair,
+    BlockquoteParagraphRepair,
     ParagraphSpacingRepair,
     ParagraphIndentRepair,
     TextSizeRepair,
@@ -210,6 +212,11 @@ class Engine:
         # after it can see the paragraphs.
         if getattr(self.config, "div_paragraph_repair", None) and getattr(self.config.div_paragraph_repair, "enabled", True):
             modules.append(DivParagraphRepair(self.config.div_paragraph_repair))
+        # Right after Div Paragraphs, for the same reason: the last paragraph
+        # of a chapter that a conversion wrote as a blockquote becomes a normal
+        # paragraph before Paragraph Repair and the style repairs look at it.
+        if getattr(self.config, "blockquote_paragraph_repair", None) and getattr(self.config.blockquote_paragraph_repair, "enabled", True):
+            modules.append(BlockquoteParagraphRepair(self.config.blockquote_paragraph_repair))
         # Stray Line Break Removal goes right before Paragraph Repair:
         # a paragraph that starts with a stray <br/> would otherwise get
         # merged into the one before it and strand the break mid-sentence.

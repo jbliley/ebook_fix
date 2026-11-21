@@ -213,6 +213,11 @@ class DivParagraphConfig:
 
 
 @dataclass(slots=True)
+class BlockquoteParagraphConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class UnusedCssConfig:
     enabled: bool = True
 
@@ -525,6 +530,7 @@ class Config:
     class_cleanup_repair: ClassCleanupConfig = field(default_factory=ClassCleanupConfig)
     unused_css_repair: UnusedCssConfig = field(default_factory=UnusedCssConfig)
     div_paragraph_repair: DivParagraphConfig = field(default_factory=DivParagraphConfig)
+    blockquote_paragraph_repair: BlockquoteParagraphConfig = field(default_factory=BlockquoteParagraphConfig)
     stylesheet_dedupe_repair: StylesheetDedupeConfig = field(default_factory=StylesheetDedupeConfig)
     junk_file_repair: JunkFileConfig = field(default_factory=JunkFileConfig)
     hyphen_leftover_repair: HyphenLeftoverConfig = field(default_factory=HyphenLeftoverConfig)
@@ -604,6 +610,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.class_cleanup_repair, modules, "class_cleanup_repair")
     _apply_module_toggle(config.unused_css_repair, modules, "unused_css_repair")
     _apply_module_toggle(config.div_paragraph_repair, modules, "div_paragraph_repair")
+    _apply_module_toggle(config.blockquote_paragraph_repair, modules, "blockquote_paragraph_repair")
     _apply_module_toggle(config.stylesheet_dedupe_repair, modules, "stylesheet_dedupe_repair")
     _apply_module_toggle(config.junk_file_repair, modules, "junk_file_repair")
     _apply_module_toggle(config.hyphen_leftover_repair, modules, "hyphen_leftover_repair")
@@ -648,6 +655,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.class_cleanup_repair, "class_cleanup_repair", data.get("class_cleanup_repair", {}))
     _apply_section(config.unused_css_repair, "unused_css_repair", data.get("unused_css_repair", {}))
     _apply_section(config.div_paragraph_repair, "div_paragraph_repair", data.get("div_paragraph_repair", {}))
+    _apply_section(config.blockquote_paragraph_repair, "blockquote_paragraph_repair", data.get("blockquote_paragraph_repair", {}))
     _apply_section(config.stylesheet_dedupe_repair, "stylesheet_dedupe_repair", data.get("stylesheet_dedupe_repair", {}))
     _apply_section(config.junk_file_repair, "junk_file_repair", data.get("junk_file_repair", {}))
     _apply_section(config.hyphen_leftover_repair, "hyphen_leftover_repair", data.get("hyphen_leftover_repair", {}))
@@ -774,6 +782,7 @@ page_title_repair = true
 class_cleanup_repair = true
 unused_css_repair = true
 div_paragraph_repair = true
+blockquote_paragraph_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -1360,6 +1369,20 @@ min_chars = 3000
 # writes a rule for every class in the original file). Rules for plain tags
 # such as body, p and h1, @font-face and @page rules, and anything used by
 # ebook_fix are kept. A book containing a script is left alone.
+
+# ---------------------------------------------------------------------
+# Blockquote Paragraphs
+# ---------------------------------------------------------------------
+[blockquote_paragraph_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# In a book where a conversion wrote the last paragraph of each chapter (or
+# scene) as a blockquote instead of a normal paragraph, so it sits further
+# in than the text above it, turns it back into a normal paragraph with the
+# same look as the others. Only acts when at least 5 such blockquotes exist
+# and they are at least 70% of that class's blockquotes. A real quotation
+# inside the story (followed by more paragraphs) is never touched, and the
+# text of every page is checked to be identical before and after.
 
 # ---------------------------------------------------------------------
 # Div Paragraphs

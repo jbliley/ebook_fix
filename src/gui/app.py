@@ -114,6 +114,7 @@ from ebook_fix.modules.bold_text_repair import BoldTextRepair
 from ebook_fix.modules.class_cleanup_repair import ClassCleanupRepair
 from ebook_fix.modules.unused_css_repair import UnusedCssRepair
 from ebook_fix.modules.div_paragraph_repair import DivParagraphRepair
+from ebook_fix.modules.blockquote_paragraph_repair import BlockquoteParagraphRepair
 from ebook_fix.modules.quote_style_repair import QuoteStyleRepair
 from ebook_fix.modules.page_title_repair import PageTitleRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
@@ -186,6 +187,7 @@ _REPAIR_MODULES = [
     ("bold_text_repair", "Bold Text"),
     ("unused_css_repair", "Unused CSS"),
     ("div_paragraph_repair", "Div Paragraphs"),
+    ("blockquote_paragraph_repair", "Blockquote Paragraphs"),
     ("quote_style_repair", "Quote Style"),
     ("page_title_repair", "Page Titles"),
     ("paragraph_spacing_repair", "Paragraph Spacing"),
@@ -240,6 +242,7 @@ _REPAIR_MODULE_CLASSES = {
     "bold_text_repair": BoldTextRepair,
     "unused_css_repair": UnusedCssRepair,
     "div_paragraph_repair": DivParagraphRepair,
+    "blockquote_paragraph_repair": BlockquoteParagraphRepair,
     "quote_style_repair": QuoteStyleRepair,
     "page_title_repair": PageTitleRepair,
     "paragraph_spacing_repair": ParagraphSpacingRepair,

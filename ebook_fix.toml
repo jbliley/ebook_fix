@@ -34,6 +34,7 @@ page_title_repair = true
 class_cleanup_repair = true
 unused_css_repair = true
 div_paragraph_repair = true
+blockquote_paragraph_repair = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
@@ -548,6 +549,20 @@ min_chars = 3000
 # writes a rule for every class in the original file). Rules for plain tags
 # such as body, p and h1, @font-face and @page rules, and anything used by
 # ebook_fix are kept. A book containing a script is left alone.
+
+# ---------------------------------------------------------------------
+# Blockquote Paragraphs
+# ---------------------------------------------------------------------
+[blockquote_paragraph_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# In a book where a conversion wrote the last paragraph of each chapter (or
+# scene) as a blockquote instead of a normal paragraph, so it sits further
+# in than the text above it, turns it back into a normal paragraph with the
+# same look as the others. Only acts when at least 5 such blockquotes exist
+# and they are at least 70% of that class's blockquotes. A real quotation
+# inside the story (followed by more paragraphs) is never touched, and the
+# text of every page is checked to be identical before and after.
 
 # ---------------------------------------------------------------------
 # Div Paragraphs

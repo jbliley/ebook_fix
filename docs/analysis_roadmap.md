@@ -4241,3 +4241,15 @@ Reported by Jacob on Die Trying (Lee Child, a conversion from MOBI): the repair 
 - `config.py`, `ebook_fix.toml`, `engine.py`, `gui/app.py` and `gui/overview_view.py`: the module is registered like the other style repairs (Styling and Fonts group in the GUI overview).
 
 Result on Die Trying: 5,134 bold wrappers across 44 pages removed, the 53 left are the chapter titles, the book title and author lines and the converter notes at the back. The visible text of every page is identical, and a second run finds nothing. Checks: the module's logic was run on the Die Trying pages and stylesheet on its own; the full repair across the example EPUBs was not run for this change.
+
+### Added: Blockquote Paragraphs (2026-11-20)
+
+Reported by Jacob on Altered Carbon (Richard Morgan, a Calibre conversion from MOBI): after the repair the last paragraph of every chapter had strange spacing. Cause: that paragraph is a `<blockquote class="calibre5">` while every other paragraph is a `<p class="calibre6">`, and the blockquote class carries `margin-left: 2em` and `text-indent: 1em`, so the end of each chapter sat further in than the text above it. No repair looked at it because the pages looked like ordinary paragraph pages. New module Blockquote Paragraphs (`blockquote_paragraph_repair`, on by default) turns those blockquotes back into normal paragraphs.
+
+- The book's body class is the class most paragraphs of 20 characters or more use (at least 50 of them, and at least half of all such paragraphs).
+- A blockquote is a match when it holds only text and inline tags (no paragraphs, no line breaks), has no style attribute, sits directly in the body or a plain wrapper div, has a body paragraph just before it and no body paragraph just after it. A real quotation inside the story is followed by more paragraphs, so it does not match.
+- A class is converted only when at least 5 of its blockquotes match and they are at least 70% of that class's blockquotes in the whole book. The dedication and title page blockquotes in Altered Carbon (4 of 48 for that class) stay as they are.
+- A converted blockquote becomes a `<p>` with the book's body class. Its id and other attributes stay, and the text of each page is compared before and after (the repair stops with an error if it would change). Skipped on fixed-layout books. It runs right after Div Paragraphs, so Paragraph Repair and the style repairs see a normal paragraph.
+- `config.py`, `ebook_fix.toml`, `engine.py`, `gui/app.py` and `gui/overview_view.py`: the module is registered like Div Paragraphs (Text and Paragraphs group in the GUI overview).
+
+Result on Altered Carbon: 44 blockquotes (prologue, 42 chapters, epilogue) became paragraphs in 44 pages; the visible text of every page is identical and a second run finds nothing. A test with 8 real mid-story quotes added to the book, and another with only 3 chapter-end blockquotes, converted nothing.
