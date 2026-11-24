@@ -22,6 +22,15 @@ what comes next.
   handled. Waiting on Jacob's decision to build it or drop it.
 - **`--log "location.txt"` option for the command line.** Writes the
   full output of a run to a file, color codes handled on purpose.
+- **Scan errors in ordinary words (surveyed 2026-11-24, not built).** The
+  book's own counts cannot tell a scan error from a real word. A survey of
+  the example books looked for a rare word one look-alike letter away from a
+  very common word of the same length. It found about 140 pairs, and most
+  were real words ("bands" and "hands", "gears" and "years", "frying" and
+  "trying", "unlit" and "until", "locked" and "looked"). Only a few were
+  scan errors ("saddie", "richi", "scuse"). Changing these automatically
+  would damage books. A word list (to skip real words) or the AI step below
+  would be needed first.
 - **Optional AI step for scan errors the book cannot prove.** For cases
   like "Clock 17" for "Glock 17", where the wrong word is a real word. The
   cheap checks pick a few dozen suspicious sentences per book and only
