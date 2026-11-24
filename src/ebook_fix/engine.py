@@ -78,6 +78,7 @@ from ebook_fix.modules.page_title_repair import PageTitleRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
+from ebook_fix.modules.recurring_name_repair import RecurringNameRepair
 from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.paragraph_indent_repair import ParagraphIndentRepair
 from ebook_fix.modules.header_spacing_repair import HeaderSpacingRepair
@@ -133,6 +134,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     RunningTitleRepair,
     EmbeddedStylesheetRepair,
     HyphenLeftoverRepair,
+    RecurringNameRepair,
     # A comic or picture book can repeat the same page picture on purpose,
     # so identical pictures are never merged on a fixed-layout book.
     JunkFileRepair,
@@ -402,6 +404,13 @@ class Engine:
         # Skipped on fixed-layout books like the other prose repairs.
         if getattr(self.config, "hyphen_leftover_repair", None) and getattr(self.config.hyphen_leftover_repair, "enabled", True):
             modules.append(HyphenLeftoverRepair(self.config.hyphen_leftover_repair))
+        # Replaces a name a bad scan spelled wrongly in a few places ("Readier"
+        # for "Reacher") when the book itself backs up the right spelling. It
+        # reads the book's own counts of how each name is written, so it goes
+        # right after the other whole-book text repair above. Skipped on
+        # fixed-layout books like the other prose repairs.
+        if getattr(self.config, "recurring_name_repair", None) and getattr(self.config.recurring_name_repair, "enabled", True):
+            modules.append(RecurringNameRepair(self.config.recurring_name_repair))
         # Runs before Whitespace Normalizer: both modules can end up
         # wanting to touch the very same text/tail node (an ellipsis
         # sitting in a paragraph that also has, say, doubled internal
@@ -1441,6 +1450,25 @@ class Engine:
                     self.log(f"  • {module.name}: {report.count} issue(s) found")
                     #if details and report.count > 0:
                         #report.print(details=True)
+
+                    # Words a repair thinks may be wrong but will never change
+                    # on its own (Recurring Name Repair's "Clock" for "Glock").
+                    # Listed so a person can check them by hand; they are not
+                    # counted as issues, and no repair acts on them.
+                    review_candidates = getattr(module, "review_candidates", None)
+                    if review_candidates is not None:
+                        candidates = review_candidates(book, analysis_report)
+                        if candidates:
+                            self.log(
+                                f"    Possible misspelled names: {len(candidates)} -- "
+                                f"not changed, check by hand"
+                            )
+                            if details:
+                                for c in candidates:
+                                    self.log(
+                                        f"      - {c['href']}: {c['wrong']!r} may be {c['name']!r} "
+                                        f"({c['why']}): ...{c['context']}..."
+                                    )
 
             self.log("")
 

@@ -22,6 +22,16 @@ what comes next.
   handled. Waiting on Jacob's decision to build it or drop it.
 - **`--log "location.txt"` option for the command line.** Writes the
   full output of a run to a file, color codes handled on purpose.
+- **Possible misspelled names in the GUI.** Recurring Name Repair lists
+  names it will not change on its own (see the 2026-11-23 entry in
+  `docs/analysis_roadmap.md`), but only the command line analysis shows
+  them. Show them on the Review tab with a tick to accept each one.
+- **Optional AI step for scan errors the book cannot prove.** For cases
+  like "Clock 17" for "Glock 17", where the wrong word is a real word. The
+  cheap checks pick a few dozen suspicious sentences per book and only
+  those go to an AI model (a paid API key or a small local model). The
+  fixes are suggestions on the Review tab, never applied on their own.
+  Waiting on Jacob's decision whether he wants a key or local model.
 
 ## Waiting for a real sample
 

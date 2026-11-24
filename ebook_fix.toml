@@ -40,6 +40,7 @@ contents_page_expand = true
 stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
+recurring_name_repair = true
 paragraph_spacing_repair = true
 paragraph_indent_repair = false
 header_spacing_repair = true
@@ -342,6 +343,20 @@ remove_unused_cover_copy = true
 # spelled. A real compound ("well-known"), a hyphen after a prefix
 # ("re-enter"), a heading and anything the book does not back up are left
 # alone.
+
+# ---------------------------------------------------------------------
+# Recurring Name Repair
+# ---------------------------------------------------------------------
+[recurring_name_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Fixes a name that a bad scan spelled wrongly in a few places ("Readier"
+# for "Reacher") when the book itself uses the correct name far more often.
+# Names are found from how the book writes them (capitalized in the middle
+# of sentences, never in lowercase), so nothing has to be typed in. A word
+# that is also an ordinary word in the book ("Clock" for "Glock"), a name
+# that appears only a few times and anything the book does not back up are
+# left alone and only listed in the analysis for you to check.
 
 # ---------------------------------------------------------------------
 # Paragraph Spacing

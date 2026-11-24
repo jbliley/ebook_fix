@@ -122,6 +122,7 @@ from ebook_fix.modules.page_title_repair import PageTitleRepair
 from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
+from ebook_fix.modules.recurring_name_repair import RecurringNameRepair
 from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.paragraph_indent_repair import ParagraphIndentRepair
 from ebook_fix.modules.header_spacing_repair import HeaderSpacingRepair
@@ -205,6 +206,7 @@ _REPAIR_MODULES = [
     ("stylesheet_dedupe_repair", "Embedded Stylesheet Consolidation"),
     ("junk_file_repair", "Junk File Removal"),
     ("hyphen_leftover_repair", "Mid-Word Hyphen Repair"),
+    ("recurring_name_repair", "Recurring Name Repair"),
     ("ellipsis_repair", "Ellipsis Normalizer"),
     ("apostrophe_repair", "Apostrophe Repair"),
     ("whitespace_repair", "Whitespace Normalizer"),
@@ -262,6 +264,7 @@ _REPAIR_MODULE_CLASSES = {
     "stylesheet_dedupe_repair": EmbeddedStylesheetRepair,
     "junk_file_repair": JunkFileRepair,
     "hyphen_leftover_repair": HyphenLeftoverRepair,
+    "recurring_name_repair": RecurringNameRepair,
     "ellipsis_repair": EllipsisRepair,
     "apostrophe_repair": ApostropheRepair,
     "whitespace_repair": WhitespaceRepair,

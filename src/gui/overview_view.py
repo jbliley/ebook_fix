@@ -55,7 +55,7 @@ BOXES = [
         ],
         "modules": [
             "gutenberg_repair", "running_title_repair", "linebreak_repair", "paragraph_repair",
-            "div_paragraph_repair", "blockquote_paragraph_repair", "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "ellipsis_repair", "apostrophe_repair", "quote_style_repair", "opening_quote_repair", "page_title_repair", "whitespace_repair",
+            "div_paragraph_repair", "blockquote_paragraph_repair", "scene_break_repair", "scene_opener_repair", "scene_marker_repair", "hyphen_leftover_repair", "recurring_name_repair", "ellipsis_repair", "apostrophe_repair", "quote_style_repair", "opening_quote_repair", "page_title_repair", "whitespace_repair",
         ],
     },
     {
@@ -111,6 +111,7 @@ PLAIN_NAMES = {
     "stylesheet_dedupe_repair": "Share one stylesheet instead of a copy in every page",
     "junk_file_repair": "Remove leftover junk files and duplicate pictures",
     "hyphen_leftover_repair": "Join words split by a leftover hyphen",
+    "recurring_name_repair": "Fix names a bad scan spelled wrongly in a few places",
     "paragraph_spacing_repair": "Remove the gap between indented paragraphs",
     "paragraph_indent_repair": "Add paragraph indents where the book has none",
     "text_size_repair": "Fix text that shows too large or small in some apps",
