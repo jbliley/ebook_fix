@@ -79,6 +79,7 @@ from ebook_fix.modules.stylesheet_dedupe_repair import EmbeddedStylesheetRepair
 from ebook_fix.modules.junk_file_repair import JunkFileRepair
 from ebook_fix.modules.hyphen_leftover_repair import HyphenLeftoverRepair
 from ebook_fix.modules.recurring_name_repair import RecurringNameRepair
+from ebook_fix.modules.glued_word_repair import GluedWordRepair
 from ebook_fix.modules.paragraph_spacing_repair import ParagraphSpacingRepair
 from ebook_fix.modules.paragraph_indent_repair import ParagraphIndentRepair
 from ebook_fix.modules.header_spacing_repair import HeaderSpacingRepair
@@ -135,6 +136,7 @@ FIXED_LAYOUT_RISKY_MODULE_TYPES = (
     EmbeddedStylesheetRepair,
     HyphenLeftoverRepair,
     RecurringNameRepair,
+    GluedWordRepair,
     # A comic or picture book can repeat the same page picture on purpose,
     # so identical pictures are never merged on a fixed-layout book.
     JunkFileRepair,
@@ -411,6 +413,10 @@ class Engine:
         # fixed-layout books like the other prose repairs.
         if getattr(self.config, "recurring_name_repair", None) and getattr(self.config.recurring_name_repair, "enabled", True):
             modules.append(RecurringNameRepair(self.config.recurring_name_repair))
+        # Puts the space back in words a bad scan ran together ("thedoor"),
+        # judged from the book's own counts like the name repair above.
+        if getattr(self.config, "glued_word_repair", None) and getattr(self.config.glued_word_repair, "enabled", True):
+            modules.append(GluedWordRepair(self.config.glued_word_repair))
         # Runs before Whitespace Normalizer: both modules can end up
         # wanting to touch the very same text/tail node (an ellipsis
         # sitting in a paragraph that also has, say, doubled internal

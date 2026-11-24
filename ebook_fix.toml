@@ -41,6 +41,7 @@ stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
 recurring_name_repair = true
+glued_word_repair = true
 paragraph_spacing_repair = true
 paragraph_indent_repair = false
 header_spacing_repair = true
@@ -357,6 +358,18 @@ remove_unused_cover_copy = true
 # that is also an ordinary word in the book ("Clock" for "Glock"), a name
 # that appears only a few times and anything the book does not back up are
 # left alone and only listed in the analysis for you to check.
+
+# ---------------------------------------------------------------------
+# Glued Word Repair
+# ---------------------------------------------------------------------
+[glued_word_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Puts the space back in two words a bad scan ran together ("thedoor",
+# "hisguns", "aboutfive") when the book itself writes both pieces as words
+# many times and the glued form only once or twice. Only small common words
+# such as "the", "his", "and" and "from" count as one of the pieces, so real
+# compounds ("fireplace", "nighttime") are never split.
 
 # ---------------------------------------------------------------------
 # Paragraph Spacing

@@ -315,6 +315,11 @@ class RecurringNameConfig:
 
 
 @dataclass(slots=True)
+class GluedWordConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class ParagraphSpacingConfig:
     enabled: bool = True
 
@@ -552,6 +557,7 @@ class Config:
     junk_file_repair: JunkFileConfig = field(default_factory=JunkFileConfig)
     hyphen_leftover_repair: HyphenLeftoverConfig = field(default_factory=HyphenLeftoverConfig)
     recurring_name_repair: RecurringNameConfig = field(default_factory=RecurringNameConfig)
+    glued_word_repair: GluedWordConfig = field(default_factory=GluedWordConfig)
     paragraph_spacing_repair: ParagraphSpacingConfig = field(default_factory=ParagraphSpacingConfig)
     paragraph_indent_repair: ParagraphIndentConfig = field(default_factory=ParagraphIndentConfig)
     header_spacing_repair: HeaderSpacingConfig = field(default_factory=HeaderSpacingConfig)
@@ -635,6 +641,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_module_toggle(config.junk_file_repair, modules, "junk_file_repair")
     _apply_module_toggle(config.hyphen_leftover_repair, modules, "hyphen_leftover_repair")
     _apply_module_toggle(config.recurring_name_repair, modules, "recurring_name_repair")
+    _apply_module_toggle(config.glued_word_repair, modules, "glued_word_repair")
     _apply_module_toggle(config.paragraph_spacing_repair, modules, "paragraph_spacing_repair")
     _apply_module_toggle(config.paragraph_indent_repair, modules, "paragraph_indent_repair")
     _apply_module_toggle(config.header_spacing_repair, modules, "header_spacing_repair")
@@ -683,6 +690,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _apply_section(config.junk_file_repair, "junk_file_repair", data.get("junk_file_repair", {}))
     _apply_section(config.hyphen_leftover_repair, "hyphen_leftover_repair", data.get("hyphen_leftover_repair", {}))
     _apply_section(config.recurring_name_repair, "recurring_name_repair", data.get("recurring_name_repair", {}))
+    _apply_section(config.glued_word_repair, "glued_word_repair", data.get("glued_word_repair", {}))
     _apply_section(config.paragraph_spacing_repair, "paragraph_spacing_repair", data.get("paragraph_spacing_repair", {}))
     _apply_section(config.paragraph_indent_repair, "paragraph_indent_repair", data.get("paragraph_indent_repair", {}))
     _apply_section(config.header_spacing_repair, "header_spacing_repair", data.get("header_spacing_repair", {}))
@@ -813,6 +821,7 @@ stylesheet_dedupe_repair = true
 junk_file_repair = true
 hyphen_leftover_repair = true
 recurring_name_repair = true
+glued_word_repair = true
 paragraph_spacing_repair = true
 paragraph_indent_repair = false
 header_spacing_repair = true
@@ -1185,6 +1194,18 @@ remove_unused_cover_copy = true
 # that is also an ordinary word in the book ("Clock" for "Glock"), a name
 # that appears only a few times and anything the book does not back up are
 # left alone and only listed in the analysis for you to check.
+
+# ---------------------------------------------------------------------
+# Glued Word Repair
+# ---------------------------------------------------------------------
+[glued_word_repair]
+
+# No options: turn this module on or off in the [modules] list above.
+# Puts the space back in two words a bad scan ran together ("thedoor",
+# "hisguns", "aboutfive") when the book itself writes both pieces as words
+# many times and the glued form only once or twice. Only small common words
+# such as "the", "his", "and" and "from" count as one of the pieces, so real
+# compounds ("fireplace", "nighttime") are never split.
 
 # ---------------------------------------------------------------------
 # Paragraph Spacing

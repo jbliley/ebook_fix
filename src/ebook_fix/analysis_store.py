@@ -56,6 +56,7 @@ from ebook_fix.headings import chapter_marker_elements
 from ebook_fix.link_index import analyze_book_links
 from ebook_fix.linebreaks import analyze_book_linebreaks
 from ebook_fix.name_stats import analyze_book_name_stats
+from ebook_fix.word_stats import analyze_book_word_stats
 from ebook_fix.paragraphs import analyze_book_paragraphs
 from ebook_fix.scene_breaks import analyze_book_scene_breaks
 from ebook_fix.scene_index import analyze_book_scene_index
@@ -76,6 +77,7 @@ PAGE_FINDINGS = {
     "links": analyze_book_links,
     "text_lines": analyze_book_text_lines,
     "name_stats": analyze_book_name_stats,
+    "word_stats": analyze_book_word_stats,
     "scene_index": analyze_book_scene_index,
     "file_refs": analyze_book_file_refs,
 }
