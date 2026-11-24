@@ -18,9 +18,8 @@ How names are found (ebook_fix.name_stats keeps the counts):
 
 How a wrong spelling is found:
 
-- It is a word of five letters or more that is capitalized, rare (written at
-  most ten times), and could be the name as a scan would damage it: the same
-  length, with every difference being a pair of letters a scan really mixes up
+- It is a word of five letters or more that is capitalized and could be the
+  name as a scan would damage it: the same length, with every difference being a pair of letters a scan really mixes up
   (c/e/o, c/d, i/l, h/n, g/c and so on), or a group of letters read as one
   ("rn" as "m", "cl" as "d"). A single letter that a scan would not mix up
   ("Robert" for "Rupert": b is not p), a letter added or dropped ("Margraves"
@@ -31,17 +30,21 @@ How a wrong spelling is found:
 
 A wrong spelling is replaced automatically only when every one of these holds:
 
-- The name appears capitalized in the middle of sentences at least 12 times and
-  at least 50 times as often as the wrong spelling does, so this is meant for
-  the names a book is built around (its main characters and places). A name
-  that appears less often is only listed for review.
-- The wrong spelling is written at most 3 times in the whole book, is never
-  written in lowercase (so it is not an ordinary word the author used), and
-  differs from the name by at most two mixed-up letters, none of them a swap
-  between two vowels ("Carrie" and "Corrie" are two people, not one error).
+- The name is written at least 100 times (at least 12 of them capitalized in
+  the middle of a sentence) and at least 10 times as often as the wrong
+  spelling, so this is meant for the names a book is built around (its main
+  characters and places). A name that appears less often is only listed for
+  review. A scan that misreads the same name the same way again and again
+  ("Readier" 54 times against "Reacher" 988) is still fixed, because a book
+  built around one name does not also have a second major character whose name
+  differs from it only by look-alike letters.
+- The wrong spelling is never written in lowercase (so it is not an ordinary
+  word the author used), and differs from the name by at most two mixed-up
+  letters, none of them a swap between two vowels ("Carrie" and "Corrie" are
+  two people, not one error).
 - No other name is nearly as close, so the choice is not a guess between two.
-- The piece of text holding it does not also hold the name. "Keller said
-  Kellen was late" is two people, not a damaged copy.
+- The sentence holding it does not also hold the name. "Keller said Kellen was
+  late" is two people, not a damaged copy.
 
 Everything else that looks like a damaged name, such as a word that is also an
 ordinary lowercase word in the book ("Clock 17" for "Glock 17", where "clock"
@@ -90,11 +93,14 @@ from ebook_fix.text_lines import hyphen_slots
 # fix a damaged copy of it; this often is enough to flag one for review.
 CONFIDENT_NAME_MIDDLE = 12
 REVIEW_NAME_MIDDLE = 5
-# The wrong spelling may be written at most this many times.
-CONFIDENT_MAX_WRONG = 3
+# The name must be written at least this many times in all for an automatic fix:
+# it has to be one of the names the book is built around.
+CONFIDENT_NAME_TOTAL = 100
+# A wrong spelling that is not fixed on its own is only listed when it is
+# written at most this many times.
 REVIEW_MAX_WRONG = 10
 # The name must appear this many times as often as the wrong spelling.
-CONFIDENT_RATIO = 50
+CONFIDENT_RATIO = 10
 REVIEW_RATIO = 4
 # The most mixed-up letters allowed (see name_distance; each costs 0.5). Review
 # allows up to 1.5 when both words are at least six letters long.
@@ -226,12 +232,10 @@ def find_suspects(totals: dict) -> dict:
 
     suspects: dict = {}
     for word, (middle, start, lower) in totals.items():
-        if word in names:
-            continue
         # A word that is also an ordinary lowercase word only counts where it
         # is capitalized in the middle of a sentence.
         written = middle if lower else middle + start
-        if written < 1 or written > REVIEW_MAX_WRONG:
+        if written < 1:
             continue
 
         rivals = []
@@ -263,9 +267,11 @@ def find_suspects(totals: dict) -> dict:
             and not ambiguous
             and strong_distance <= CONFIDENT_DISTANCE
             and name_middle >= CONFIDENT_NAME_MIDDLE
-            and written <= CONFIDENT_MAX_WRONG
+            and name_total >= CONFIDENT_NAME_TOTAL
             and name_total >= CONFIDENT_RATIO * written
         )
+        if not confident and written > REVIEW_MAX_WRONG:
+            continue
         suspects[word] = Suspect(
             wrong=word,
             name=name,
@@ -278,11 +284,21 @@ def find_suspects(totals: dict) -> dict:
     return suspects
 
 
+_SENTENCE_END = ".!?\u2026"
+
+
+def _sentence_words(text: str, start: int, end: int) -> set:
+    """The lowercase words of the sentence that holds text[start:end]."""
+    left = max(text.rfind(c, 0, start) for c in _SENTENCE_END) + 1
+    rights = [i for i in (text.find(c, end) for c in _SENTENCE_END) if i != -1]
+    right = min(rights) if rights else len(text)
+    return {m.group(0).lower() for m in WORD.finditer(text[left:right])}
+
+
 def hits_in_text(text: str, suspects: dict):
     """(match, suspect, decision) for every suspected wrong spelling in one
     piece of text. decision is "fix" when it is safe to replace, "review" when
     it only looks wrong."""
-    present = None
     for match in WORD.finditer(text):
         word = match.group(0)
         suspect = suspects.get(word.lower())
@@ -290,11 +306,9 @@ def hits_in_text(text: str, suspects: dict):
             continue
         if suspect.lower_seen and not is_mid_sentence(text, match.start()):
             continue
-        if present is None:
-            present = {m.group(0).lower() for m in WORD.finditer(text)}
-        # A piece of text that also holds the name is probably two different
-        # people, not a damaged copy.
-        if suspect.confident and suspect.name not in present:
+        # A sentence that also holds the name is probably two different people
+        # ("Keller said Kellen was late"), not a damaged copy.
+        if suspect.confident and suspect.name not in _sentence_words(text, match.start(), match.end()):
             yield match, suspect, "fix"
         else:
             yield match, suspect, "review"
