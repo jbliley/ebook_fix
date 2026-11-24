@@ -885,6 +885,19 @@ def _font_review_groups(book, analysis_report=None):
     return groups
 
 
+def _name_review_groups(book):
+    """Every wrong spelling of a name that Recurring Name Repair will not
+    change on its own, one entry per wrong spelling and name pair, for the
+    Review tab. Accepting one replaces every capitalized place it appears
+    (see RecurringNameRepair.apply_accepted, which works the pairs out again
+    from the live book). Only a convenience: a problem here never breaks the
+    Review tab or the Overview."""
+    try:
+        return RecurringNameRepair().review_groups(book)
+    except Exception:
+        return []
+
+
 def _frontmatter_review_groups(book):
     """Every front/back-matter page whose classification wasn't
     confident enough to trust unattended -- confidence "medium" or
@@ -1203,6 +1216,7 @@ def _review_summary(book) -> dict:
     structure = sum(1 for g in groups for c in g["candidates"] if not c.get("auto_checked"))
     structure += len(_frontmatter_review_groups(book))
     text = sum(len(g["candidates"]) for g in _possessive_groups(book))
+    text += len(_name_review_groups(book))
     styling = sum(len(g["findings"]) for g in _color_review_groups(book))
     styling += sum(len(g["findings"]) for g in _font_review_groups(book))
     counts = {"structure": structure, "text": text, "styling": styling}
@@ -1543,7 +1557,7 @@ def fix_state(session_id):
     staged_review = staged_review_raw or {}
     has_review = any(
         staged_review.get(key)
-        for key in ("accepted_ids", "possessive_resolutions", "accepted_color_ids", "accepted_font_ids", "frontmatter_labels", "extra_remove")
+        for key in ("accepted_ids", "possessive_resolutions", "accepted_color_ids", "accepted_font_ids", "accepted_name_ids", "frontmatter_labels", "extra_remove")
     )
     # Until the Review tab has saved anything, Fix splits at the safe
     # (pre-ticked) chapter boundaries on its own, which is something to do.
@@ -1755,6 +1769,7 @@ def book_review(session_id):
     possessive_groups = _possessive_groups(book)
     color_groups = _color_review_groups(book)
     font_groups = _font_review_groups(book)
+    name_groups = _name_review_groups(book)
     frontmatter_items = _frontmatter_review_groups(book)
 
     _review_index_path(session_dir).write_text(
@@ -1769,6 +1784,7 @@ def book_review(session_id):
     staged_possessive_resolutions = {}
     staged_color_ids = set()
     staged_font_ids = set()
+    staged_name_ids = set()
     staged_frontmatter_labels = {}
     staged_extra_remove = set()
     if staged is not None:
@@ -1779,6 +1795,7 @@ def book_review(session_id):
         staged_possessive_resolutions = staged.get("possessive_resolutions", {})
         staged_color_ids = set(staged.get("accepted_color_ids", []))
         staged_font_ids = set(staged.get("accepted_font_ids", []))
+        staged_name_ids = set(staged.get("accepted_name_ids", []))
         staged_frontmatter_labels = staged.get("frontmatter_labels", {})
         staged_extra_remove = set(staged.get("extra_remove", []))
 
@@ -1791,6 +1808,8 @@ def book_review(session_id):
     for group in font_groups:
         for item in group["findings"]:
             item["accepted"] = item["id"] in staged_font_ids
+    for item in name_groups:
+        item["accepted"] = item["id"] in staged_name_ids
     for item in frontmatter_items:
         item["resolution"] = staged_frontmatter_labels.get(item["href"], "")
         item["remove"] = item["href"] in staged_extra_remove
@@ -1808,6 +1827,8 @@ def book_review(session_id):
         has_color_findings=bool(color_groups),
         font_groups=font_groups,
         has_font_findings=bool(font_groups),
+        name_groups=name_groups,
+        has_name_candidates=bool(name_groups),
         frontmatter_items=frontmatter_items,
         has_frontmatter_items=bool(frontmatter_items),
         frontmatter_label_groups=FRONTMATTER_LABEL_GROUPS,
@@ -1845,6 +1866,7 @@ def _save_review_in_background(session_dir: Path):
         "possessive_resolutions": possessive_resolutions,
         "accepted_color_ids": sorted(set(form.getlist("color_accept"))),
         "accepted_font_ids": sorted(set(form.getlist("font_accept"))),
+        "accepted_name_ids": sorted(set(form.getlist("name_accept"))),
         "frontmatter_labels": frontmatter_labels,
         "extra_remove": extra_remove,
     }
@@ -1879,11 +1901,13 @@ def save_review(session_id):
     possessive_groups = _possessive_groups(book)
     color_groups = _color_review_groups(book)
     font_groups = _font_review_groups(book)
+    name_groups = _name_review_groups(book)
     frontmatter_items = _frontmatter_review_groups(book)
 
     accepted_ids = set(request.form.getlist("accept"))
     accepted_color_ids = set(request.form.getlist("color_accept"))
     accepted_font_ids = set(request.form.getlist("font_accept"))
+    accepted_name_ids = set(request.form.getlist("name_accept"))
     possessive_resolutions = {}
     for group in possessive_groups:
         for item in group["candidates"]:
@@ -1922,6 +1946,7 @@ def save_review(session_id):
         "possessive_resolutions": possessive_resolutions,
         "accepted_color_ids": sorted(accepted_color_ids),
         "accepted_font_ids": sorted(accepted_font_ids),
+        "accepted_name_ids": sorted(accepted_name_ids),
         "frontmatter_labels": frontmatter_labels,
         "extra_remove": extra_remove,
     }
@@ -1939,6 +1964,8 @@ def save_review(session_id):
     for group in font_groups:
         for item in group["findings"]:
             item["accepted"] = item["id"] in accepted_font_ids
+    for item in name_groups:
+        item["accepted"] = item["id"] in accepted_name_ids
     for item in frontmatter_items:
         item["resolution"] = frontmatter_labels.get(item["href"], "")
         item["remove"] = item["href"] in extra_remove
@@ -1956,6 +1983,8 @@ def save_review(session_id):
         has_color_findings=bool(color_groups),
         font_groups=font_groups,
         has_font_findings=bool(font_groups),
+        name_groups=name_groups,
+        has_name_candidates=bool(name_groups),
         frontmatter_items=frontmatter_items,
         has_frontmatter_items=bool(frontmatter_items),
         frontmatter_label_groups=FRONTMATTER_LABEL_GROUPS,
@@ -2310,6 +2339,7 @@ def _run_fix(session_dir: Path, filename: str, replace_requested: bool) -> dict:
         possessive_resolved_count = 0
         color_review_count = 0
         font_review_count = 0
+        name_review_count = 0
         if staged_review is not None:
             possessive_resolutions = staged_review.get("possessive_resolutions", {})
             if possessive_resolutions:
@@ -2324,6 +2354,14 @@ def _run_fix(session_dir: Path, filename: str, replace_requested: bool) -> dict:
             if accepted_font_ids:
                 font_review_report = FontStripRepair(config.font_repair).apply_review_removals(book, accepted_font_ids)
                 font_review_count = font_review_report.count
+
+            # Names the person ticked on the Review tab. Worked out again from
+            # the book as it is now, like the color and font choices above.
+            accepted_name_ids = staged_review.get("accepted_name_ids", [])
+            if accepted_name_ids:
+                name_review_count = RecurringNameRepair(config.recurring_name_repair).apply_accepted(
+                    book, accepted_name_ids
+                ).count
 
         # Fresh analysis, reflecting any staged metadata/split changes
         # applied above -- the repair modules below need to see the
@@ -2453,6 +2491,7 @@ def _run_fix(session_dir: Path, filename: str, replace_requested: bool) -> dict:
             "possessive_resolved_count": possessive_resolved_count,
             "color_review_count": color_review_count,
             "font_review_count": font_review_count,
+            "name_review_count": name_review_count,
             "module_summaries": module_summaries,
             "removed_items": removed_items,
             "pass_count": pass_num,

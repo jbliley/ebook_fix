@@ -346,14 +346,40 @@ class RecurringNameRepair:
         suspects = self._confident(self._suspects(pages))
         if not suspects:
             return report
+        self._replace(book, pages, suspects, ("fix",), report)
+        return report
 
+    def apply_accepted(self, book, accepted_ids, analysis=None) -> Report:
+        """Replaces the wrong spellings a person ticked on the Review tab.
+        `accepted_ids` are ids from review_groups(). The suspects are worked
+        out again from the book as it is now, and an id that no longer matches
+        one is ignored. Every capitalized occurrence of a ticked pair is
+        replaced, including the ones in a sentence that also holds the name,
+        because the person has now decided. This does not depend on the module
+        being switched on: the person asked for it."""
+        report = Report(self.name)
+        accepted = set(accepted_ids or ())
+        if not accepted:
+            return report
+        pages = self._pages(book, analysis)
+        chosen = {
+            word: suspect
+            for word, suspect in self._suspects(pages).items()
+            if f"{word}>{suspect.name}" in accepted
+        }
+        if not chosen:
+            return report
+        self._replace(book, pages, chosen, ("fix", "review"), report, "Recurring name fixed (you chose)")
+        return report
+
+    def _replace(self, book, pages, suspects, decisions, report, category="Recurring name fixed"):
         for chapter, _record in self._pages_to_open(pages, suspects):
             for owner, kind, text in list(hyphen_slots(chapter.document)):
                 changes = []
                 pieces = []
                 last = 0
                 for match, suspect, decision in hits_in_text(text, suspects):
-                    if decision != "fix":
+                    if decision not in decisions:
                         continue
                     replacement = suspect.name.capitalize()
                     pieces.append(text[last:match.start()])
@@ -372,13 +398,46 @@ class RecurringNameRepair:
                 for before, after in changes:
                     report.add(
                         chapter.href,
-                        "Recurring name fixed",
+                        category,
                         f'{chapter.href}: "{before}" became "{after}"',
                     )
 
         if report.count and hasattr(book, "mark_modified"):
             book.mark_modified()
-        return report
+
+    def review_groups(self, book, analysis=None, samples=3) -> list:
+        """What the Review tab shows: one entry per wrong spelling and name
+        pair that is not safe to change on its own, with how many places it
+        is in and a few of them as context. Each entry has an `id`
+        ("wrong>name", lowercase) that apply_accepted() takes back. The
+        Review tab lists these even when the module is switched off, since
+        nothing changes unless the person ticks one."""
+        pages = self._pages(book, analysis)
+        suspects = self._suspects(pages)
+        groups: dict = {}
+        for chapter, _record in self._pages_to_open(pages, suspects):
+            for _owner, _kind, text in hyphen_slots(chapter.document):
+                for match, suspect, decision in hits_in_text(text, suspects):
+                    if decision != "review":
+                        continue
+                    key = f"{suspect.wrong}>{suspect.name}"
+                    group = groups.get(key)
+                    if group is None:
+                        group = groups[key] = {
+                            "id": key,
+                            "wrong": suspect.wrong.capitalize(),
+                            "name": suspect.name.capitalize(),
+                            "count": 0,
+                            "name_count": suspect.name_count,
+                            "why": self._why(suspect),
+                            "contexts": [],
+                        }
+                    group["count"] += 1
+                    if len(group["contexts"]) < samples:
+                        group["contexts"].append(
+                            " ".join(text[max(0, match.start() - 40):match.end() + 40].split())
+                        )
+        return sorted(groups.values(), key=lambda g: (-g["name_count"], g["wrong"]))
 
     def review_candidates(self, book, analysis=None) -> list:
         """Words that look like a damaged name but are not safe to change
@@ -412,7 +471,7 @@ class RecurringNameRepair:
         if suspect.lower_seen:
             return f'"{suspect.wrong}" is also an ordinary word in this book'
         if suspect.confident:
-            return "the name is in the same piece of text, so it may be another person"
+            return "the name is in the same sentence, so it may be another person"
         return "not enough evidence to be sure"
 
     # -----------------------------------------------------

@@ -6,11 +6,11 @@
 </p>
 
 <div id="review-status" class="save-status" style="margin-bottom:0.6rem;">
-  {% if has_candidates or has_possessive_candidates or has_color_findings or has_font_findings or has_frontmatter_items %}Your choices here are saved as you make them and applied when you click Fix This Book.{% endif %}
+  {% if has_candidates or has_possessive_candidates or has_color_findings or has_font_findings or has_name_candidates or has_frontmatter_items %}Your choices here are saved as you make them and applied when you click Fix This Book.{% endif %}
 </div>
 <div id="review-split-note" style="display:none;"></div>
 
-{% if not has_candidates and not has_possessive_candidates and not has_color_findings and not has_font_findings and not has_frontmatter_items %}
+{% if not has_candidates and not has_possessive_candidates and not has_color_findings and not has_font_findings and not has_name_candidates and not has_frontmatter_items %}
 <p class="empty-state">Nothing here needs review right now.</p>
 {% else %}
 <form method="post" id="review-form" action="{{ url_for('save_review', session_id=session_id) }}">
@@ -163,6 +163,36 @@
     {% endfor %}
   </div>
   {% endfor %}
+  {% endif %}
+
+  <h2>Possible Misspelled Names</h2>
+  {% if not has_name_candidates %}
+  <p class="empty-state">No name looks misspelled in a way the automatic repair would not already handle &mdash; nothing here needs review.</p>
+  {% else %}
+  <p class="details-toggle">
+    A word that looks like a name this book spells another way far more often, but where the
+    repair was not sure enough to change it on its own. Check a row to change every capitalized
+    use of the first spelling to the second; leave it unchecked to keep the book as it is.
+  </p>
+  <div style="margin-bottom:0.5rem;">
+    <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllChecked('name_accept', true)">Select All</button>
+    <button type="button" class="button secondary" style="margin-top:0; padding:0.35rem 0.8rem; font-size:0.85rem;" onclick="setAllChecked('name_accept', false)">Unselect All</button>
+  </div>
+  <div class="review-group">
+    {% for item in name_groups %}
+    <div class="review-item">
+      <input type="checkbox" name="name_accept" value="{{ item.id }}" id="name-{{ loop.index0 }}" {% if item.accepted %}checked{% endif %}>
+      <div>
+        <label for="name-{{ loop.index0 }}" style="display:inline; font-weight:normal; margin:0;">
+          <span class="item-title">{{ item.wrong }} &rarr; {{ item.name }}</span>
+          <span class="confidence-tag confidence-needs-review">{{ item.count }} time{{ '' if item.count == 1 else 's' }}</span>
+        </label>
+        <div class="review-notes">&ldquo;{{ item.name }}&rdquo; appears {{ item.name_count }} times in the book. {{ item.why }}</div>
+        {% for ctx in item.contexts %}<div class="review-preview">&ldquo;{{ ctx }}&rdquo;</div>{% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
   {% endif %}
 
   <h2>Front/Back Matter</h2>
