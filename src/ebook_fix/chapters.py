@@ -81,6 +81,11 @@ SUFFIX_PART_LABEL_WORDS = ("epilogue", "prologue")
 
 ROMAN_NUMERAL_RE = re.compile(r"^[IVXLCDM]+$", re.IGNORECASE)
 ARABIC_RE = re.compile(r"^\d{1,4}$")
+# A bare number followed by a single period ("1.", "12."), the way many
+# FB2 and typeset books print a chapter number on a line of its own. Only
+# the whole text matching counts, so "1. The Man" is still case 3's job
+# and a sentence that merely starts with a number never matches.
+ARABIC_PERIOD_RE = re.compile(r"^(\d{1,4})\.$")
 ARABIC_HYPHEN_RE = re.compile(r"^[-\u2013\u2014]\s*(\d{1,4})\s*[-\u2013\u2014]$")
 
 # Case 3 only: a bare number immediately followed by a title, with no
@@ -344,6 +349,10 @@ def _classify_number_only(text: str) -> tuple[MarkerStyle, int] | None:
 
     if ARABIC_RE.match(text):
         return MarkerStyle.ARABIC, int(text)
+
+    m = ARABIC_PERIOD_RE.match(text)
+    if m:
+        return MarkerStyle.ARABIC, int(m.group(1))
 
     if ROMAN_NUMERAL_RE.match(text):
         n = _roman_to_int(text)
@@ -1323,6 +1332,179 @@ def _promote_sections_over_restarting_numbers(all_candidates: list) -> int:
     return len(labeled)
 
 
+
+# ---------------------------------------------------------------------
+# Dividers that numbering restarts under (days, dates, places)
+# ---------------------------------------------------------------------
+# Some books number their chapters 1, 2, 3 ... under a short heading and
+# then start again at 1 under the next heading: FRIDAY, SATURDAY, SUNDAY
+# (Legacies), or a place or a date. The headings carry no label word, so
+# nothing above recognizes them, and the restarting numbers then fail to
+# count up as one sequence. This finds them from the restarts themselves,
+# so it can only act on a book whose bare numbers really do restart.
+MIN_RESTART_DIVIDERS = 3
+MAX_DIVIDER_WORDS = 4
+MAX_DIVIDER_CHARS = 40
+_DIVIDER_BLOCK_TAGS = ("p", "h1", "h2", "h3", "h4", "h5", "h6", "div")
+
+
+def _block_text(el) -> str:
+    return " ".join("".join(el.itertext()).split())
+
+
+def _is_text_block(el) -> bool:
+    return (
+        isinstance(el.tag, str)
+        and etree.QName(el).localname.lower() in _DIVIDER_BLOCK_TAGS
+        and bool(_block_text(el))
+    )
+
+
+def _looks_like_divider_text(text: str) -> bool:
+    """A short heading-like line: a few words, letters only apart from
+    light punctuation, all capitals or Title Case, and not a sentence."""
+    if not text or len(text) > MAX_DIVIDER_CHARS or len(text.split()) > MAX_DIVIDER_WORDS:
+        return False
+    if not any(ch.isalpha() for ch in text) or any(ch.isdigit() for ch in text):
+        return False
+    if text[-1] in ".!?," and not text.isupper():
+        return False
+    if not (text.isupper() or text.istitle()):
+        return False
+    return _classify(text) is None
+
+
+def _element_before(book, candidate):
+    """The text block that sits immediately before a candidate's element,
+    in the same file or at the end of the previous file. Returns
+    (element, href) or (None, None)."""
+    el = candidate.element
+    node = el
+    while node is not None and etree.QName(node).localname.lower() != "body":
+        for sib in node.itersiblings(preceding=True):
+            if _is_text_block(sib):
+                return sib, candidate.href
+        node = node.getparent()
+    hrefs = [getattr(ch, "href", "") for ch in book.chapters]
+    if candidate.href not in hrefs:
+        return None, None
+    i = hrefs.index(candidate.href)
+    if i == 0:
+        return None, None
+    prev = book.chapters[i - 1]
+    doc = getattr(prev, "document", None)
+    if doc is None:
+        return None, None
+    blocks = [e for e in doc.iter() if _is_text_block(e) and not _has_candidate_descendant(e)]
+    if not blocks:
+        return None, None
+    return blocks[-1], getattr(prev, "href", "")
+
+
+def _find_restart_dividers(book, chapter_candidates: list) -> list:
+    """Headings that bare chapter numbers restart under. All or nothing:
+    the book needs at least MIN_RESTART_DIVIDERS restarts and every
+    restart must be preceded by a short heading-like line, otherwise
+    nothing is returned and the book is analyzed exactly as before."""
+    bare = sorted(
+        (c for c in chapter_candidates
+         if c.label_kind is None and c.label_prefix is False
+         and c.number is not None and c.element is not None
+         and c.style == MarkerStyle.ARABIC),
+        key=lambda c: c.book_order,
+    )
+    starts = []
+    prev = None
+    for c in bare:
+        if c.number <= PART_RESTART_MAX_NUMBER and (prev is None or prev.number > c.number):
+            starts.append(c)
+        prev = c
+    if len(starts) < MIN_RESTART_DIVIDERS:
+        return []
+
+    found = []
+    for c in starts:
+        el, href = _element_before(book, c)
+        if el is None:
+            return []
+        text = _block_text(el)
+        if not _looks_like_divider_text(text):
+            return []
+        found.append((c, el, href, text))
+
+    texts = {text.lower() for _c, _el, _h, text in found}
+    seen_elements = {id(el) for _c, el, _h, _t in found}
+    dividers = []
+    for c, el, href, text in found:
+        slot = _book_order_for_href(chapter_candidates, book, href)
+        dividers.append(_make_divider(el, href, text, slot if slot is not None else c.book_order - 0.5))
+
+    # The same heading standing alone at the top of a page elsewhere
+    # (the first SATURDAY, which has no "1." after it) is a divider too.
+    order_by_href = {}
+    for c in chapter_candidates:
+        order_by_href.setdefault(c.href, c.book_order)
+    for ch in book.chapters:
+        doc = getattr(ch, "document", None)
+        if doc is None:
+            continue
+        blocks = [e for e in doc.iter() if _is_text_block(e) and not _has_candidate_descendant(e)]
+        if not blocks or id(blocks[0]) in seen_elements:
+            continue
+        text = _block_text(blocks[0])
+        if text.lower() in texts and _looks_like_divider_text(text):
+            href = getattr(ch, "href", "")
+            slot = _book_order_for_href(chapter_candidates, book, href)
+            if slot is None:
+                continue
+            dividers.append(_make_divider(blocks[0], href, text, slot))
+
+    dividers.sort(key=lambda c: c.book_order)
+    for n, d in enumerate(dividers, start=1):
+        d.number = n
+    return dividers
+
+
+def _book_order_for_href(chapter_candidates: list, book, href: str):
+    """A book_order that places something at the top of `href` relative to
+    the numbered candidates: just before the first candidate at or after
+    that file, or just after the last candidate if none follows."""
+    hrefs = [getattr(ch, "href", "") for ch in book.chapters]
+    if href not in hrefs:
+        return None
+    pos = hrefs.index(href)
+    after = [c for c in chapter_candidates if c.href in hrefs and hrefs.index(c.href) >= pos]
+    if after:
+        first = min(after, key=lambda c: c.book_order)
+        # The further the file is above that candidate, the earlier the
+        # slot, so two headings on different pages keep their page order.
+        return first.book_order - 0.5 - 0.001 * (hrefs.index(first.href) - pos)
+    before = [c for c in chapter_candidates if c.href in hrefs]
+    return (max(c.book_order for c in before) + 0.5) if before else None
+
+
+def _make_divider(el, href: str, text: str, book_order: float):
+    tag = etree.QName(el).localname.lower()
+    return ChapterCandidate(
+        href=href,
+        tag=tag,
+        text=text,
+        element_index=0,
+        book_order=book_order,
+        style=MarkerStyle.SPELLED_ORDINAL,
+        number=None,
+        label_prefix=False,
+        label_kind="part",
+        isolated=True,
+        is_heading_tag=tag.startswith("h") and len(tag) == 2,
+        heading_level=int(tag[1]) if (tag.startswith("h") and len(tag) == 2) else None,
+        css_hint=False,
+        score=5.0,
+        confirmed=True,
+        element=el,
+    )
+
+
 # A short run of heading-sized roman numerals ("I", "II", "III") plus a much
 # longer clean run of bare numbers ("1" ... "54") counting straight through it
 # is a book of Parts with numbered chapters, not a book of three chapters.
@@ -1443,6 +1625,14 @@ def analyze_book_chapters(book) -> BookChapterSummary:
     part_candidates = _drop_stray_singleton_parts(part_candidates)
     for c in _find_best_part_sequence(part_candidates):
         c.confirmed = True
+
+    # Bare numbers that restart under short unlabeled headings (FRIDAY,
+    # SATURDAY ...). Only looked for in a book with no labeled Parts.
+    if not part_candidates:
+        restart_parts = _find_restart_dividers(book, chapter_candidates)
+        if restart_parts:
+            part_candidates = restart_parts
+            _assign_part_indices(chapter_candidates, part_candidates)
 
     # A bare Prologue/Epilogue is self-describing, but the same label can
     # also appear in front matter. Select the occurrence with the strongest
